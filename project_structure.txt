@@ -1,0 +1,30 @@
+代码分析与可视化系统 - 项目结构
+
+D:\repositories\create_graph\
+├── config/
+│   ├── __init__.py
+│   └── config.py                    # 配置管理
+├── parsers/
+│   ├── __init__.py
+│   ├── base_parser.py              # 解析器基类
+│   ├── python_parser.py            # Python 代码解析器
+│   └── java_parser.py              # Java 代码解析器（后续）
+├── analysis/
+│   ├── __init__.py
+│   ├── code_model.py               # 数据结构定义
+│   ├── symbol_table.py             # 符号表实现
+│   ├── call_graph.py               # 调用图生成
+│   └── semantic_analyzer.py        # AI Agent 语义分析
+├── visualization/
+│   ├── __init__.py
+│   ├── graph_data.py               # 图表数据转换
+│   ├── report_generator.py         # 报告生成
+│   └── templates/
+│       ├── visualization.html      # 可视化 HTML 模板
+│       └── style.css              # 样式表
+├── agent/
+│   ├── __init__.py
+│   └── code_agent.py               # AI Agent 实现
+├── main.py                         # 主程序入口
+├── requirements.txt                # 依赖包
+└── README.md                       # 项目说明

@@ -6,7 +6,18 @@
 """
 
 import ast
+import sys
 from typing import Dict, Set, List, Tuple
+
+
+# Safe print for background threads
+def _safe_print(*args, **kwargs):
+    try:
+        if sys.stdout and hasattr(sys.stdout, 'closed') and sys.stdout.closed:
+            return
+        print(*args, **kwargs)
+    except Exception:
+        pass
 
 
 class DataFlowAnalyzer:
@@ -16,6 +27,8 @@ class DataFlowAnalyzer:
         self.variable_dependencies: Dict[str, Set[str]] = {}  # 变量 -> 依赖的变量
         self.parameter_flows: List[Tuple[str, str, str]] = []  # (方法, 参数, 类型)
         self.field_accesses: Dict[str, Set[str]] = {}  # 方法 -> 访问的字段集合
+        self.variable_definitions: Dict[str, Set[str]] = {}  # 方法/函数 -> 定义的变量
+        self.variable_usages: Dict[str, Set[str]] = {}  # 方法/函数 -> 使用的变量
         
     def extract_variable_dependencies(self, method_code: str, class_name: str, 
                                      method_name: str) -> Dict:
@@ -130,7 +143,7 @@ class DataFlowAnalyzer:
         Returns:
             方法 -> 字段集合的映射
         """
-        print("\n[DataFlowAnalyzer] 分析字段访问...")
+        _safe_print("\n[DataFlowAnalyzer] 分析字段访问...")
         
         field_access_count = 0
         
@@ -152,8 +165,8 @@ class DataFlowAnalyzer:
                     self.field_accesses[method_sig] = accessed_fields
                     field_access_count += len(accessed_fields)
         
-        print(f"[DataFlowAnalyzer] ✓ 字段访问分析完成")
-        print(f"[DataFlowAnalyzer]   - 字段访问关系数: {field_access_count}")
+        _safe_print(f"[DataFlowAnalyzer] ✓ 字段访问分析完成")
+        _safe_print(f"[DataFlowAnalyzer]   - 字段访问关系数: {field_access_count}")
         
         return self.field_accesses
     
@@ -221,7 +234,7 @@ class DataFlowAnalyzer:
         Returns:
             参数流动列表
         """
-        print("\n[DataFlowAnalyzer] 分析参数流动...")
+        _safe_print("\n[DataFlowAnalyzer] 分析参数流动...")
         
         parameter_flows = []
         
@@ -245,10 +258,132 @@ class DataFlowAnalyzer:
                                     ))
         
         self.parameter_flows = parameter_flows
-        print(f"[DataFlowAnalyzer] ✓ 参数流动分析完成")
-        print(f"[DataFlowAnalyzer]   - 参数流动数: {len(parameter_flows)}")
+        _safe_print(f"[DataFlowAnalyzer] ✓ 参数流动分析完成")
+        _safe_print(f"[DataFlowAnalyzer]   - 参数流动数: {len(parameter_flows)}")
         
         return parameter_flows
+
+    def analyze_variable_flows(self, analyzer_report) -> Dict[str, Dict[str, Set[str]]]:
+        """分析方法/函数中的局部变量定义与使用"""
+        _safe_print("\n[DataFlowAnalyzer] 分析变量定义与使用...")
+
+        definition_count = 0
+        usage_count = 0
+
+        for class_name, class_info in analyzer_report.classes.items():
+            for method_name, method_info in class_info.methods.items():
+                method_sig = f"{class_name}.{method_name}"
+                source_code = method_info.source_code or ""
+                if not source_code:
+                    continue
+
+                parameter_names = {param.name for param in (method_info.parameters or [])}
+                var_info = self._extract_variable_def_use(source_code, parameter_names)
+                if var_info["defined"]:
+                    self.variable_definitions[method_sig] = var_info["defined"]
+                    definition_count += len(var_info["defined"])
+                if var_info["used"]:
+                    self.variable_usages[method_sig] = var_info["used"]
+                    usage_count += len(var_info["used"])
+
+        for func_info in analyzer_report.functions:
+            func_sig = func_info.name
+            source_code = func_info.source_code or ""
+            if not source_code:
+                continue
+
+            parameter_names = {param.name for param in (func_info.parameters or [])}
+            var_info = self._extract_variable_def_use(source_code, parameter_names)
+            if var_info["defined"]:
+                self.variable_definitions[func_sig] = var_info["defined"]
+                definition_count += len(var_info["defined"])
+            if var_info["used"]:
+                self.variable_usages[func_sig] = var_info["used"]
+                usage_count += len(var_info["used"])
+
+        _safe_print(f"[DataFlowAnalyzer] ✓ 变量分析完成")
+        _safe_print(f"[DataFlowAnalyzer]   - 变量定义数: {definition_count}")
+        _safe_print(f"[DataFlowAnalyzer]   - 变量使用数: {usage_count}")
+
+        return {
+            "definitions": self.variable_definitions,
+            "usages": self.variable_usages,
+        }
+
+    def _extract_variable_def_use(self, code: str, parameter_names: Set[str]) -> Dict[str, Set[str]]:
+        """提取代码中的变量定义与使用（排除参数和内置）"""
+        defined: Set[str] = set()
+        used: Set[str] = set()
+
+        if not code:
+            return {"defined": defined, "used": used}
+
+        try:
+            tree = ast.parse(code)
+        except SyntaxError:
+            return {"defined": defined, "used": used}
+
+        builtin_like = {
+            "self", "cls", "True", "False", "None", "len", "list", "dict", "set", "tuple", "str", "int", "float", "bool", "range", "enumerate", "zip", "map", "filter", "sum", "min", "max", "print"
+        }
+
+        class VariableVisitor(ast.NodeVisitor):
+            def visit_Assign(self, node):
+                for target in node.targets:
+                    self._collect_defined_names(target)
+                self.generic_visit(node)
+
+            def visit_AnnAssign(self, node):
+                self._collect_defined_names(node.target)
+                self.generic_visit(node)
+
+            def visit_AugAssign(self, node):
+                self._collect_defined_names(node.target)
+                self.generic_visit(node)
+
+            def visit_For(self, node):
+                self._collect_defined_names(node.target)
+                self.generic_visit(node)
+
+            def visit_With(self, node):
+                for item in node.items:
+                    if item.optional_vars:
+                        self._collect_defined_names(item.optional_vars)
+                self.generic_visit(node)
+
+            def visit_ExceptHandler(self, node):
+                if node.name:
+                    defined.add(str(node.name))
+                self.generic_visit(node)
+
+            def visit_Name(self, node):
+                if isinstance(node.ctx, ast.Load):
+                    used.add(node.id)
+                self.generic_visit(node)
+
+            def _collect_defined_names(self, node):
+                if isinstance(node, ast.Name):
+                    defined.add(node.id)
+                elif isinstance(node, (ast.Tuple, ast.List)):
+                    for elt in node.elts:
+                        self._collect_defined_names(elt)
+
+        visitor = VariableVisitor()
+        visitor.visit(tree)
+
+        filtered_defined = {
+            name for name in defined
+            if name not in builtin_like and name not in parameter_names and not name.startswith("__")
+        }
+        filtered_used = {
+            name for name in used
+            if name not in builtin_like and name not in parameter_names and not name.startswith("__")
+        }
+
+        return {
+            "defined": filtered_defined,
+            "used": filtered_used,
+        }
     
     def build_data_flow_graph(self, analyzer_report) -> Dict:
         """

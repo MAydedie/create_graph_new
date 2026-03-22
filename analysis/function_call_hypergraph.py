@@ -52,6 +52,7 @@ class FunctionCallHypergraph:
         self.nodes: Dict[str, Dict[str, Any]] = {}  # node_id -> node_data
         self.hyperedges: List[HyperEdge] = []
         self.call_patterns: Dict[str, List[str]] = {}  # pattern_id -> [method_sigs]
+        self.call_graph: Dict[str, Set[str]] = {}  # 保存调用图，用于生成直接调用边
     
     def add_node(self, node_id: str, node_data: Dict[str, Any]):
         """添加节点"""
@@ -222,9 +223,19 @@ class FunctionCallHypergraph:
         构建超图
         
         Args:
-            call_graph: 调用图
+            call_graph: 调用图（完整的调用图，包含整个项目的调用关系）
             partition_methods: 分区方法集合
         """
+        # 只保存分区内的调用图，确保不显示跨分区的调用关系
+        partition_call_graph = {}
+        for caller, callees in call_graph.items():
+            if caller in partition_methods:
+                # 只保留分区内的被调用者
+                partition_callees = {c for c in callees if c in partition_methods}
+                if partition_callees:
+                    partition_call_graph[caller] = partition_callees
+        self.call_graph = partition_call_graph  # ✅ 只保存分区内的调用图
+        
         # 添加所有节点
         for method_sig in partition_methods:
             self.add_node(method_sig, {
@@ -274,15 +285,47 @@ class FunctionCallHypergraph:
         nodes = []
         edges = []
         
-        # 添加节点
+        # 先收集所有在调用链中的节点（有边的节点）
+        nodes_in_call_chain = set()
+        
+        # 从超边中收集节点
+        for hyperedge in self.hyperedges:
+            for node_id in hyperedge.nodes:
+                nodes_in_call_chain.add(node_id)
+        
+        # 从直接调用关系中收集节点
+        if self.call_graph:
+            for caller, callees in self.call_graph.items():
+                nodes_in_call_chain.add(caller)
+                nodes_in_call_chain.update(callees)
+        
+        # 添加节点（只包括方法节点和功能节点）
+        # 对于方法节点，只显示在调用链中的节点
         for node_id, node_data in self.nodes.items():
-            nodes.append({
+            node_type = node_data.get("type", "method")
+            
+            # 如果是方法节点且不在调用链中，跳过（不显示）
+            if node_type == "method" and node_id not in nodes_in_call_chain:
+                continue
+            
+            node_info = {
                 "data": {
                     "id": node_id,
                     "label": node_data.get("label", node_id),
-                    "type": node_data.get("type", "method")
+                    "type": node_type
                 }
-            })
+            }
+            
+            # 如果是功能节点，添加额外属性
+            if node_type == "function":
+                node_info["data"].update({
+                    "function_path": node_data.get("function_path", []),
+                    "start_leaf_node": node_data.get("start_leaf_node", ""),
+                    "path_length": node_data.get("path_length", 0),
+                    "metadata": node_data.get("metadata", {})
+                })
+            
+            nodes.append(node_info)
         
         # 将超边转换为普通边（每个超边内的节点两两连接）
         for hyperedge in self.hyperedges:
@@ -349,6 +392,61 @@ class FunctionCallHypergraph:
                             "pattern_type": pattern_type
                         }
                     })
+            elif pattern_type == "function_implements":
+                # 功能实现边：功能节点 -> 路径上的方法节点
+                function_node = hyperedge_nodes[0]  # 第一个节点是功能节点
+                implemented_methods = hyperedge_nodes[1:]  # 其余节点是实现方法
+                for method in implemented_methods:
+                    edges.append({
+                        "data": {
+                            "id": f"{hyperedge.hyperedge_id}_edge_{method}",
+                            "source": function_node,
+                            "target": method,
+                            "label": "implements",
+                            "type": "function_implements",
+                            "hyperedge_id": hyperedge.hyperedge_id,
+                            "pattern_type": pattern_type
+                        }
+                    })
+        
+        # 添加所有直接的调用关系边（从call_graph中）
+        # 这样可以确保所有调用关系都能在超图中显示，而不仅仅是模式匹配的边
+        direct_edges_added = set()  # 避免重复添加边
+        if self.call_graph:
+            for caller, callees in self.call_graph.items():
+                # 只处理分区内的方法
+                if caller in self.nodes:
+                    for callee in callees:
+                        if callee in self.nodes:
+                            # 创建边的唯一标识符
+                            edge_id = f"direct_call_{caller}_{callee}"
+                            if edge_id not in direct_edges_added:
+                                # 检查是否已经通过超边添加了这条边
+                                edge_exists = False
+                                for existing_edge in edges:
+                                    if (existing_edge["data"]["source"] == caller and 
+                                        existing_edge["data"]["target"] == callee):
+                                        edge_exists = True
+                                        break
+                                
+                                if not edge_exists:
+                                    edges.append({
+                                        "data": {
+                                            "id": edge_id,
+                                            "source": caller,
+                                            "target": callee,
+                                            "label": "call",
+                                            "type": "direct_call",
+                                            "pattern_type": "direct"
+                                        }
+                                    })
+                                    direct_edges_added.add(edge_id)
+        
+        logger.info(f"[FunctionCallHypergraph] ✓ 可视化数据生成完成: {len(nodes)}个节点, "
+                   f"{len(edges)}条边（其中{len(direct_edges_added)}条直接调用边）")
+        
+        # 统计功能节点数量
+        function_node_count = len([n for n in self.nodes.values() if n.get('type') == 'function'])
         
         return {
             "nodes": nodes,
@@ -356,13 +454,17 @@ class FunctionCallHypergraph:
             "hyperedges": [he.to_dict() for he in self.hyperedges],
             "statistics": {
                 "total_nodes": len(nodes),
+                "method_nodes": len([n for n in self.nodes.values() if n.get('type') == 'method']),
+                "function_nodes": function_node_count,
                 "total_hyperedges": len(self.hyperedges),
                 "total_edges": len(edges),
+                "direct_call_edges": len(direct_edges_added),
                 "pattern_counts": {
                     "chains": len([he for he in self.hyperedges if he.edge_type == "call_chain"]),
                     "fanouts": len([he for he in self.hyperedges if he.edge_type == "fanout"]),
                     "fanins": len([he for he in self.hyperedges if he.edge_type == "fanin"]),
-                    "cycles": len([he for he in self.hyperedges if he.edge_type == "cycle"])
+                    "cycles": len([he for he in self.hyperedges if he.edge_type == "cycle"]),
+                    "function_implements": len([he for he in self.hyperedges if he.edge_type == "function_implements"])
                 }
             }
         }
@@ -481,6 +583,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 

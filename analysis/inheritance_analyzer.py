@@ -6,7 +6,18 @@
 """
 
 import ast
+import sys
 from typing import Dict, Set, List, Tuple
+
+
+# Safe print for background threads
+def _safe_print(*args, **kwargs):
+    try:
+        if sys.stdout and hasattr(sys.stdout, 'closed') and sys.stdout.closed:
+            return
+        print(*args, **kwargs)
+    except Exception:
+        pass
 
 
 class InheritanceAnalyzer:
@@ -27,7 +38,7 @@ class InheritanceAnalyzer:
         Returns:
             包含所有继承关系的字典
         """
-        print("\n[InheritanceAnalyzer] 开始构建继承关系图...")
+        _safe_print("\n[InheritanceAnalyzer] 开始构建继承关系图...")
         
         inheritance_count = 0
         
@@ -36,10 +47,10 @@ class InheritanceAnalyzer:
             if class_info.parent_class:
                 self.inheritance_graph[class_name] = class_info.parent_class
                 inheritance_count += 1
-                print(f"[InheritanceAnalyzer]   类继承: {class_name} -> {class_info.parent_class}")
+                _safe_print(f"[InheritanceAnalyzer]   类继承: {class_name} -> {class_info.parent_class}")
         
-        print(f"[InheritanceAnalyzer] ✓ 继承关系图构建完成")
-        print(f"[InheritanceAnalyzer]   - 继承关系数: {inheritance_count}")
+        _safe_print(f"[InheritanceAnalyzer] ✓ 继承关系图构建完成")
+        _safe_print(f"[InheritanceAnalyzer]   - 继承关系数: {inheritance_count}")
         
         return {
             "inheritance": self.inheritance_graph,

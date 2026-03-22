@@ -132,11 +132,97 @@ ENABLE_COMPLEXITY_ANALYSIS = True
 
 # ============= API 配置（如果启用 AI）=============
 
-# OpenAI API Key
-OPENAI_API_KEY = None
+import os
+from dotenv import load_dotenv
+
+# 加载 .env 文件
+load_dotenv()
+
+# DeepSeek API 配置
+DEEPSEEK_API_KEY = "sk-1a507b1f2afc4a37bb35bbc6b6e87595"
+DEEPSEEK_BASE_URL = os.getenv('DEEPSEEK_BASE_URL', 'https://api.deepseek.com/v1')
+
+# ============= Model Cache Configuration =============
+from pathlib import Path
+
+# 设置HuggingFace缓存目录
+PROJECT_ROOT = Path(__file__).parent.parent
+MODEL_CACHE_DIR = PROJECT_ROOT / "models" / "huggingface_cache"
+MODEL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+# 设置环境变量
+os.environ["HF_HOME"] = str(MODEL_CACHE_DIR)
+os.environ["TRANSFORMERS_CACHE"] = str(MODEL_CACHE_DIR)
+os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"  # 使用镜像加速
+
+
+# OpenAI API Key (保留兼容性)
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
 # OpenAI 模型
 OPENAI_MODEL = 'gpt-4'
 
-# API 调用超时
 API_TIMEOUT = 30
+
+
+# ============= RAG System Configuration =============
+# Migrated from 喜哥问答agent
+
+# DeepSeek Model Config
+DEEPSEEK_API_BASE = "https://api.deepseek.com/v1"
+DEEPSEEK_MODEL = "deepseek-chat"
+
+# RAG Configuration
+RAG_CONFIG = {
+    "retrieval_top_k": 25,
+    "rerank_top_k": 5,
+    "temperature": 0.7,
+    "max_tokens": 1000,
+}
+
+# Vector Database Configuration
+VECTOR_DB_CONFIG = {
+    "index_type": "flat",
+    "embedding_dim": 512,
+}
+
+# Embedding Model Configuration
+EMBEDDING_CONFIG = {
+    "model_name": "BAAI/bge-small-zh-v1.5",
+    "batch_size": 32,
+}
+
+# Re-ranker Configuration
+RERANKER_CONFIG = {
+    "model_name": "BAAI/bge-reranker-base",
+}
+
+# Data Paths (Updated references to create_graph structure)
+import os
+DATA_CONFIG = {
+    # Points to the copied qna_source directory
+    "excel_file": os.path.join("data", "qna_source", "喜哥帮AI客服Q&A【知识库】20260119.xlsx"),
+    "index_dir": "data",
+    "faiss_index": os.path.join("data", "faiss_index.bin"),
+    "metadata_file": os.path.join("data", "metadata.pkl"),
+}
+
+
+# ============= Model Cache Configuration =============
+# 防止模型每次启动都重新下载
+
+import os
+from pathlib import Path
+
+# 设置HuggingFace缓存目录
+PROJECT_ROOT = Path(__file__).parent.parent
+MODEL_CACHE_DIR = PROJECT_ROOT / "models" / "huggingface_cache"
+MODEL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+# 设置环境变量（确保sentence-transformers使用此缓存）
+os.environ["HF_HOME"] = str(MODEL_CACHE_DIR)
+os.environ["TRANSFORMERS_CACHE"] = str(MODEL_CACHE_DIR)
+os.environ["SENTENCE_TRANSFORMERS_HOME"] = str(MODEL_CACHE_DIR)
+os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"  # 使用镜像加速下载
+
+print(f"[Config] 模型缓存目录: {MODEL_CACHE_DIR}")

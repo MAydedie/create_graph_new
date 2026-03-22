@@ -29,17 +29,32 @@ class PythonASTVisitor(ast.NodeVisitor):
         """访问类定义"""
         # 保存前一个类
         prev_class = self.current_class
-        
+
         # 创建类信息
         parent_class = None
+        interfaces: List[str] = []
         if node.bases:
-            # 获取基类名称
-            parent_class = self._get_name_from_node(node.bases[0])
+            base_names = [self._get_name_from_node(base) for base in node.bases]
+
+            # Python 中没有强制 interface 语法，这里使用命名与常见基类做启发式判断
+            for base_name in base_names:
+                if self._is_interface_like(base_name):
+                    interfaces.append(base_name)
+                elif parent_class is None:
+                    parent_class = base_name
+
+            # 如果全部都被判定为 interface，则回退到第一个作为 parent
+            if parent_class is None and base_names:
+                parent_class = base_names[0]
+
+        decorators = self._extract_decorators(node.decorator_list)
         
         class_info = ClassInfo(
             name=node.name,
             full_name=node.name,  # Python 暂时不处理包名
             parent_class=parent_class,
+            interfaces=interfaces,
+            decorators=decorators,
             source_location=SourceLocation(
                 file_path=str(self.file_path),
                 line_start=node.lineno,
@@ -71,6 +86,7 @@ class PythonASTVisitor(ast.NodeVisitor):
         
         # 确定修饰符
         modifiers = self._extract_modifiers(node)
+        decorators = self._extract_decorators(node.decorator_list)
         
         # 提取完整源代码 - Phase 2分析器关键
         source_code = self._extract_source_code(node)
@@ -88,6 +104,7 @@ class PythonASTVisitor(ast.NodeVisitor):
                 return_type=return_type,
                 parameters=parameters,
                 modifiers=modifiers,
+                decorators=decorators,
                 source_location=SourceLocation(
                     file_path=str(self.file_path),
                     line_start=node.lineno,
@@ -111,6 +128,7 @@ class PythonASTVisitor(ast.NodeVisitor):
                 return_type=return_type,
                 parameters=parameters,
                 modifiers=modifiers,
+                decorators=decorators,
                 source_location=SourceLocation(
                     file_path=str(self.file_path),
                     line_start=node.lineno,
@@ -133,6 +151,23 @@ class PythonASTVisitor(ast.NodeVisitor):
             self.visit(stmt)
         
         self.current_method = prev_method
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        """访问异步函数定义（与普通函数统一处理）"""
+        # 复用 FunctionDef 逻辑
+        function_like_node = ast.FunctionDef(
+            name=node.name,
+            args=node.args,
+            body=node.body,
+            decorator_list=node.decorator_list,
+            returns=node.returns,
+            type_comment=node.type_comment,
+        )
+        function_like_node.lineno = node.lineno
+        function_like_node.end_lineno = node.end_lineno
+        function_like_node.col_offset = node.col_offset
+        function_like_node.end_col_offset = node.end_col_offset
+        self.visit_FunctionDef(function_like_node)
     
     def visit_Call(self, node: ast.Call) -> None:
         """访问函数调用"""
@@ -200,6 +235,35 @@ class PythonASTVisitor(ast.NodeVisitor):
             modifiers.append("private")
         
         return modifiers
+
+    def _extract_decorators(self, decorators: List[ast.expr]) -> List[str]:
+        """提取装饰器名称列表"""
+        results: List[str] = []
+        for decorator in decorators:
+            if isinstance(decorator, ast.Name):
+                results.append(decorator.id)
+            elif isinstance(decorator, ast.Attribute):
+                results.append(self._get_name_from_node(decorator))
+            elif isinstance(decorator, ast.Call):
+                call_target = decorator.func
+                if isinstance(call_target, ast.Name):
+                    results.append(call_target.id)
+                elif isinstance(call_target, ast.Attribute):
+                    results.append(self._get_name_from_node(call_target))
+        return results
+
+    def _is_interface_like(self, base_name: str) -> bool:
+        """启发式判断基类是否更像接口类型"""
+        normalized = (base_name or "").lower()
+        interface_tokens = (
+            "interface",
+            "protocol",
+            "abc",
+            "abstract",
+            "typing.protocol",
+            "abc.abc",
+        )
+        return any(token in normalized for token in interface_tokens)
     
     def _get_annotation_str(self, node) -> str:
         """获取注解的字符串表示"""
@@ -330,4 +394,46 @@ class PythonParser(BaseParser):
                     report.functions.append(method_info)
                 
         except Exception as e:
-            print(f"  ❌ AST访问错误 {file_path}: {e}")
+            print(f"  FAILED Visiting {file_path}: {e}")
+
+    def find_entry_points(self) -> List[ExecutionEntry]:
+        """识别项目入口点"""
+        entry_points = []
+        
+        # 遍历所有已解析的 Python 文件
+        # 注意：这里需要重新扫描文件内容或者在解析时保存相关信息
+        # 简单起见，我们扫描所有 .py 文件查找 if __name__ == "__main__":
+        
+        for file_path in Path(self.project_path).rglob("*.py"):
+            if any(part.startswith('.') for part in file_path.parts):
+                continue
+                
+            try:
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                    if '__name__' in content and '__main__' in content:
+                        # 简单的文本匹配，不够精确但很快
+                        lines = content.splitlines()
+                        for i, line in enumerate(lines):
+                            if 'if' in line and '__name__' in line and '__main__' in line:
+                                entry_method = MethodInfo(
+                                    name="__main__",
+                                    class_name="<module>",
+                                    signature="__main__()",
+                                    return_type="None",
+                                    source_location=SourceLocation(
+                                        file_path=str(file_path),
+                                        line_start=i + 1,
+                                        line_end=i + 1,
+                                    )
+                                )
+                                entry_points.append(ExecutionEntry(
+                                    method=entry_method,
+                                    entry_type="main_block",
+                                    description="Main Execution Block"
+                                ))
+                                break
+            except:
+                pass
+                
+        return entry_points

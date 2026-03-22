@@ -190,6 +190,7 @@ class MethodInfo:
     return_type: str
     parameters: List[Parameter] = field(default_factory=list)
     modifiers: List[str] = field(default_factory=list)  # public, static, etc.
+    decorators: List[str] = field(default_factory=list)  # 装饰器列表
     docstring: Optional[str] = None
     source_code: Optional[str] = None  # 完整的方法源代码 - Phase 2分析器关键
     source_location: Optional[SourceLocation] = None
@@ -233,6 +234,7 @@ class ClassInfo:
     methods: Dict[str, MethodInfo] = field(default_factory=dict)  # {method_name: MethodInfo}
     fields: Dict[str, FieldInfo] = field(default_factory=dict)  # {field_name: FieldInfo}
     modifiers: List[str] = field(default_factory=list)  # public, abstract, final, etc.
+    decorators: List[str] = field(default_factory=list)  # 装饰器列表
     docstring: Optional[str] = None
     source_location: Optional[SourceLocation] = None
     

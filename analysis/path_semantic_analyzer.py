@@ -127,6 +127,103 @@ class PathSemanticAnalyzer:
             "folder_path": folder_path,
             "file_name": file_name,
         }
+
+
+def infer_functional_domain(path: List[str]) -> str:
+    """
+    根据路径方法名做非常轻量的功能域推断（启发式）。
+    """
+    joined = " ".join(path).lower()
+    rules = [
+        ("auth", ["auth", "login", "token", "oauth", "jwt", "verify", "password"]),
+        ("data", ["db", "dao", "repository", "save", "load", "query", "fetch"]),
+        ("api", ["api", "route", "handler", "controller", "request", "response"]),
+        ("analysis", ["analyze", "analysis", "graph", "cfg", "dfg", "call", "hypergraph"]),
+        ("io", ["input", "output", "serialize", "deserialize", "parse", "format"]),
+    ]
+    for domain, keys in rules:
+        if any(k in joined for k in keys):
+            return domain
+    return "general"
+
+
+def generate_path_description(path: List[str]) -> str:
+    """生成路径描述（启发式）。"""
+    if not path:
+        return ""
+    if len(path) == 1:
+        name = path[0].split(".")[-1]
+        return f"围绕 {name} 的单点功能路径"
+    start = path[0].split(".")[-1]
+    end = path[-1].split(".")[-1]
+    return f"从 {start} 到 {end} 的调用链，包含 {len(path)} 个方法"
+
+
+def generate_semantic_label(path: List[str], keywords: List[str]) -> str:
+    """生成语义标签（启发式）。"""
+    if not path:
+        return "空路径"
+    domain = infer_functional_domain(path)
+    # 优先用关键词拼一个可读标签
+    if keywords:
+        top = [k for k in keywords if k][:3]
+        return f"{domain}: " + " / ".join(top)
+    # fallback 用首尾方法
+    start = path[0].split(".")[-1]
+    end = path[-1].split(".")[-1]
+    if start == end:
+        return f"{domain}: {start}"
+    return f"{domain}: {start} -> {end}"
+
+
+def analyze_path_semantics(
+    path: List[str],
+    analyzer_report=None,
+    method_profiles: Dict[str, Any] = None
+) -> Dict[str, Any]:
+    """
+    Phase 1 / Task 1.1: 路径级语义画像（轻量启发式）
+    - 不依赖 LLM，保证稳定；只新增字段，不影响现有逻辑。
+    """
+    method_profiles = method_profiles or {}
+
+    # 汇总关键词：方法名 + docstring/comments/装饰器等线索
+    keywords_set = []
+
+    def add_kw(w: str):
+        w = (w or "").strip()
+        if not w:
+            return
+        lw = w.lower()
+        if lw not in {k.lower() for k in keywords_set}:
+            keywords_set.append(w)
+
+    for sig in path or []:
+        add_kw(sig.split(".")[-1])
+        prof = method_profiles.get(sig)
+        if not prof:
+            continue
+        # code_clues 里尽可能抽一些“短 token”
+        clues = getattr(prof, "code_clues", None) or (prof.get("code_clues") if isinstance(prof, dict) else None) or {}
+        for dec in clues.get("decorators", []) or []:
+            add_kw(str(dec))
+        doc = clues.get("docstring") or ""
+        if isinstance(doc, str) and doc.strip():
+            add_kw(doc.strip().splitlines()[0][:40])
+        for c in clues.get("comments", []) or []:
+            if isinstance(c, str) and c.strip():
+                add_kw(c.strip()[:40])
+
+    functional_domain = infer_functional_domain(path or [])
+    semantic_label = generate_semantic_label(path or [], keywords_set)
+    description = generate_path_description(path or [])
+
+    return {
+        "semantic_label": semantic_label,
+        "keywords": keywords_set,
+        "functional_domain": functional_domain,
+        "description": description,
+    }
     
     def _extract_path_tokens(self, path_parts: List[str]) -> List[str]:
         """
@@ -303,6 +400,38 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

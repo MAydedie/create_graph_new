@@ -1,30 +1,176 @@
-代码分析与可视化系统 - 项目结构
+# 项目结构规划文档
 
-D:\repositories\create_graph\
-├── config/
+## 项目概述
+本项目是一个对账单管理系统，支持自定义报表、字段配置、数据导出等功能。
+
+## 核心模块规划
+
+### 1. models（数据模型模块）
+**职责**：定义系统核心数据结构和业务实体
+
+**包含内容**：
+- `bill.py` - 对账单模型
+- `template.py` - 报表模板模型
+- `field.py` - 字段配置模型
+- `order.py` - 订单模型
+- `customer.py` - 客户模型
+- `payment.py` - 支付记录模型
+
+**功能要点**：
+- 定义数据验证规则
+- 建立模型间关联关系
+- 提供数据序列化方法
+
+### 2. storage（存储逻辑模块）
+**职责**：处理数据持久化、文件存储和缓存
+
+**包含内容**：
+- `database.py` - 数据库连接和操作
+- `file_storage.py` - 文件存储管理
+- `cache.py` - 缓存管理
+- `export_handler.py` - 数据导出处理器
+
+**功能要点**：
+- 支持多种存储后端（SQLite/MySQL/文件）
+- 提供统一的存储接口
+- 处理数据导入导出
+
+### 3. core（业务逻辑模块）
+**职责**：实现核心业务逻辑和数据处理
+
+**包含内容**：
+- `bill_manager.py` - 对账单管理
+- `template_manager.py` - 模板管理
+- `export_service.py` - 导出服务
+- `field_config.py` - 字段配置服务
+- `report_generator.py` - 报表生成器
+
+**功能要点**：
+- 对账单的自定义报表功能
+- 字段顺序调整和隐藏
+- 默认模板设置
+- 数据筛选和过滤
+
+### 4. cli（命令行接口模块）
+**职责**：提供命令行操作界面
+
+**包含内容**：
+- `main.py` - 主命令行入口
+- `commands/` - 命令集合
+  - `bill_commands.py` - 对账单相关命令
+  - `export_commands.py` - 导出相关命令
+  - `template_commands.py` - 模板相关命令
+  - `config_commands.py` - 配置相关命令
+- `utils/` - 命令行工具
+  - `formatter.py` - 输出格式化
+  - `validator.py` - 输入验证
+
+**功能要点**：
+- 交互式命令行界面
+- 支持批量操作
+- 提供帮助文档
+
+## 目录结构
+```
+project/
+├── models/                    # 数据模型
 │   ├── __init__.py
-│   └── config.py                    # 配置管理
-├── parsers/
+│   ├── bill.py
+│   ├── template.py
+│   ├── field.py
+│   ├── order.py
+│   ├── customer.py
+│   └── payment.py
+│
+├── storage/                   # 存储逻辑
 │   ├── __init__.py
-│   ├── base_parser.py              # 解析器基类
-│   ├── python_parser.py            # Python 代码解析器
-│   └── java_parser.py              # Java 代码解析器（后续）
-├── analysis/
+│   ├── database.py
+│   ├── file_storage.py
+│   ├── cache.py
+│   └── export_handler.py
+│
+├── core/                      # 业务逻辑
 │   ├── __init__.py
-│   ├── code_model.py               # 数据结构定义
-│   ├── symbol_table.py             # 符号表实现
-│   ├── call_graph.py               # 调用图生成
-│   └── semantic_analyzer.py        # AI Agent 语义分析
-├── visualization/
+│   ├── bill_manager.py
+│   ├── template_manager.py
+│   ├── export_service.py
+│   ├── field_config.py
+│   └── report_generator.py
+│
+├── cli/                       # 命令行接口
 │   ├── __init__.py
-│   ├── graph_data.py               # 图表数据转换
-│   ├── report_generator.py         # 报告生成
-│   └── templates/
-│       ├── visualization.html      # 可视化 HTML 模板
-│       └── style.css              # 样式表
-├── agent/
+│   ├── main.py
+│   ├── commands/
+│   │   ├── __init__.py
+│   │   ├── bill_commands.py
+│   │   ├── export_commands.py
+│   │   ├── template_commands.py
+│   │   └── config_commands.py
+│   └── utils/
+│       ├── __init__.py
+│       ├── formatter.py
+│       └── validator.py
+│
+├── tests/                     # 测试代码
 │   ├── __init__.py
-│   └── code_agent.py               # AI Agent 实现
-├── main.py                         # 主程序入口
-├── requirements.txt                # 依赖包
-└── README.md                       # 项目说明
+│   ├── test_models.py
+│   ├── test_storage.py
+│   ├── test_core.py
+│   └── test_cli.py
+│
+├── config/                    # 配置文件
+│   ├── __init__.py
+│   ├── settings.py
+│   └── default_config.yaml
+│
+├── docs/                      # 文档
+│   ├── api.md
+│   ├── user_guide.md
+│   └── development.md
+│
+├── requirements.txt           # 依赖包列表
+├── README.md                  # 项目说明
+└── project_structure.txt      # 本项目结构文档
+```
+
+## 核心功能实现要点
+
+### 1. 自定义报表功能
+- 支持字段选择和排序
+- 支持默认模板设置
+- 支持字段隐藏/显示
+
+### 2. 数据导出功能
+- 支持多种格式（Excel/CSV/PDF）
+- 支持批量导出
+- 支持自定义字段导出
+
+### 3. 模板管理
+- 创建、编辑、删除模板
+- 设置默认模板
+- 模板应用范围控制
+
+### 4. 界面配置
+- 字段顺序调整
+- 不常用功能隐藏
+- 界面布局自定义
+
+## 开发规范
+
+1. **代码风格**：遵循 PEP 8 规范
+2. **注释要求**：重要函数和类添加中文注释
+3. **测试覆盖**：核心功能需有单元测试
+4. **错误处理**：统一的异常处理机制
+5. **日志记录**：关键操作记录日志
+
+## 后续扩展考虑
+
+1. Web界面支持
+2. 多用户权限管理
+3. 数据统计分析
+4. 第三方系统集成
+5. 移动端适配
+
+---
+*文档创建时间：$(date)*
+*最后更新：$(date)*

@@ -8,12 +8,12 @@
 import logging
 from typing import Optional, Dict, Any
 from datetime import datetime
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.output_parsers import StrOutputParser
 import json
 
 logger = logging.getLogger(__name__)
 
+# Phase 0 / Task 0.2: 统一LLM调用封装
+from llm.llm_helper import get_llm_helper, PromptTemplate
 
 class CodeExplanationChain:
     """
@@ -34,19 +34,8 @@ class CodeExplanationChain:
         
         logger.info(f"初始化CodeExplanationChain，base_url: {base_url}")
         
-        try:
-            from langchain_openai import ChatOpenAI
-            self.llm = ChatOpenAI(
-                api_key=api_key,
-                base_url=base_url,
-                model="deepseek-chat",
-                temperature=0.2,  # 降低温度以获得更稳定的解释
-                max_tokens=1000
-            )
-            logger.info("✓ ChatOpenAI客户端初始化成功")
-        except Exception as e:
-            logger.error(f"✗ 初始化ChatOpenAI失败: {e}")
-            raise
+        # 统一使用全局 LLMHelper（内部自动选择 LangChain 或 requests，并带重试）
+        self.llm_helper = get_llm_helper()
     
     def explain_code(self, 
                     source_code: str, 
@@ -65,19 +54,7 @@ class CodeExplanationChain:
         Returns:
             LLM生成的解释（100-200字）
         """
-        system_prompt = """你是一个资深的代码分析专家。
-你的任务是用简洁清晰的语言解释给定的代码的功能和设计意图。
-
-解释应该：
-1. 简洁（不超过200字）
-2. 清楚明了（避免过度技术术语）
-3. 突出关键逻辑和设计决策
-4. 指出该代码与系统其他部分的关系（如果有）
-
-格式：
-- 主要功能是什么？（1-2句）
-- 关键算法或逻辑是什么？（1-2句）
-- 与系统的关系？（1句）"""
+        system_prompt = PromptTemplate.code_explanation()
         
         # 构建用户提示
         user_prompt = f"""请解释以下代码的功能和设计意图：
@@ -102,12 +79,12 @@ class CodeExplanationChain:
         
         try:
             logger.debug("🤖 调用DeepSeek API生成代码解释...")
-            response = self.llm.invoke([
-                SystemMessage(content=system_prompt),
-                HumanMessage(content=user_prompt)
-            ])
-            
-            explanation = response.content
+            explanation = self.llm_helper.call(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                cache_key=None,
+                use_cache=False,
+            )
             logger.debug(f"✓ 代码解释生成完成，长度: {len(explanation)}")
             return explanation
             
@@ -205,12 +182,12 @@ class CodeExplanationChain:
         
         try:
             logger.debug("🤖 调用DeepSeek API分析CFG...")
-            response = self.llm.invoke([
-                SystemMessage(content=system_prompt),
-                HumanMessage(content=user_prompt)
-            ])
-            
-            explanation = response.content
+            explanation = self.llm_helper.call(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                cache_key=None,
+                use_cache=False,
+            )
             logger.debug(f"✓ CFG分析完成，长度: {len(explanation)}")
             return explanation
             
@@ -258,12 +235,12 @@ class CodeExplanationChain:
         
         try:
             logger.debug("🤖 调用DeepSeek API进行代码比较...")
-            response = self.llm.invoke([
-                SystemMessage(content=system_prompt),
-                HumanMessage(content=user_prompt)
-            ])
-            
-            comparison = response.content
+            comparison = self.llm_helper.call(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                cache_key=None,
+                use_cache=False,
+            )
             logger.debug(f"✓ 代码比较完成，长度: {len(comparison)}")
             return comparison
             
@@ -311,12 +288,12 @@ class CodeExplanationChain:
         
         try:
             logger.debug("🤖 调用DeepSeek API生成路径摘要...")
-            response = self.llm.invoke([
-                SystemMessage(content=system_prompt),
-                HumanMessage(content=user_prompt)
-            ])
-            
-            summary = response.content
+            summary = self.llm_helper.call(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                cache_key=None,
+                use_cache=False,
+            )
             logger.debug(f"✓ 路径摘要生成完成，长度: {len(summary)}")
             return summary
             
@@ -372,7 +349,7 @@ def generate_explanations_for_hierarchy(hierarchy_model, api_key: str, base_url:
     
     # 为关键路径生成摘要
     logger.info("生成关键路径摘要...")
-    from .aggregation_calculator import AggregationCalculator
+    from analysis.aggregation_calculator import AggregationCalculator
     calculator = AggregationCalculator(hierarchy_model)
     critical_paths = calculator.get_critical_paths()
     

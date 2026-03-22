@@ -6,8 +6,19 @@
 """
 
 import ast
+import sys
 from typing import Dict, Set, List, Tuple
 from pathlib import Path
+
+
+# Safe print for background threads
+def _safe_print(*args, **kwargs):
+    try:
+        if sys.stdout and hasattr(sys.stdout, 'closed') and sys.stdout.closed:
+            return
+        print(*args, **kwargs)
+    except Exception:
+        pass
 
 
 class CallGraphAnalyzer:
@@ -17,6 +28,21 @@ class CallGraphAnalyzer:
         self.call_graph: Dict[str, Set[str]] = {}  # 方法签名 -> 被调用的方法集合
         self.cross_file_calls: List[Tuple[str, str, str]] = []  # (caller_file, caller, callee)
         self.external_calls: Set[str] = set()  # 外部库调用
+        
+        # Python内置容器类型及其方法（用于过滤）
+        self._builtin_container_types = {
+            'dict', 'list', 'set', 'tuple', 'str', 'int', 'float', 'bool',
+            'bytes', 'bytearray', 'frozenset', 'deque', 'defaultdict',
+            'OrderedDict', 'Counter', 'ChainMap'
+        }
+        self._builtin_container_methods = {
+            'values', 'keys', 'items', 'get', 'pop', 'update', 'clear',
+            'append', 'extend', 'insert', 'remove', 'pop', 'index', 'count',
+            'add', 'discard', 'union', 'intersection', 'difference',
+            'split', 'join', 'strip', 'replace', 'find', 'index', 'count',
+            'startswith', 'endswith', 'lower', 'upper', 'capitalize',
+            'encode', 'decode', 'format', 'isalpha', 'isdigit', 'isspace'
+        }
         
     def extract_calls_from_method(self, method_code: str, class_name: str, method_name: str) -> Set[str]:
         """
@@ -41,9 +67,56 @@ class CallGraphAnalyzer:
             def visit_Call(self, node):
                 # 提取被调用函数的名称
                 call_name = self._get_call_name(node)
-                if call_name:
+                if call_name and self._is_valid_method_call(call_name):
                     calls.add(call_name)
                 self.generic_visit(node)
+            
+            def _is_valid_method_call(self, call_name: str) -> bool:
+                """
+                检查调用是否是有效的方法调用（过滤掉容器方法和属性访问链）
+                
+                Args:
+                    call_name: 调用名称，如 "dict.values", "func.incoming_calls.values"
+                
+                Returns:
+                    True 如果是有效的方法调用，False 如果是容器方法或属性访问链
+                """
+                # 如果没有点号，可能是全局函数，允许通过
+                if '.' not in call_name:
+                    return True
+                
+                parts = call_name.split('.')
+                
+                # 如果只有两部分，检查是否是内置容器方法
+                if len(parts) == 2:
+                    base, method = parts
+                    # 如果base是内置容器类型，且method是容器方法，则过滤
+                    if base in self._builtin_container_types:
+                        if method in self._builtin_container_methods:
+                            return False
+                
+                # 如果超过两部分，可能是属性访问链（如 func.incoming_calls.values）
+                # 检查中间部分是否是常见的属性名（非类名）
+                if len(parts) >= 3:
+                    # 常见的属性名模式（非类名）
+                    common_attributes = {
+                        'incoming_calls', 'outgoing_calls', 'calls', 'called_by',
+                        'methods', 'fields', 'attributes', 'properties',
+                        'items', 'values', 'keys', 'items', 'entries',
+                        'data', 'config', 'settings', 'params', 'args',
+                        'kwargs', 'result', 'output', 'input', 'response',
+                        'request', 'headers', 'body', 'content', 'text',
+                        'json', 'xml', 'html', 'url', 'path', 'file',
+                        'dir', 'folder', 'name', 'id', 'type', 'value'
+                    }
+                    
+                    # 检查中间部分是否是属性而非类名
+                    for i in range(1, len(parts) - 1):
+                        if parts[i] in common_attributes:
+                            # 这是属性访问链，不是方法调用
+                            return False
+                
+                return True
             
             def _get_call_name(self, node):
                 """从Call节点提取函数名"""
@@ -73,6 +146,9 @@ class CallGraphAnalyzer:
                 return None
         
         visitor = CallVisitor()
+        # 将内置容器类型和方法传递给visitor
+        visitor._builtin_container_types = self._builtin_container_types
+        visitor._builtin_container_methods = self._builtin_container_methods
         visitor.visit(tree)
         return calls
     
@@ -84,7 +160,7 @@ class CallGraphAnalyzer:
         Args:
             analyzer_report: CodeAnalyzer的report对象
         """
-        print("\n[CallGraphAnalyzer] 开始构建调用图...")
+        _safe_print("\n[CallGraphAnalyzer] 开始构建调用图...")
         
         # 第1步：收集所有方法签名映射
         method_signatures: Dict[str, Tuple[str, str]] = {}  # 方法名 -> (类名, 完整签名)
@@ -135,9 +211,9 @@ class CallGraphAnalyzer:
                 self.call_graph[func_info.name] = called_funcs
                 call_count += len(called_funcs)
         
-        print(f"[CallGraphAnalyzer] ✓ 调用图构建完成")
-        print(f"[CallGraphAnalyzer]   - 方法数: {len(self.call_graph)}")
-        print(f"[CallGraphAnalyzer]   - 调用关系数: {call_count}")
+        _safe_print(f"[CallGraphAnalyzer] ✓ 调用图构建完成")
+        _safe_print(f"[CallGraphAnalyzer]   - 方法数: {len(self.call_graph)}")
+        _safe_print(f"[CallGraphAnalyzer]   - 调用关系数: {call_count}")
         
         return self.call_graph
     

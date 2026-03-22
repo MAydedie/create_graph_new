@@ -217,7 +217,7 @@ class GraphDataConverter:
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         
-        print(f"✅ 图表数据已导出到: {output_path}")
+        print(f"[DONE] Graph data exported to: {output_path}")
     
     def export_summary_report(self, output_path: str) -> None:
         """导出汇总报告"""
@@ -258,7 +258,7 @@ class GraphDataConverter:
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(report, f, ensure_ascii=False, indent=2)
         
-        print(f"✅ 汇总报告已导出到: {output_path}")
+        print(f"[DONE] Summary report exported to: {output_path}")
 
 
 def generate_cytoscape_style() -> str:

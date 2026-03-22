@@ -50,8 +50,8 @@ class BaseParser(ABC):
         # 逐个解析文件
         for i, file_path in enumerate(source_files, 1):
             try:
-                print(f"[{i}/{len(source_files)}] 解析: {file_path.relative_to(self.project_path)}")
-                self.parse_file(file_path)
+                print(f"[{i}/{len(source_files)}] Parsing: {file_path.relative_to(self.project_path)}")
+                self.parse_file(file_path, self.report)
             except Exception as e:
                 print(f"  ⚠️  解析失败: {e}")
                 continue

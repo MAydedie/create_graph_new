@@ -9,9 +9,12 @@ import json
 import os
 import requests
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Set
 from dataclasses import dataclass, asdict
 import logging
+
+# Phase 0 / Task 0.2: 统一LLM调用封装
+from llm.llm_helper import get_llm_helper
 
 # 可选导入 LangChain（如果可用）
 try:
@@ -92,42 +95,12 @@ class CodeUnderstandingAgent:
         self.important_codes: List[ImportantCode] = []
         
         logger.info(f"初始化CodeUnderstandingAgent，base_url: {base_url}")
-        
-        # 延迟导入到这里以支持不同的配置
-        try:
-            # 尝试使用 langchain_openai (新版本)
-            try:
-                from langchain_openai import ChatOpenAI
-                self.llm = ChatOpenAI(
-                    api_key=api_key,
-                    base_url=base_url,
-                    model="deepseek-chat",
-                    temperature=0.3,
-                    max_tokens=8000
-                )
-                logger.info("✓ ChatOpenAI客户端初始化成功 (langchain_openai)")
-            except ImportError:
-                # 回退到 langchain_community (兼容版本)
-                try:
-                    from langchain_community.chat_models import ChatOpenAI
-                    self.llm = ChatOpenAI(
-                        openai_api_key=api_key,
-                        openai_api_base=base_url,
-                        model_name="deepseek-chat",
-                        temperature=0.3,
-                        max_tokens=8000
-                    )
-                    logger.info("✓ ChatOpenAI客户端初始化成功 (langchain_community)")
-                except ImportError:
-                    # 最后回退：直接使用 requests 调用 API
-                    logger.warning("⚠️ 未安装 langchain，将使用直接 API 调用")
-                    self.llm = None
-                    self._use_direct_api = True
-        except Exception as e:
-            logger.error(f"✗ 初始化LLM客户端失败: {e}")
-            logger.warning("⚠️ 将使用直接 API 调用模式")
-            self.llm = None
-            self._use_direct_api = True
+
+        # 统一使用全局 LLMHelper（内部自动选择 LangChain 或 requests，并带重试）
+        self.llm_helper = get_llm_helper()
+        # 向后兼容：保留旧字段，避免历史逻辑/日志引用时报错
+        self.llm = None
+        self._use_direct_api = False
     
     def load_project(self, project_path: str) -> Dict[str, Any]:
         """
@@ -240,17 +213,13 @@ class CodeUnderstandingAgent:
         
         try:
             logger.info("🤖 调用DeepSeek API分析项目...")
-            
-            if self.llm:
-                # 使用 LangChain
-                response = self.llm.invoke([
-                    SystemMessage(content=system_prompt),
-                    HumanMessage(content=user_prompt)
-                ])
-                analysis = response.content
-            else:
-                # 直接 API 调用
-                analysis = self._call_api_directly(system_prompt, user_prompt)
+
+            analysis = self.llm_helper.call(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                cache_key=f"overview::{self.project_path}",
+                use_cache=True,
+            )
             
             logger.info("✓ 项目分析完成")
             logger.info(f"\n分析结果：\n{analysis}")
@@ -279,14 +248,12 @@ class CodeUnderstandingAgent:
 请根据这个结构推断项目的功能分区和模块划分。"""
         
         try:
-            if self.llm:
-                response = self.llm.invoke([
-                    SystemMessage(content=system_prompt),
-                    HumanMessage(content=user_prompt)
-                ])
-                return response.content
-            else:
-                return self._call_api_directly(system_prompt, user_prompt)
+            return self.llm_helper.call(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                cache_key=f"infer_from_structure::{self.project_path}",
+                use_cache=True,
+            )
         except Exception as e:
             logger.error(f"✗ 推断失败: {e}")
             return "无法推断项目结构"
@@ -336,14 +303,12 @@ class CodeUnderstandingAgent:
         
         try:
             logger.info("🤖 调用DeepSeek API识别重要代码...")
-            if self.llm:
-                response = self.llm.invoke([
-                    SystemMessage(content=system_prompt),
-                    HumanMessage(content=user_prompt)
-                ])
-                result_text = response.content
-            else:
-                result_text = self._call_api_directly(system_prompt, user_prompt)
+            result_text = self.llm_helper.call(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                cache_key=f"identify_important_codes::{self.project_path}",
+                use_cache=False,
+            )
             logger.info("✓ 重要代码识别完成")
             
             # 尝试解析JSON结果
@@ -479,11 +444,10 @@ class CodeUnderstandingAgent:
                 logger.info(f"✓ 代码注释摘要提取完成（{len(key_comments)} 个关键注释）")
             
             # 步骤3：调用 LLM 识别功能分区
-            if self.llm or self._use_direct_api:
-                try:
-                    logger.info("🤖 调用 LLM API 识别功能分区...")
-                    
-                    system_prompt = """你是一个专业的代码架构分析专家。
+            try:
+                logger.info("🤖 调用 LLM API 识别功能分区...")
+
+                system_prompt = """你是一个专业的代码架构分析专家。
 
 你的任务是根据项目的 README、代码注释和图知识库摘要，识别该项目的主要功能分区。
 
@@ -501,11 +465,11 @@ class CodeUnderstandingAgent:
 - keywords: 关键词列表（用于匹配代码）
 
 返回 JSON 格式的数组。"""
-                    
-                    readme_content = self.readme_content[:2000] if self.readme_content else "无 README 文件"
-                    structure_text = json.dumps(self._get_project_structure(), indent=2, ensure_ascii=False)[:1000]
-                    
-                    user_prompt = f"""请分析以下项目信息，识别主要功能分区：
+
+                readme_content = self.readme_content[:2000] if self.readme_content else "无 README 文件"
+                structure_text = json.dumps(self._get_project_structure(), indent=2, ensure_ascii=False)[:1000]
+
+                user_prompt = f"""请分析以下项目信息，识别主要功能分区：
 
 # 1. README 内容
 {readme_content}
@@ -531,33 +495,31 @@ class CodeUnderstandingAgent:
   }},
   ...
 ]"""
-                    
-                    if self.llm:
-                        response = self.llm.invoke([
-                            SystemMessage(content=system_prompt),
-                            HumanMessage(content=user_prompt)
-                        ])
-                        response_content = response.content
-                    else:
-                        response_content = self._call_api_directly(system_prompt, user_prompt)
-                    
-                    logger.info(f"✓ LLM 响应接收完成（{len(response_content)} 字符）")
-                    
-                    # 解析 LLM 返回的功能分区
-                    llm_partitions = self._parse_function_partitions(response_content)
-                    if llm_partitions:
-                        partitions = llm_partitions
-                        logger.info(f"✅ LLM 识别出 {len(partitions)} 个功能分区")
-                        for p in partitions:
-                            logger.info(f"   - {p.name}: {p.description}")
-                            logger.info(f"     文件夹: {p.folders}")
-                    else:
-                        logger.warning("⚠️ LLM 返回了空的功能分区列表，使用启发式规则")
-                
-                except Exception as e:
-                    logger.error(f"❌ LLM 调用失败: {e}")
-                    import traceback
-                    traceback.print_exc()
+
+                response_content = self.llm_helper.call(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    cache_key=f"identify_function_partitions::{self.project_path}",
+                    use_cache=False,
+                )
+
+                logger.info(f"✓ LLM 响应接收完成（{len(response_content)} 字符）")
+
+                # 解析 LLM 返回的功能分区
+                llm_partitions = self._parse_function_partitions(response_content)
+                if llm_partitions:
+                    partitions = llm_partitions
+                    logger.info(f"✅ LLM 识别出 {len(partitions)} 个功能分区")
+                    for p in partitions:
+                        logger.info(f"   - {p.name}: {p.description}")
+                        logger.info(f"     文件夹: {p.folders}")
+                else:
+                    logger.warning("⚠️ LLM 返回了空的功能分区列表，使用启发式规则")
+
+            except Exception as e:
+                logger.error(f"❌ LLM 调用失败: {e}")
+                import traceback
+                traceback.print_exc()
             
             # 步骤4：如果 LLM 失败或未使用，使用启发式规则
             if not partitions:
@@ -827,14 +789,12 @@ class CodeUnderstandingAgent:
     "keywords": ["关键词1", "关键词2"]
 }}"""
             
-            if self.llm:
-                response = self.llm.invoke([
-                    SystemMessage(content=system_prompt),
-                    HumanMessage(content=user_prompt)
-                ])
-                response_text = response.content
-            else:
-                response_text = self._call_api_directly(system_prompt, user_prompt)
+            response_text = self.llm_helper.call(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                cache_key=f"enhance_partition::{project_path}::{partition_id}",
+                use_cache=False,
+            )
             
             # 解析LLM返回的JSON
             enhanced_info = self._parse_partition_enhancement(response_text)
@@ -863,6 +823,610 @@ class CodeUnderstandingAgent:
             partition['keywords'] = list(class_names)[:5]
         
         return partition
+    
+    def generate_path_name_and_description(self, 
+                                           path: List[str],
+                                           analyzer_report,
+                                           project_path: str) -> Dict[str, str]:
+        """
+        为功能路径生成名称和描述
+        
+        Args:
+            path: 路径节点列表（方法签名）
+            analyzer_report: 代码分析报告
+            project_path: 项目路径
+            
+        Returns:
+            {'name': '路径名称', 'description': '路径描述'}
+        """
+        try:
+            # 收集路径上的方法信息
+            method_info_list = []
+            for method_sig in path:
+                method_info = self._get_method_info(method_sig, analyzer_report)
+                if method_info:
+                    method_info_list.append(method_info)
+            
+            # 构建提示词
+            system_prompt = """你是一个专业的代码架构分析专家。
+
+你的任务是根据功能路径上的方法调用序列，为这条路径生成：
+1. 一个有意义的名称（3-8个字，描述该路径的核心功能）
+2. 简洁的功能描述（1-2句话，说明该路径的作用和功能）
+
+请基于方法名、类名和调用关系推断该路径的功能。"""
+            
+            path_summary = "\n".join([
+                f"{i+1}. {info.get('class_name', '')}.{info.get('method_name', method_sig)}" 
+                for i, (method_sig, info) in enumerate(zip(path, method_info_list))
+            ])
+            
+            user_prompt = f"""请分析以下功能路径，生成有意义的路径名称和描述：
+
+# 路径方法序列
+{path_summary}
+
+# 项目路径
+{project_path}
+
+请返回JSON格式：
+{{
+    "name": "路径名称（3-8个字，描述核心功能）",
+    "description": "简洁的功能描述（1-2句话，说明该路径的作用）"
+}}"""
+            
+            response_text = self.llm_helper.call(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                cache_key=f"path_name_desc::{project_path}::{hash(tuple(path))}",
+                use_cache=False,
+            )
+            
+            # 解析LLM返回的JSON
+            path_info = self._parse_path_enhancement(response_text)
+            
+            if path_info:
+                return {
+                    'name': path_info.get('name', f'路径 {len(path)} 个方法'),
+                    'description': path_info.get('description', f'包含 {len(path)} 个方法的调用链')
+                }
+            else:
+                # 启发式规则
+                return {
+                    'name': self._infer_path_name(path, method_info_list),
+                    'description': f'包含 {len(path)} 个方法的调用链，实现特定功能'
+                }
+                
+        except Exception as e:
+            logger.warning(f"⚠️ LLM生成路径名称和描述失败: {e}，使用启发式规则")
+            return {
+                'name': f'路径 {len(path)} 个方法',
+                'description': f'包含 {len(path)} 个方法的调用链'
+            }
+    
+    def generate_path_input_output_graph(self,
+                                         path: List[str],
+                                         analyzer_report,
+                                         inputs: List[Dict] = None,
+                                         outputs: List[Dict] = None) -> Dict[str, Any]:
+        """
+        为功能路径生成输入输出图
+        
+        Args:
+            path: 路径节点列表（方法签名）
+            analyzer_report: 代码分析报告
+            inputs: 输入参数汇总
+            outputs: 返回值汇总
+            
+        Returns:
+            输入输出图数据（包含节点和边的图结构）
+        """
+        logger.info(f"[CodeUnderstandingAgent] generate_path_input_output_graph 开始")
+        logger.info(f"[CodeUnderstandingAgent]   - 路径长度: {len(path)}")
+        logger.info(f"[CodeUnderstandingAgent]   - 路径: {path[:3]}..." if len(path) > 3 else f"[CodeUnderstandingAgent]   - 路径: {path}")
+        logger.info(f"[CodeUnderstandingAgent]   - inputs: {len(inputs) if inputs else 0} 个")
+        logger.info(f"[CodeUnderstandingAgent]   - outputs: {len(outputs) if outputs else 0} 个")
+        logger.info(f"[CodeUnderstandingAgent]   - llm_helper: {type(self.llm_helper).__name__}")
+        logger.info(f"[CodeUnderstandingAgent]   - _use_direct_api: {getattr(self, '_use_direct_api', False)}")
+        
+        try:
+            # 收集路径上每个方法的输入输出信息
+            method_io_list = []
+            logger.info(f"[CodeUnderstandingAgent]   开始收集方法IO信息...")
+            for method_sig in path:
+                method_info = self._get_method_info(method_sig, analyzer_report)
+                method_inputs = []
+                method_outputs = []
+                
+                # 从inputs和outputs中查找该方法的输入输出
+                if inputs:
+                    for inp in inputs:
+                        if inp.get('method_signature') == method_sig:
+                            method_inputs.append({
+                                'name': inp.get('parameter_name', 'unknown'),
+                                'type': inp.get('parameter_type', 'unknown')
+                            })
+                
+                if outputs:
+                    for out in outputs:
+                        if out.get('method_signature') == method_sig:
+                            method_outputs.append({
+                                'type': out.get('return_type', 'unknown')
+                            })
+                
+                # 如果找不到，尝试从方法信息中提取
+                if not method_inputs and method_info:
+                    if method_info.get('parameters'):
+                        for param in method_info['parameters']:
+                            method_inputs.append({
+                                'name': param.get('name', 'unknown'),
+                                'type': param.get('type', 'unknown')
+                            })
+                
+                if not method_outputs and method_info:
+                    if method_info.get('return_type'):
+                        method_outputs.append({
+                            'type': method_info['return_type']
+                        })
+                
+                method_io_list.append({
+                    'method_sig': method_sig,
+                    'method_name': method_info.get('method_name', method_sig.split('.')[-1]) if method_info else method_sig.split('.')[-1],
+                    'inputs': method_inputs,
+                    'outputs': method_outputs
+                })
+            
+            logger.info(f"[CodeUnderstandingAgent]   收集完成，method_io_list长度: {len(method_io_list)}")
+            if method_io_list:
+                logger.info(f"[CodeUnderstandingAgent]   第一个方法: {method_io_list[0].get('method_name')}, inputs: {len(method_io_list[0].get('inputs', []))}, outputs: {len(method_io_list[0].get('outputs', []))}")
+            
+            # 使用LLM分析输入输出的语义和类型
+            logger.info(f"[CodeUnderstandingAgent]   开始构建LLM提示词...")
+            system_prompt = """你是一个专业的代码数据流分析专家。
+
+你的任务是根据功能路径上的方法调用序列和输入输出信息，生成输入输出图。
+
+输入输出图应该显示：
+1. 路径的初始输入（文件、字典、字符串等）及其类型
+2. 经过每个方法操作后的中间输出（文件、字典、字符串等）及其类型
+3. 最终输出及其类型
+
+请分析每个方法的输入输出，推断数据在路径上的流动过程。"""
+            
+            io_summary_lines = []
+            for i, io in enumerate(method_io_list):
+                input_strs = [f"{inp['name']}:{inp['type']}" for inp in io['inputs']]
+                output_strs = [out['type'] for out in io['outputs']]
+                io_summary_lines.append(
+                    f"{i+1}. {io['method_name']}: "
+                    f"输入=[{', '.join(input_strs)}], "
+                    f"输出=[{', '.join(output_strs)}]"
+                )
+            io_summary = "\n".join(io_summary_lines)
+            logger.info(f"[CodeUnderstandingAgent]   io_summary长度: {len(io_summary)} 字符")
+            
+            user_prompt = f"""请分析以下功能路径的输入输出，生成输入输出图：
+
+# 路径方法序列及输入输出
+{io_summary}
+
+请返回JSON格式，描述数据在路径上的流动：
+{
+    "nodes": [
+        {"id": "input_1", "label": "输入描述", "type": "输入类型（文件/字典/字符串等）"},
+        {"id": "method_1", "label": "方法1操作", "type": "操作节点"},
+        {"id": "output_1", "label": "中间输出描述", "type": "输出类型（文件/字典/字符串等）"},
+        ...
+        {"id": "output_final", "label": "最终输出描述", "type": "最终输出类型"}
+    ],
+    "edges": [
+        {"source": "input_1", "target": "method_1", "label": "数据流动"},
+        {"source": "method_1", "target": "output_1", "label": "处理后"},
+        ...
+    ]
+}
+
+**重要提示：**
+1. 边的方向必须表示**数据流动方向**：`source` 是数据的产生者/上游，`target` 是数据的接收者/下游。
+2. 输入节点 -> 方法节点
+3. 方法节点 -> 中间数据节点 -> 方法节点
+4. 方法节点 -> 输出节点
+5. **绝对不要**生成反向箭头（例如不要从 output 指向 method）。"""
+            
+            logger.info(f"[CodeUnderstandingAgent]   开始调用LLM...")
+            response_text = self.llm_helper.call(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                cache_key=f"io_graph::{project_path}::{hash(tuple(path))}",
+                use_cache=False,
+            )
+            logger.info(f"[CodeUnderstandingAgent]   LLM响应长度: {len(response_text)} 字符")
+            logger.info(f"[CodeUnderstandingAgent]   LLM响应前200字符: {response_text[:200]}")
+            
+            # 解析LLM返回的JSON
+            logger.info(f"[CodeUnderstandingAgent]   开始解析JSON...")
+            io_graph = self._parse_io_graph(response_text)
+            logger.info(f"[CodeUnderstandingAgent]   解析结果: {type(io_graph)}")
+            
+            if io_graph:
+                logger.info(f"[CodeUnderstandingAgent]   ✓ 解析成功，返回io_graph")
+                logger.info(f"[CodeUnderstandingAgent]   - io_graph类型: {type(io_graph)}")
+                if isinstance(io_graph, dict):
+                    logger.info(f"[CodeUnderstandingAgent]   - io_graph keys: {list(io_graph.keys())}")
+                    logger.info(f"[CodeUnderstandingAgent]   - nodes数量: {len(io_graph.get('nodes', []))}")
+                    logger.info(f"[CodeUnderstandingAgent]   - edges数量: {len(io_graph.get('edges', []))}")
+                return io_graph
+            else:
+                logger.warning(f"[CodeUnderstandingAgent]   ⚠️ 解析失败，使用启发式规则")
+                # 启发式规则：基于方法输入输出构建简单图
+                heuristic_result = self._build_io_graph_heuristic(method_io_list)
+                logger.info(f"[CodeUnderstandingAgent]   启发式规则结果: {type(heuristic_result)}")
+                if isinstance(heuristic_result, dict):
+                    logger.info(f"[CodeUnderstandingAgent]   - nodes数量: {len(heuristic_result.get('nodes', []))}")
+                    logger.info(f"[CodeUnderstandingAgent]   - edges数量: {len(heuristic_result.get('edges', []))}")
+                return heuristic_result
+                
+        except Exception as e:
+            logger.error(f"[CodeUnderstandingAgent]   ❌ 异常: {e}")
+            import traceback
+            logger.error(f"[CodeUnderstandingAgent]   异常堆栈:\n{traceback.format_exc()}")
+            logger.warning(f"[CodeUnderstandingAgent]   ⚠️ 使用启发式规则作为降级方案")
+            heuristic_result = self._build_io_graph_heuristic(method_io_list)
+            logger.info(f"[CodeUnderstandingAgent]   启发式规则结果: {type(heuristic_result)}")
+            return heuristic_result
+    
+    def _get_method_info(self, method_sig: str, analyzer_report) -> Optional[Dict[str, Any]]:
+        """获取方法信息"""
+        try:
+            if '.' in method_sig:
+                class_name, method_name = method_sig.rsplit('.', 1)
+                if analyzer_report and class_name in analyzer_report.classes:
+                    class_info = analyzer_report.classes[class_name]
+                    if method_name in class_info.methods:
+                        method_info = class_info.methods[method_name]
+                        return {
+                            'class_name': class_name,
+                            'method_name': method_name,
+                            'parameters': [{'name': p.name, 'type': getattr(p, 'param_type', None) or 'unknown'} 
+                                         for p in (method_info.parameters or [])],
+                            'return_type': getattr(method_info, 'return_type', None) or 'unknown'
+                        }
+            else:
+                # 全局函数
+                if analyzer_report:
+                    for func_info in analyzer_report.functions:
+                        if func_info.name == method_sig:
+                            return {
+                                'class_name': '',
+                                'method_name': method_sig,
+                                'parameters': [{'name': p.name, 'type': getattr(p, 'param_type', None) or 'unknown'} 
+                                             for p in (func_info.parameters or [])],
+                                'return_type': getattr(func_info, 'return_type', None) or 'unknown'
+                            }
+        except Exception as e:
+            logger.debug(f"获取方法信息失败 {method_sig}: {e}")
+        return None
+    
+    def _parse_path_enhancement(self, response_text: str) -> Optional[Dict[str, Any]]:
+        """解析LLM返回的路径增强信息"""
+        try:
+            import re
+            json_match = re.search(r'\{[\s\S]*\}', response_text)
+            if json_match:
+                json_str = json_match.group(0)
+                data = json.loads(json_str)
+                return data
+        except Exception as e:
+            logger.warning(f"解析路径增强信息失败: {e}")
+        return None
+    
+    def _parse_io_graph(self, response_text: str) -> Optional[Dict[str, Any]]:
+        """解析LLM返回的输入输出图"""
+        logger.info(f"[CodeUnderstandingAgent]   _parse_io_graph 开始解析")
+        logger.info(f"[CodeUnderstandingAgent]     - response_text长度: {len(response_text)} 字符")
+        logger.info(f"[CodeUnderstandingAgent]     - response_text前500字符: {response_text[:500]}")
+        try:
+            import re
+            json_match = re.search(r'\{[\s\S]*\}', response_text)
+            if json_match:
+                logger.info(f"[CodeUnderstandingAgent]     ✓ 找到JSON匹配")
+                json_str = json_match.group(0)
+                logger.info(f"[CodeUnderstandingAgent]     - JSON字符串长度: {len(json_str)} 字符")
+                logger.info(f"[CodeUnderstandingAgent]     - JSON字符串前200字符: {json_str[:200]}")
+                data = json.loads(json_str)
+                logger.info(f"[CodeUnderstandingAgent]     ✓ JSON解析成功")
+                logger.info(f"[CodeUnderstandingAgent]     - 解析后数据类型: {type(data)}")
+                if isinstance(data, dict):
+                    logger.info(f"[CodeUnderstandingAgent]     - 数据keys: {list(data.keys())}")
+                    logger.info(f"[CodeUnderstandingAgent]     - nodes: {len(data.get('nodes', []))} 个")
+                    logger.info(f"[CodeUnderstandingAgent]     - edges: {len(data.get('edges', []))} 个")
+                return data
+            else:
+                logger.warning(f"[CodeUnderstandingAgent]     ⚠️ 未找到JSON匹配")
+        except json.JSONDecodeError as e:
+            logger.error(f"[CodeUnderstandingAgent]     ❌ JSON解析失败: {e}")
+            logger.error(f"[CodeUnderstandingAgent]     - 错误位置: line {e.lineno}, column {e.colno}")
+        except Exception as e:
+            logger.error(f"[CodeUnderstandingAgent]     ❌ 解析输入输出图失败: {e}")
+            import traceback
+            logger.error(f"[CodeUnderstandingAgent]     异常堆栈:\n{traceback.format_exc()}")
+        logger.warning(f"[CodeUnderstandingAgent]     ⚠️ 返回None")
+        return None
+    
+    def analyze_path_call_chain_type(self,
+                                     path: List[str],
+                                     call_graph: Dict[str, Set[str]],
+                                     analyzer_report) -> Dict[str, Any]:
+        """
+        分析方法调用链的类型，识别调用关系模式
+        
+        Args:
+            path: 路径节点列表（方法签名）
+            call_graph: 调用图 {caller: {callee1, callee2, ...}}
+            analyzer_report: 代码分析报告
+            
+        Returns:
+            调用链分析结果，包含：
+            - call_chain_type: 调用链类型（如"顺序调用"、"总方法调用"、"直接调用"等）
+            - main_method: 总方法（如果有）
+            - intermediate_methods: 中间方法列表
+            - direct_calls: 直接调用关系列表
+            - explanation: LLM生成的解释说明
+        """
+        logger.info(f"[CodeUnderstandingAgent] analyze_path_call_chain_type 开始")
+        logger.info(f"[CodeUnderstandingAgent]   - 路径长度: {len(path)}")
+        logger.info(f"[CodeUnderstandingAgent]   - 路径: {path}")
+        
+        try:
+            # 收集路径上每个方法的信息
+            method_info_list = []
+            for method_sig in path:
+                method_info = self._get_method_info(method_sig, analyzer_report)
+                method_info_list.append({
+                    'method_sig': method_sig,
+                    'method_name': method_info.get('method_name', method_sig.split('.')[-1]) if method_info else method_sig.split('.')[-1],
+                    'class_name': method_info.get('class_name', '') if method_info else '',
+                    'parameters': method_info.get('parameters', []) if method_info else [],
+                    'return_type': method_info.get('return_type', 'unknown') if method_info else 'unknown'
+                })
+            
+            # 分析调用关系
+            direct_calls = []
+            for i in range(len(path) - 1):
+                caller = path[i]
+                callee = path[i + 1]
+                # 检查call_graph中是否存在直接调用关系
+                if caller in call_graph and callee in call_graph[caller]:
+                    direct_calls.append((caller, callee))
+            
+            # 构建LLM提示词
+            system_prompt = """你是一个专业的代码调用链分析专家。
+
+你的任务是分析功能路径上的方法调用链类型，识别调用关系模式。
+
+常见的调用链类型包括：
+1. **直接顺序调用**：方法A直接调用方法B，方法B直接调用方法C，形成A->B->C的链式调用
+2. **总方法顺序调用**：存在一个总方法（如main、execute、process等），该总方法按顺序调用A、B、C，数据流从A到B到C
+3. **总方法并行调用**：总方法同时调用多个方法（如A、B、C），但这些方法之间没有直接调用关系
+4. **中间方法桥接**：方法A调用中间方法M，中间方法M再调用方法B，形成A->M->B的桥接关系
+5. **回调链调用**：方法A调用方法B，方法B通过回调机制调用方法C
+6. **事件驱动调用**：方法A触发事件，事件处理器调用方法B，方法B再触发事件调用方法C
+
+请根据路径上的方法调用序列和调用关系，判断调用链类型，并给出详细解释。"""
+            
+            method_summary_lines = []
+            for i, method in enumerate(method_info_list):
+                method_summary_lines.append(
+                    f"{i+1}. {method['method_sig']} ({method['method_name']})"
+                )
+            method_summary = "\n".join(method_summary_lines)
+            
+            call_relation_summary = []
+            if direct_calls:
+                call_relation_summary.append("直接调用关系：")
+                for caller, callee in direct_calls:
+                    call_relation_summary.append(f"  - {caller} -> {callee}")
+            else:
+                call_relation_summary.append("直接调用关系：无（方法之间不是直接调用的）")
+            
+            # 检查是否存在总方法（调用路径上多个方法的）
+            potential_main_methods = []
+            for method_sig in call_graph:
+                if method_sig not in path:
+                    # 检查这个方法是否调用了路径上的多个方法
+                    called_path_methods = [m for m in path if m in call_graph.get(method_sig, set())]
+                    if len(called_path_methods) >= 2:
+                        potential_main_methods.append({
+                            'method_sig': method_sig,
+                            'called_methods': called_path_methods
+                        })
+            
+            main_method_info = ""
+            if potential_main_methods:
+                main_method_info = "\n可能存在总方法：\n"
+                for main in potential_main_methods[:3]:  # 最多显示3个
+                    main_method_info += f"  - {main['method_sig']} 调用了路径上的方法: {', '.join(main['called_methods'])}\n"
+            
+            user_prompt = f"""请分析以下功能路径的调用链类型：
+
+# 路径方法序列
+{method_summary}
+
+# 调用关系
+{chr(10).join(call_relation_summary)}
+{main_method_info}
+
+请返回JSON格式，包含：
+{{
+    "call_chain_type": "调用链类型（如：总方法顺序调用、直接顺序调用、中间方法桥接等）",
+    "main_method": "总方法签名（如果存在，否则为null）",
+    "intermediate_methods": ["中间方法签名列表（如果存在）"],
+    "direct_calls": [["调用者", "被调用者"], ...],
+    "explanation": "详细解释：调用链类型是什么，具体方法与其他方法之间存在怎样的调用关系，整个功能路径是如何形成的，数据流是如何一步步进行的"
+}}"""
+            
+            logger.info(f"[CodeUnderstandingAgent]   开始调用LLM分析调用链类型...")
+            response_text = self.llm_helper.call(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                cache_key=f"call_chain_type::{hash(tuple(path))}",
+                use_cache=False,
+            )
+            
+            # 解析LLM返回的JSON
+            result = self._parse_call_chain_analysis(response_text)
+            
+            if result:
+                # 补充直接调用关系
+                result['direct_calls'] = direct_calls
+                logger.info(f"[CodeUnderstandingAgent]   ✓ 调用链类型分析完成")
+                logger.info(f"[CodeUnderstandingAgent]   - 类型: {result.get('call_chain_type')}")
+                logger.info(f"[CodeUnderstandingAgent]   - 总方法: {result.get('main_method')}")
+                return result
+            else:
+                logger.warning(f"[CodeUnderstandingAgent]   ⚠️ LLM分析失败，使用启发式规则")
+                return self._analyze_call_chain_heuristic(path, call_graph, direct_calls, potential_main_methods)
+                
+        except Exception as e:
+            logger.error(f"[CodeUnderstandingAgent]   ❌ 异常: {e}")
+            import traceback
+            logger.error(f"[CodeUnderstandingAgent]   异常堆栈:\n{traceback.format_exc()}")
+            logger.warning(f"[CodeUnderstandingAgent]   ⚠️ 使用启发式规则作为降级方案")
+            return self._analyze_call_chain_heuristic(path, call_graph, direct_calls, [])
+    
+    def _parse_call_chain_analysis(self, response_text: str) -> Optional[Dict[str, Any]]:
+        """解析LLM返回的调用链分析结果"""
+        try:
+            import re
+            json_match = re.search(r'\{[\s\S]*\}', response_text)
+            if json_match:
+                json_str = json_match.group(0)
+                data = json.loads(json_str)
+                return data
+        except Exception as e:
+            logger.warning(f"解析调用链分析结果失败: {e}")
+        return None
+    
+    def _analyze_call_chain_heuristic(self,
+                                      path: List[str],
+                                      call_graph: Dict[str, Set[str]],
+                                      direct_calls: List[tuple],
+                                      potential_main_methods: List[Dict]) -> Dict[str, Any]:
+        """使用启发式规则分析调用链类型"""
+        # 如果路径上的方法之间有直接调用关系，判断为直接顺序调用
+        if len(direct_calls) == len(path) - 1:
+            return {
+                'call_chain_type': '直接顺序调用',
+                'main_method': None,
+                'intermediate_methods': [],
+                'direct_calls': direct_calls,
+                'explanation': f'路径上的方法形成直接顺序调用链：{" -> ".join(path)}。每个方法直接调用下一个方法。'
+            }
+        
+        # 如果存在总方法，判断为总方法顺序调用
+        if potential_main_methods:
+            main_method = potential_main_methods[0]['method_sig']
+            return {
+                'call_chain_type': '总方法顺序调用',
+                'main_method': main_method,
+                'intermediate_methods': [],
+                'direct_calls': direct_calls,
+                'explanation': f'存在总方法 {main_method}，该总方法按顺序调用路径上的方法：{" -> ".join(path)}。数据流从第一个方法流向最后一个方法。'
+            }
+        
+        # 其他情况，判断为中间方法桥接
+        return {
+            'call_chain_type': '中间方法桥接',
+            'main_method': None,
+            'intermediate_methods': [],
+            'direct_calls': direct_calls,
+            'explanation': f'路径上的方法通过中间方法建立调用关系：{" -> ".join(path)}。方法之间不是直接调用的，需要通过其他方法桥接。'
+        }
+    
+    def _infer_path_name(self, path: List[str], method_info_list: List[Dict]) -> str:
+        """从路径推断名称（启发式规则）"""
+        if not method_info_list:
+            return f'路径 {len(path)} 个方法'
+        
+        # 提取方法名的关键词
+        method_names = [info.get('method_name', '') for info in method_info_list if info]
+        if method_names:
+            first_method = method_names[0]
+            last_method = method_names[-1]
+            # 从方法名提取关键词
+            keywords = []
+            for name in [first_method, last_method]:
+                if '_' in name:
+                    keywords.extend(name.split('_')[:2])
+                else:
+                    keywords.append(name[:4])
+            return ''.join(keywords[:2]) if keywords else f'路径 {len(path)} 个方法'
+        return f'路径 {len(path)} 个方法'
+    
+    def _build_io_graph_heuristic(self, method_io_list: List[Dict]) -> Dict[str, Any]:
+        """构建输入输出图（启发式规则）"""
+        nodes = []
+        edges = []
+        
+        # 第一个方法的输入作为初始输入
+        if method_io_list:
+            first_method = method_io_list[0]
+            if first_method['inputs']:
+                input_node = {
+                    'id': 'input_0',
+                    'label': f"输入: {first_method['inputs'][0].get('name', 'data')}",
+                    'type': first_method['inputs'][0].get('type', 'unknown')
+                }
+                nodes.append(input_node)
+                
+                # 第一个方法节点
+                method_node = {
+                    'id': 'method_0',
+                    'label': first_method['method_name'],
+                    'type': '操作节点'
+                }
+                nodes.append(method_node)
+                edges.append({'source': 'input_0', 'target': 'method_0', 'label': '输入'})
+        
+        # 中间节点和边
+        for i, method_io in enumerate(method_io_list):
+            if i > 0:
+                # 方法节点
+                method_node = {
+                    'id': f'method_{i}',
+                    'label': method_io['method_name'],
+                    'type': '操作节点'
+                }
+                nodes.append(method_node)
+                
+                # 从前一个方法的输出到当前方法的输入
+                prev_output = method_io_list[i-1]['outputs']
+                if prev_output:
+                    intermediate_node = {
+                        'id': f'intermediate_{i-1}',
+                        'label': f"中间数据: {prev_output[0].get('type', 'data')}",
+                        'type': prev_output[0].get('type', 'unknown')
+                    }
+                    nodes.append(intermediate_node)
+                    edges.append({'source': f'method_{i-1}', 'target': f'intermediate_{i-1}', 'label': '输出'})
+                    edges.append({'source': f'intermediate_{i-1}', 'target': f'method_{i}', 'label': '输入'})
+        
+        # 最终输出
+        if method_io_list:
+            last_method = method_io_list[-1]
+            if last_method['outputs']:
+                output_node = {
+                    'id': 'output_final',
+                    'label': f"最终输出: {last_method['outputs'][0].get('type', 'result')}",
+                    'type': last_method['outputs'][0].get('type', 'unknown')
+                }
+                nodes.append(output_node)
+                edges.append({'source': f'method_{len(method_io_list)-1}', 'target': 'output_final', 'label': '输出'})
+        
+        return {
+            'nodes': nodes,
+            'edges': edges
+        }
     
     def _parse_partition_enhancement(self, response_text: str) -> Optional[Dict[str, Any]]:
         """解析LLM返回的分区增强信息"""
@@ -938,14 +1502,94 @@ class CodeUnderstandingAgent:
             logger.error(f"直接 API 调用失败: {e}")
             raise
 
+    def explain_path_cfg_dfg(
+        self,
+        path: List[str],
+        cfg_dot: str,
+        dfg_dot: str,
+        analyzer_report=None,
+        inputs: List[Dict] = None,
+        outputs: List[Dict] = None,
+    ) -> Dict[str, str]:
+        """
+        使用LLM解释一条功能路径的 CFG/DFG，返回可直接前端展示的 Markdown 文本。
+        目标：让不熟悉 CFG/DFG 的用户能快速读懂“在这条路径上如何执行/数据如何流动”。 
+        """
+        system_prompt = """你是资深代码分析专家，擅长用通俗但准确的语言解释 CFG/DFG。
+请输出 **Markdown**，内容需要可直接显示在前端面板中。要求：
+1) 先用 3-6 行概括这条路径“做了什么”（按执行顺序）
+2) 用小标题分别解释 CFG 与 DFG 在这条路径上的含义
+3) 明确指出“方法之间的联系”是什么（控制流：调用顺序/返回；数据流：参数/返回值/关键变量）
+4) 给出 3-8 条“阅读指南”（例如先看哪些节点/边的颜色/标签）
+5) 如果图太大，看不清，给出缩放/定位建议（例如从入口/调用边开始）
+不要输出与问题无关的内容。"""
+
+        # 收集IO摘要（可选）
+        io_lines: List[str] = []
+        if inputs:
+            for inp in inputs[:200]:
+                ms = inp.get("method_signature", "")
+                if ms in path:
+                    io_lines.append(f"- IN  {ms}: {inp.get('parameter_name','')} : {inp.get('parameter_type','')}")
+        if outputs:
+            for out in outputs[:200]:
+                ms = out.get("method_signature", "")
+                if ms in path:
+                    io_lines.append(f"- OUT {ms}: return {out.get('return_type','')}")
+        io_summary = "\n".join(io_lines[:400])
+
+        # 控制 token：DOT 很长时截断
+        def _truncate(s: str, n: int) -> str:
+            if not s:
+                return ""
+            return s if len(s) <= n else (s[:n] + "\n... (truncated) ...\n" + s[-min(2000, n//5):])
+
+        user_prompt = f"""请解释下面这条功能路径的 CFG/DFG（图是对路径上多个方法的组合，并包含方法间的调用/参数流动关系）。 
+
+## 方法路径（按执行顺序）
+{ " -> ".join([p.split('.')[-1] if '.' in p else p for p in path]) }
+
+## 已提取的输入输出摘要（可能不完整）
+{io_summary if io_summary else "(none)"}
+
+## CFG DOT
+{_truncate(cfg_dot, 12000)}
+
+## DFG DOT
+{_truncate(dfg_dot, 12000)}
+"""
+
+        try:
+            text = self.llm_helper.call(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                cache_key=f"explain_cfg_dfg::{hash(tuple(path))}",
+                use_cache=False,
+            )
+        except Exception as e:
+            logger.error(f"[CodeUnderstandingAgent] explain_path_cfg_dfg 失败: {e}")
+            # 失败时返回可展示的降级文本
+            text = f"### CFG/DFG 解释生成失败\n\n错误：{e}\n\n你仍然可以先从“调用”边（红色/粗体）开始阅读，再看每个方法内部的 entry/exit 节点。"
+
+        return {"markdown": text}
+
 
 def main():
     """主函数：演示Agent的使用"""
     import sys
     
-    # API配置
-    api_key = "sk-a7e7d7ee44594ac98c27d64a7496742f"
-    base_url = "https://api.deepseek.com/v1"
+    # API配置（从环境变量读取）
+    import os
+    from dotenv import load_dotenv
+    
+    load_dotenv()
+    api_key = os.getenv('DEEPSEEK_API_KEY')
+    base_url = os.getenv('DEEPSEEK_BASE_URL', 'https://api.deepseek.com/v1')
+    
+    if not api_key:
+        print("❌ DEEPSEEK_API_KEY 环境变量未设置，请在 .env 文件中配置")
+        print("   请参考 ENV_SETUP.md 了解如何配置环境变量")
+        sys.exit(1)
     
     # 项目路径
     project_path = "d:/代码仓库生图/create_graph"

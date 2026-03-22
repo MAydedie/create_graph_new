@@ -6,8 +6,19 @@
 """
 
 import os
+import sys
 from typing import Dict, Set, List, Tuple
 from pathlib import Path
+
+
+# Safe print for background threads
+def _safe_print(*args, **kwargs):
+    try:
+        if sys.stdout and hasattr(sys.stdout, 'closed') and sys.stdout.closed:
+            return
+        print(*args, **kwargs)
+    except Exception:
+        pass
 
 
 class CrossFileAnalyzer:
@@ -63,15 +74,15 @@ class CrossFileAnalyzer:
         Returns:
             跨文件调用列表
         """
-        print("\n[CrossFileAnalyzer] 分析跨文件调用...")
+        _safe_print("\n[CrossFileAnalyzer] 分析跨文件调用...")
         
         cross_file_calls = []
         
         # 修复：使用真实的call_graph数据
         if not call_graph:
-            print(f"[CrossFileAnalyzer] ⚠ 调用图为空，无法分析跨文件调用")
-            print(f"[CrossFileAnalyzer]   - 跨文件调用数: 0")
-            print(f"[CrossFileAnalyzer]   - 文件依赖数: 0")
+            _safe_print(f"[CrossFileAnalyzer] ⚠ 调用图为空，无法分析跨文件调用")
+            _safe_print(f"[CrossFileAnalyzer]   - 跨文件调用数: 0")
+            _safe_print(f"[CrossFileAnalyzer]   - 文件依赖数: 0")
             return cross_file_calls
         
         for caller, callees in call_graph.items():
@@ -102,9 +113,9 @@ class CrossFileAnalyzer:
                     self.cross_file_dependencies[caller_file].add(callee_file)
         
         self.cross_file_calls = cross_file_calls
-        print(f"[CrossFileAnalyzer] ✓ 跨文件调用分析完成")
-        print(f"[CrossFileAnalyzer]   - 跨文件调用数: {len(cross_file_calls)}")
-        print(f"[CrossFileAnalyzer]   - 文件依赖数: {len(self.cross_file_dependencies)}")
+        _safe_print(f"[CrossFileAnalyzer] ✓ 跨文件调用分析完成")
+        _safe_print(f"[CrossFileAnalyzer]   - 跨文件调用数: {len(cross_file_calls)}")
+        _safe_print(f"[CrossFileAnalyzer]   - 文件依赖数: {len(self.cross_file_dependencies)}")
         
         return cross_file_calls
     

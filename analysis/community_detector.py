@@ -213,26 +213,11 @@ class CommunityDetector:
         """计算社区的模块度"""
         if not self.graph or len(community) == 0:
             return 0.0
-        
-        # 简化的模块度计算
-        # 实际应该使用 networkx.algorithms.community.modularity
-        try:
-            from networkx.algorithms.community import modularity
-            partition = {node: 0 for node in self.graph.nodes()}
-            for i, node in enumerate(community):
-                partition[node] = 0
-            
-            # 创建分区字典
-            communities_dict = {0: community}
-            G_undirected = self.graph.to_undirected()
-            mod = modularity(G_undirected, [community], weight='weight')
-            return mod
-        except Exception as e:
-            logger.warning(f"计算模块度失败: {e}")
-            # 使用简化的内部边数/总边数作为替代
-            internal = self._count_internal_calls(community)
-            total = internal + self._count_external_calls(community)
-            return internal / total if total > 0 else 0.0
+
+        # 使用稳定的近似模块度，避免 networkx modularity 对不完整分区报错
+        internal = self._count_internal_calls(community)
+        total = internal + self._count_external_calls(community)
+        return internal / total if total > 0 else 0.0
     
     def _count_internal_calls(self, community: Set[str]) -> int:
         """统计社区内部调用数"""
@@ -276,6 +261,42 @@ class CommunityDetector:
             "min_modularity": min(p['modularity'] for p in self.partitions),
             "avg_size": total_methods / len(self.partitions) if self.partitions else 0
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

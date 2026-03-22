@@ -21,13 +21,13 @@ class ReportGenerator:
         report_lines = []
         
         # 标题和摘要
-        report_lines.append("# 📊 代码项目分析报告\n")
+        report_lines.append("# Code Analysis Report\n")
         report_lines.append(f"**项目名称**: {self.report.project_name}\n")
         report_lines.append(f"**分析时间**: {self.report.analysis_timestamp}\n")
         report_lines.append(f"**项目路径**: {self.report.project_path}\n\n")
         
         # 项目概览
-        report_lines.append("## 📈 项目概览\n")
+        report_lines.append("## Project Overview\n")
         report_lines.append("| 指标 | 数值 |\n")
         report_lines.append("|------|------|\n")
         report_lines.append(f"| 总文件数 | {self.report.total_files} |\n")
@@ -37,7 +37,7 @@ class ReportGenerator:
         report_lines.append(f"| 函数总数 | {len(self.report.functions)} |\n\n")
         
         # 代码结构
-        report_lines.append("## 🏗️ 代码结构\n")
+        report_lines.append("## Code Structure\n")
         report_lines.append("### 类列表\n")
         for class_name, class_info in self.report.classes.items():
             methods_list = ", ".join(list(class_info.methods.keys())[:5])
@@ -54,7 +54,7 @@ class ReportGenerator:
         report_lines.append("\n")
         
         # 调用关系分析
-        report_lines.append("## 🔗 调用关系分析\n")
+        report_lines.append("## Call Graph Analysis\n")
         stats = self.call_graph.get_statistics()
         report_lines.append(f"**总调用关系**: {stats['total_call_relations']}\n")
         report_lines.append(f"**循环调用**: {stats['cyclic_calls']}\n")
@@ -67,7 +67,7 @@ class ReportGenerator:
         report_lines.append("\n")
         
         # 执行流分析
-        report_lines.append("## 🚀 执行流分析\n")
+        report_lines.append("## Execution Flow Analysis\n")
         report_lines.append(f"**总执行入口**: {len(self.report.entry_points)}\n\n")
         
         for entry in self.report.entry_points:
@@ -90,7 +90,7 @@ class ReportGenerator:
             report_lines.append("\n")
         
         # 统计总结
-        report_lines.append("## 📊 统计总结\n")
+        report_lines.append("## Statistics Summary\n")
         report_lines.append("```\n")
         report_lines.append(f"代码规模:\n")
         report_lines.append(f"  - 文件数: {self.report.total_files}\n")
@@ -106,7 +106,7 @@ class ReportGenerator:
         report_lines.append("```\n\n")
         
         # 使用说明
-        report_lines.append("## 🎯 如何使用\n")
+        report_lines.append("## How to use\n")
         report_lines.append("1. 打开 `visualization.html` 查看交互式代码图表\n")
         report_lines.append("2. 鼠标悬停显示详细信息\n")
         report_lines.append("3. 点击节点展开详情\n")

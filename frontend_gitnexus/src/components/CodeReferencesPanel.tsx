@@ -24,10 +24,14 @@ const VIZ_COLOR_MAP = {
 };
 
 // Lazy-initialised viz instance (resolves once, reused for all blocks)
-let _vizPromise: Promise<{ renderString: (src: string) => string }> | null = null;
+type VizInstance = {
+  render: (src: string, options?: { format?: string; engine?: string }) => { status: string; output?: string; errors: Array<{ message?: string }> };
+  renderString: (src: string, options?: { format?: string; engine?: string }) => string;
+};
+let _vizPromise: Promise<VizInstance> | null = null;
 function getVizInstance() {
   if (!_vizPromise) {
-    _vizPromise = instance().then((viz) => viz as unknown as { renderString: (src: string) => string });
+    _vizPromise = instance().then((viz) => viz as unknown as VizInstance);
   }
   return _vizPromise;
 }
@@ -50,8 +54,17 @@ function GraphVizBlock({ dotString, color }: GraphVizBlockProps) {
       .then((viz) => {
         if (cancelled) return;
         try {
-          const rendered = viz.renderString(dotString);
-          setSvg(rendered);
+          // Use render() instead of renderString() to get detailed error info on failure
+          const result = viz.render(dotString, { format: 'svg', engine: 'dot' });
+          if (result.status === 'success' && result.output && result.output.trim() !== '') {
+            setSvg(result.output);
+          } else {
+            // Collect error messages from graphviz
+            const errorMessages = (result.errors || [])
+              .map((e: { message?: string }) => e.message || 'Unknown error')
+              .join('; ');
+            setError(errorMessages || (result.output ? 'Graphviz rendered empty output' : 'Graphviz failed with no output'));
+          }
         } catch (err) {
           if (!cancelled) setError(err instanceof Error ? err.message : String(err));
         } finally {

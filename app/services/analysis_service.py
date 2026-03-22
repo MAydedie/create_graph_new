@@ -1036,8 +1036,8 @@ def _generate_cfg_dfg_io(method_like_info: Any) -> Dict[str, Any]:
     io_extractor = IOExtractor()
     io_info = io_extractor.extract_io(
         method_like_info.source_code,
-        method_like_info.name,
-        method_like_info.parameters,
+        getattr(method_like_info, 'name', None) or '',
+        getattr(method_like_info, 'parameters', []) or [],
     )
 
     return {
@@ -6066,8 +6066,8 @@ def api_node_detail(entity_id):
             if resolved_method:
                 info = resolved_method['info']
                 node_kind = resolved_method['kind']
-                display_name = info.name
-                source_code = info.source_code
+                display_name = getattr(info, 'name', None) or entity_id
+                source_code = getattr(info, 'source_code', None)
                 if info.source_location:
                     file_path = info.source_location.file_path
                     line_start = info.source_location.line_start

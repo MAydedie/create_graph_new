@@ -91,7 +91,7 @@ function GraphVizBlock({ dotString, color }: GraphVizBlockProps) {
     return () => {
       el.innerHTML = '';
     };
-  }, [svg]);
+  }, [svg, fullscreen]);
 
   // Inject SVG into fullscreen overlay
   useEffect(() => {
@@ -101,7 +101,7 @@ function GraphVizBlock({ dotString, color }: GraphVizBlockProps) {
     return () => {
       el.innerHTML = '';
     };
-  }, [svg]);
+  }, [svg, fullscreen]);
 
   const showDiagram = viewMode === 'diagram';
 

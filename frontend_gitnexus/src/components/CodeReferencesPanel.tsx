@@ -41,7 +41,9 @@ function GraphVizBlock({ dotString, color }: GraphVizBlockProps) {
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<GraphVizViewMode>('diagram');
   const [isRendering, setIsRendering] = useState(false);
+  const [isFitToScreen, setIsFitToScreen] = useState(false);
   const svgContainerRef = useRef<HTMLDivElement | null>(null);
+  const svgWrapperRef = useRef<HTMLDivElement | null>(null);
   const colorMap = VIZ_COLOR_MAP[color];
 
   useEffect(() => {
@@ -81,6 +83,38 @@ function GraphVizBlock({ dotString, color }: GraphVizBlockProps) {
     };
   }, [dotString]);
 
+  // Recompute fit-to-screen scale when SVG changes or when toggling fit mode
+  useEffect(() => {
+    if (!isFitToScreen || !svgWrapperRef.current) return;
+    const wrapper = svgWrapperRef.current;
+    const svgEl = wrapper.querySelector('svg');
+    if (!svgEl) return;
+
+    const containerWidth = wrapper.clientWidth - 16; // subtract padding
+    const containerHeight = wrapper.clientHeight - 16;
+
+    const vbMatch = svgEl.getAttribute('viewBox')?.match(/[\d.]+\s+[\d.]+\s+([\d.]+)\s+([\d.]+)/);
+    if (!vbMatch) return;
+    const svgW = parseFloat(vbMatch[1]);
+    const svgH = parseFloat(vbMatch[2]);
+    if (!svgW || !svgH) return;
+
+    const scaleX = containerWidth / svgW;
+    const scaleY = containerHeight / svgH;
+    const scale = Math.min(scaleX, scaleY, 1); // don't scale up beyond 1
+
+    svgEl.style.transform = `scale(${scale})`;
+    svgEl.style.transformOrigin = 'top left';
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFitToScreen]);
+
+  // Populate fit-to-screen SVG wrapper via innerHTML (avoids dangerouslySetInnerHTML lint)
+  useEffect(() => {
+    if (!svgWrapperRef.current) return;
+    svgWrapperRef.current.innerHTML = isFitToScreen ? svg : '';
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFitToScreen, svg]);
+
   useEffect(() => {
     const container = svgContainerRef.current;
     if (!container) return;
@@ -91,10 +125,15 @@ function GraphVizBlock({ dotString, color }: GraphVizBlockProps) {
     }
 
     container.innerHTML = svg;
+
+    // Reset fit-to-screen when new SVG is rendered
+    if (isFitToScreen) {
+      setIsFitToScreen(false);
+    }
     return () => {
       container.innerHTML = '';
     };
-  }, [svg]);
+  }, [svg, isFitToScreen]);
 
   const showDiagram = viewMode === 'diagram';
 
@@ -125,7 +164,28 @@ function GraphVizBlock({ dotString, color }: GraphVizBlockProps) {
           </button>
         </div>
       </div>
-      <div className="overflow-auto max-h-64 bg-[#0a0a10]">
+      {/* Fit-to-screen overlay */}
+      {isFitToScreen && svg && (
+        <button
+          type="button"
+          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center cursor-zoom-out border-0 p-0 m-0"
+          onDoubleClick={() => setIsFitToScreen(false)}
+          onKeyDown={(e) => e.key === 'Enter' && setIsFitToScreen(false)}
+          title="Double-click to exit fullscreen"
+        >
+          <div
+            className="max-w-full max-h-full overflow-hidden"
+            ref={svgWrapperRef}
+          />
+        </button>
+      )}
+      <button
+        type="button"
+        className={`block w-full text-left overflow-auto bg-[#0a0a10] cursor-zoom-in ${isFitToScreen ? 'hidden' : ''}`}
+        style={isFitToScreen ? {} : { maxHeight: '256px' }}
+        onDoubleClick={() => { if (svg) setIsFitToScreen(true); }}
+        title={svg ? 'Double-click to fit to screen' : undefined}
+      >
         {showDiagram ? (
           isRendering ? (
             <div className="px-3 py-2 text-[11px] text-text-muted">Rendering graph…</div>
@@ -150,7 +210,7 @@ function GraphVizBlock({ dotString, color }: GraphVizBlockProps) {
         ) : (
           <pre className="px-3 py-2 text-[11px] text-text-secondary overflow-x-auto whitespace-pre-wrap">{dotString}</pre>
         )}
-      </div>
+      </button>
     </div>
   );
 }

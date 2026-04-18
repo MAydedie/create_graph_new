@@ -2,6 +2,7 @@ import { GraphNode, GraphRelationship } from '../core/graph/types';
 
 export interface RepoSummary {
   name: string;
+  displayName?: string;
   path: string;
   indexedAt: string;
   lastCommit: string;
@@ -11,6 +12,11 @@ export interface RepoSummary {
     edges: number;
     communities: number;
     processes: number;
+  };
+  experienceLibrary?: {
+    hasHierarchy?: boolean;
+    pathCount?: number;
+    status?: string;
   };
 }
 
@@ -70,7 +76,7 @@ export async function fetchRepoInfo(baseUrl: string, repoName?: string): Promise
     throw new Error(`Server returned ${response.status}: ${response.statusText}`);
   }
   const data = await response.json();
-  // npm gitnexus@1.3.3 returns "path"; git HEAD returns "repoPath"
+    // legacy npm release returns "path"; git HEAD returns "repoPath"
   return { ...data, repoPath: data.repoPath ?? data.path };
 }
 

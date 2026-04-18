@@ -12,7 +12,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from config.config import DEEPSEEK_API_KEY, DEEPSEEK_API_BASE, DEEPSEEK_MODEL, RAG_CONFIG
+from config.config import DEEPSEEK_API_KEY, DEEPSEEK_API_BASE, DEEPSEEK_MODEL, RAG_CONFIG, get_deepseek_settings
 
 
 class DeepSeekAPI:
@@ -29,9 +29,10 @@ class DeepSeekAPI:
             model: 模型名称，如果为None则从配置文件读取
             timeout: API请求超时时间（秒），默认120秒
         """
-        self.api_key = api_key or DEEPSEEK_API_KEY
-        self.base_url = base_url or DEEPSEEK_API_BASE
-        self.model = model or DEEPSEEK_MODEL
+        deepseek_settings = get_deepseek_settings()
+        self.api_key = api_key or deepseek_settings.get("api_key") or DEEPSEEK_API_KEY
+        self.base_url = base_url or deepseek_settings.get("base_url") or DEEPSEEK_API_BASE
+        self.model = model or deepseek_settings.get("model") or DEEPSEEK_MODEL
         self.timeout = timeout
         
         if not self.api_key:
@@ -197,6 +198,7 @@ class DeepSeekAPI:
                     time.sleep(2 ** attempt)  # 指数退避
                 else:
                     raise Exception(f"生成答案失败（已重试{max_retries}次）: {str(e)}")
+        raise Exception(f"生成答案失败（已重试{max_retries}次）")
 
 
 def create_llm_api(api_key: Optional[str] = None) -> DeepSeekAPI:

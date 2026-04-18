@@ -8,14 +8,15 @@ import type { IngestionWorkerApi } from '../workers/ingestion.worker';
 import type { FileEntry } from '../services/zip';
 import type { EmbeddingProgress, SemanticSearchResult } from '../core/embeddings/types';
 import type { LLMSettings, ProviderConfig, AgentStreamChunk, ChatMessage, ToolCallInfo, MessageStep } from '../core/llm/types';
-import { loadSettings, getActiveProviderConfig, saveSettings } from '../core/llm/settings-service';
+import { loadSettings, getActiveProviderConfig, buildBackendConversationLLMConfig, saveSettings } from '../core/llm/settings-service';
 import type { AgentMessage } from '../core/llm/agent';
 import { DEFAULT_VISIBLE_EDGES, type EdgeType } from '../lib/constants';
 import type { RepoSummary, ConnectToServerResult } from '../services/server-connection';
 import { fetchRepos, connectToServer } from '../services/server-connection';
+import { createGraphExtensionsApi, type CreateGraphConversationListItem } from '../services/create-graph-extensions';
 
 export type ViewMode = 'onboarding' | 'loading' | 'exploring';
-export type RightPanelTab = 'chat' | 'processes' | 'hierarchy' | 'rag';
+export type RightPanelTab = 'chat' | 'processes' | 'hierarchy' | 'rag' | 'experience';
 export type EmbeddingStatus = 'idle' | 'loading' | 'embedding' | 'indexing' | 'ready' | 'error';
 
 export interface QueryResult {
@@ -52,6 +53,10 @@ export interface CodeReferenceFocus {
   ts: number;
 }
 
+interface SendChatMessageOptions {
+  prioritizedExperienceLibraries?: string[];
+}
+
 interface AppState {
   // View state
   viewMode: ViewMode;
@@ -75,6 +80,7 @@ interface AppState {
   openCodePanel: () => void;
   openChatPanel: () => void;
   openHierarchyPanel: () => void;
+  openExperiencePanel: () => void;
 
   // Filters
   visibleLabels: NodeLabel[];
@@ -89,6 +95,8 @@ interface AppState {
   // Query state
   highlightedNodeIds: Set<string>;
   setHighlightedNodeIds: (ids: Set<string>) => void;
+  secondaryHighlightedNodeIds: Set<string>;
+  setSecondaryHighlightedNodeIds: (ids: Set<string>) => void;
   // AI highlights (toggable)
   aiCitationHighlightedNodeIds: Set<string>;
   aiToolHighlightedNodeIds: Set<string>;
@@ -153,13 +161,21 @@ interface AppState {
   chatMessages: ChatMessage[];
   isChatLoading: boolean;
   currentToolCalls: ToolCallInfo[];
+  chatConversationId: string | null;
+  chatConversationList: CreateGraphConversationListItem[];
+  chatOutputRootPath: string;
+  setChatOutputRootPath: (path: string) => void;
+  refreshChatConversations: () => Promise<void>;
+  loadChatConversation: (conversationId: string) => Promise<void>;
+  startNewChatConversation: () => Promise<void>;
 
   // LLM methods
   refreshLLMSettings: () => void;
   initializeAgent: (overrideProjectName?: string) => Promise<void>;
-  sendChatMessage: (message: string) => Promise<void>;
+  sendChatMessage: (message: string, options?: SendChatMessageOptions) => Promise<void>;
   stopChatResponse: () => void;
   clearChat: () => void;
+  returnToOnboarding: (preferredTab?: 'zip' | 'github' | 'path' | 'server') => void;
 
   // Code References Panel
   codeReferences: CodeReference[];
@@ -206,6 +222,11 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
     setRightPanelTab('hierarchy');
   }, []);
 
+  const openExperiencePanel = useCallback(() => {
+    setRightPanelOpen(true);
+    setRightPanelTab('experience');
+  }, []);
+
   // Filters
   const [visibleLabels, setVisibleLabels] = useState<NodeLabel[]>(DEFAULT_VISIBLE_LABELS);
   const [visibleEdgeTypes, setVisibleEdgeTypes] = useState<EdgeType[]>(DEFAULT_VISIBLE_EDGES);
@@ -215,6 +236,7 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
 
   // Query state
   const [highlightedNodeIds, setHighlightedNodeIds] = useState<Set<string>>(new Set());
+  const [secondaryHighlightedNodeIds, setSecondaryHighlightedNodeIds] = useState<Set<string>>(new Set());
   const [queryResult, setQueryResult] = useState<QueryResult | null>(null);
 
   // AI highlights (separate from user/query highlights)
@@ -237,6 +259,7 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
 
   const clearQueryHighlights = useCallback(() => {
     setHighlightedNodeIds(new Set());
+    setSecondaryHighlightedNodeIds(new Set());
     setQueryResult(null);
   }, []);
 
@@ -304,6 +327,17 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [currentToolCalls, setCurrentToolCalls] = useState<ToolCallInfo[]>([]);
+  const [chatConversationId, setChatConversationId] = useState<string | null>(null);
+  const [chatConversationList, setChatConversationList] = useState<CreateGraphConversationListItem[]>([]);
+  const [chatOutputRootPath, setChatOutputRootPath] = useState<string>(() => {
+    if (typeof window === 'undefined') return '';
+    return window.localStorage.getItem('create-graph.chat-output-root') || '';
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem('create-graph.chat-output-root', chatOutputRootPath || '');
+  }, [chatOutputRootPath]);
 
   // Code References Panel state
   const [codeReferences, setCodeReferences] = useState<CodeReference[]>([]);
@@ -571,6 +605,104 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
     setLLMSettings(loadSettings());
   }, []);
 
+  const resolveActiveProjectPath = useCallback(async (): Promise<string | undefined> => {
+    if (availableRepos.length > 0) {
+      const matchedPath = projectName
+        ? availableRepos.find((repo) => repo.name === projectName)?.path
+        : undefined;
+      if (matchedPath) return matchedPath;
+      if (availableRepos.length === 1) return availableRepos[0].path;
+    }
+
+    if (!serverBaseUrl) return undefined;
+    try {
+      const repoResp = await fetch('/api/repo');
+      if (repoResp.ok) {
+        const repoPayload = await repoResp.json();
+        if (repoPayload && typeof repoPayload.path === 'string' && repoPayload.path.trim()) {
+          return repoPayload.path.trim();
+        }
+      }
+    } catch {
+      // Ignore and let caller fallback.
+    }
+    return undefined;
+  }, [availableRepos, projectName, serverBaseUrl]);
+
+  const mapConversationMessagesToChatMessages = useCallback((messages: Array<Record<string, unknown>>): ChatMessage[] => {
+    return messages
+      .map((item, index) => {
+        const rawRole = typeof item.role === 'string' ? item.role : 'assistant';
+        const role: ChatMessage['role'] = rawRole === 'user' ? 'user' : 'assistant';
+        const content = typeof item.content === 'string' ? item.content : '';
+        const messageId = typeof item.messageId === 'string' ? item.messageId : `conversation-msg-${index}`;
+        const createdAt = typeof item.createdAt === 'string' ? Date.parse(item.createdAt) : NaN;
+        return {
+          id: messageId,
+          role,
+          content,
+          timestamp: Number.isFinite(createdAt) ? createdAt : Date.now() + index,
+        };
+      })
+      .filter((item) => item.content.trim().length > 0);
+  }, []);
+
+  const refreshChatConversations = useCallback(async (): Promise<void> => {
+    if (!serverBaseUrl) {
+      setChatConversationList([]);
+      return;
+    }
+
+    const activeProjectPath = await resolveActiveProjectPath();
+    if (!activeProjectPath) {
+      setChatConversationList([]);
+      return;
+    }
+
+    const items = await createGraphExtensionsApi.listConversations('/api', activeProjectPath);
+    setChatConversationList(items);
+    setChatConversationId((prev) => {
+      if (!prev) return prev;
+      return items.some((item) => item.conversationId === prev) ? prev : null;
+    });
+  }, [resolveActiveProjectPath, serverBaseUrl]);
+
+  const loadChatConversation = useCallback(async (conversationId: string): Promise<void> => {
+    if (!conversationId.trim()) {
+      setChatConversationId(null);
+      setChatMessages([]);
+      return;
+    }
+    const payload = await createGraphExtensionsApi.fetchConversationMessages('/api', conversationId);
+    const rawMessages = Array.isArray(payload.messages) ? payload.messages : [];
+    const normalizedMessages = rawMessages.filter(
+      (item): item is Record<string, unknown> => typeof item === 'object' && item !== null,
+    );
+    const mappedMessages = mapConversationMessagesToChatMessages(normalizedMessages);
+    setChatConversationId(conversationId);
+    setChatMessages(mappedMessages);
+    setCurrentToolCalls([]);
+    setAgentError(null);
+  }, [mapConversationMessagesToChatMessages]);
+
+  const startNewChatConversation = useCallback(async (): Promise<void> => {
+    setChatConversationId(null);
+    setChatMessages([]);
+    setCurrentToolCalls([]);
+    setAgentError(null);
+  }, []);
+
+  useEffect(() => {
+    if (!serverBaseUrl) {
+      setChatConversationList([]);
+      setChatConversationId(null);
+      return;
+    }
+    refreshChatConversations().catch(() => {
+      // Keep UI usable even when conversation list fetch fails.
+    });
+  }, [serverBaseUrl, refreshChatConversations]);
+
   const initializeAgent = useCallback(async (overrideProjectName?: string): Promise<void> => {
     const api = apiRef.current;
     if (!api) {
@@ -590,7 +722,35 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
     try {
       // Use override if provided (for fresh loads), fallback to state (for re-init)
       const effectiveProjectName = overrideProjectName || projectName || 'project';
-      const result = await api.initializeAgent(config, effectiveProjectName);
+      const isServerMode = Boolean(serverBaseUrl);
+      let result: { success: boolean; error?: string };
+
+      if (isServerMode) {
+        const backendRoot = String(serverBaseUrl).replace(/\/api\/?$/, '');
+        const repoName = effectiveProjectName;
+        result = await api.initializeBackendAgent(
+          config,
+          backendRoot,
+          repoName,
+          Array.from(fileContents.entries()),
+          effectiveProjectName,
+        );
+
+        if (!result.success) {
+          const localFallback = await api.initializeAgent(config, effectiveProjectName);
+          if (localFallback.success) {
+            result = localFallback;
+          } else {
+            result = {
+              success: false,
+              error: `${result.error ?? 'Backend init failed'}; local fallback failed: ${localFallback.error ?? 'unknown error'}`,
+            };
+          }
+        }
+      } else {
+        result = await api.initializeAgent(config, effectiveProjectName);
+      }
+
       if (result.success) {
         setIsAgentReady(true);
         setAgentError(null);
@@ -608,24 +768,121 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
     } finally {
       setIsAgentInitializing(false);
     }
-  }, [projectName]);
+  }, [fileContents, projectName, serverBaseUrl]);
 
-  const sendChatMessage = useCallback(async (message: string): Promise<void> => {
+  const sendChatMessage = useCallback(async (message: string, options?: SendChatMessageOptions): Promise<void> => {
     const api = apiRef.current;
     if (!api) {
       setAgentError('Worker not initialized');
       return;
     }
 
+    const appendAssistantSystemMessage = (content: string) => {
+      const assistantMessage: ChatMessage = {
+        id: `assistant-${Date.now()}`,
+        role: 'assistant',
+        content,
+        timestamp: Date.now(),
+      };
+      setChatMessages(prev => [...prev, assistantMessage]);
+    };
+
     // Refresh Code panel for the new question: keep user-pinned refs, clear old AI citations
     clearAICodeReferences();
     // Also clear previous tool-driven AI highlights (highlight_in_graph)
     clearAIToolHighlights();
 
+    const activeProjectPath = await resolveActiveProjectPath();
+
+    // In server-connected mode, prefer backend conversation pipeline for stability.
+    if (serverBaseUrl && activeProjectPath) {
+      const userMessage: ChatMessage = {
+        id: `user-${Date.now()}`,
+        role: 'user',
+        content: message,
+        timestamp: Date.now(),
+      };
+      setChatMessages(prev => [...prev, userMessage]);
+      setIsChatLoading(true);
+      setCurrentToolCalls([]);
+      setAgentError(null);
+
+      try {
+        const normalizedOutputRoot = chatOutputRootPath.trim();
+        const normalizedPrioritizedExperienceLibraries = (options?.prioritizedExperienceLibraries ?? [])
+          .map((item) => item.trim())
+          .filter((item, index, items) => item.length > 0 && items.indexOf(item) === index);
+        const clarificationContext = normalizedPrioritizedExperienceLibraries.length > 0
+          ? { prioritizedExperienceLibraries: normalizedPrioritizedExperienceLibraries }
+          : undefined;
+        const llmConfig = buildBackendConversationLLMConfig();
+        const startResponse = await createGraphExtensionsApi.startConversationSession('/api', {
+          query: message,
+          project_path: activeProjectPath,
+          conversation_id: chatConversationId || undefined,
+          clarification_context: clarificationContext,
+          llm_config: llmConfig || undefined,
+          auto_start_multi_agent: true,
+          output_root: normalizedOutputRoot || undefined,
+          auto_apply_output: Boolean(normalizedOutputRoot),
+        });
+        setChatConversationId(startResponse.conversationId);
+
+        let terminalStatus = startResponse.status;
+        let terminalError: string | undefined;
+        for (let attempt = 0; attempt < 240; attempt += 1) {
+          const statusResponse = await createGraphExtensionsApi.fetchConversationSessionStatus('/api', startResponse.sessionId);
+          terminalStatus = statusResponse.status;
+          terminalError = statusResponse.error;
+          if (terminalStatus === 'completed' || terminalStatus === 'failed') {
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+        }
+
+        if (terminalStatus === 'failed') {
+          throw new Error(terminalError || 'Conversation session failed');
+        }
+
+        const result = await createGraphExtensionsApi.fetchConversationSessionResult('/api', startResponse.sessionId);
+        const assistantContent = result.answer
+          || result.pendingQuestion?.question
+          || result.reason
+          || 'No response content was returned. Please retry.';
+        appendAssistantSystemMessage(assistantContent);
+        await refreshChatConversations().catch(() => {
+          // Keep chat usable even when conversation list refresh fails.
+        });
+      } catch (error) {
+        const backendMessage = error instanceof Error ? error.message : String(error);
+        setAgentError(backendMessage);
+        appendAssistantSystemMessage(`⚠️ ${backendMessage}`);
+      } finally {
+        setIsChatLoading(false);
+        setCurrentToolCalls([]);
+      }
+      return;
+    }
+
     if (!isAgentReady) {
       // Try to initialize first
       await initializeAgent();
-      if (!apiRef.current) return;
+      const runtimeApi = apiRef.current;
+      if (!runtimeApi) {
+        return;
+      }
+      let ready = false;
+      try {
+        ready = await runtimeApi.isAgentReady();
+      } catch {
+        ready = false;
+      }
+      if (!ready) {
+        const initMessage = 'AI assistant is not ready yet. Please check provider settings and retry.';
+        setAgentError(initMessage);
+        appendAssistantSystemMessage(initMessage);
+        return;
+      }
     }
 
     // Add user message
@@ -944,12 +1201,37 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
             }
             break;
 
-          case 'error':
-            setAgentError(chunk.error ?? 'Unknown error');
+          case 'error': {
+            const errorMessage = chunk.error ?? 'Unknown error';
+            setAgentError(errorMessage);
+            if (stepsForMessage.length === 0) {
+              stepsForMessage.push({
+                id: `step-${stepCounter++}`,
+                type: 'content',
+                content: `⚠️ ${errorMessage}`,
+              });
+            } else {
+              stepsForMessage.push({
+                id: `step-${stepCounter++}`,
+                type: 'content',
+                content: `
+
+⚠️ ${errorMessage}`,
+              });
+            }
+            updateMessage();
             break;
+          }
 
           case 'done':
-            // Finalize the assistant message - just call updateMessage one more time
+            // Finalize the assistant message and avoid silent empty bubble
+            if (stepsForMessage.length === 0) {
+              stepsForMessage.push({
+                id: `step-${stepCounter++}`,
+                type: 'content',
+                content: 'No response content was returned. Please retry.',
+              });
+            }
             updateMessage();
             break;
         }
@@ -959,11 +1241,34 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setAgentError(message);
+      const assistantMessage: ChatMessage = {
+        id: `assistant-${Date.now()}`,
+        role: 'assistant',
+        content: `⚠️ ${message}`,
+        timestamp: Date.now(),
+      };
+      setChatMessages(prev => [...prev, assistantMessage]);
     } finally {
       setIsChatLoading(false);
       setCurrentToolCalls([]);
     }
-  }, [chatMessages, isAgentReady, initializeAgent, resolveFilePath, findFileNodeId, addCodeReference, clearAICodeReferences, clearAIToolHighlights, graph, embeddingStatus]);
+  }, [
+    chatConversationId,
+    chatOutputRootPath,
+    chatMessages,
+    embeddingStatus,
+    findFileNodeId,
+    graph,
+    initializeAgent,
+    isAgentReady,
+    resolveFilePath,
+    serverBaseUrl,
+    addCodeReference,
+    clearAICodeReferences,
+    clearAIToolHighlights,
+    refreshChatConversations,
+    resolveActiveProjectPath,
+  ]);
 
   const stopChatResponse = useCallback(() => {
     const api = apiRef.current;
@@ -975,10 +1280,44 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
   }, [isChatLoading]);
 
   const clearChat = useCallback(() => {
+    if (serverBaseUrl) {
+      void startNewChatConversation();
+      return;
+    }
     setChatMessages([]);
     setCurrentToolCalls([]);
     setAgentError(null);
-  }, []);
+  }, [serverBaseUrl, startNewChatConversation]);
+
+  const returnToOnboarding = useCallback((preferredTab: 'zip' | 'github' | 'path' | 'server' = 'path') => {
+    const nextUrl = window.location.pathname + '?tab=' + encodeURIComponent(preferredTab);
+    window.history.replaceState(null, '', nextUrl);
+
+    setHighlightedNodeIds(new Set());
+    setSecondaryHighlightedNodeIds(new Set());
+    setAICitationHighlightedNodeIds(new Set());
+    clearAIToolHighlights();
+    clearBlastRadius();
+    setSelectedNode(null);
+    setQueryResult(null);
+
+    setCodeReferences([]);
+    setCodePanelOpen(false);
+    setCodeReferenceFocus(null);
+
+    setChatMessages([]);
+    setCurrentToolCalls([]);
+    setChatConversationId(null);
+    setChatConversationList([]);
+    setAgentError(null);
+
+    setGraph(null);
+    setFileContents(new Map());
+    setProjectName('');
+    setProgress(null);
+    setRightPanelOpen(false);
+    setViewMode('onboarding');
+  }, [clearAIToolHighlights, clearBlastRadius]);
 
   // Switch to a different repo on the connected server
   const switchRepo = useCallback(async (repoName: string) => {
@@ -997,6 +1336,8 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
     setCodeReferences([]);
     setCodePanelOpen(false);
     setCodeReferenceFocus(null);
+    setChatConversationId(null);
+    setChatConversationList([]);
 
     try {
       const result: ConnectToServerResult = await connectToServer(serverBaseUrl, (phase, downloaded, total) => {
@@ -1036,6 +1377,23 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
           console.warn('Embeddings auto-start failed:', err);
         }
       });
+
+      createGraphExtensionsApi.fetchWorkbenchProjectStatus('/api', repoPath)
+        .then((status) => {
+          const alreadyReady = status.experienceReady || status.status === 'completed';
+          const alreadyRunning = status.status === 'running' || status.status === 'starting';
+          if (alreadyReady || alreadyRunning) {
+            return;
+          }
+          return createGraphExtensionsApi.startWorkbenchSession('/api', { project_path: repoPath });
+        })
+        .catch(() => {
+          // If status lookup fails, keep best-effort behavior and attempt background bootstrap.
+          return createGraphExtensionsApi.startWorkbenchSession('/api', { project_path: repoPath });
+        })
+        .catch(() => {
+          // Best-effort bootstrap for hierarchy cache after repo switching.
+        });
     } catch (err) {
       console.error('Repo switch failed:', err);
       setProgress({
@@ -1115,15 +1473,18 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
     openCodePanel,
     openChatPanel,
     openHierarchyPanel,
+    openExperiencePanel,
     visibleLabels,
     toggleLabelVisibility,
     visibleEdgeTypes,
     toggleEdgeVisibility,
     depthFilter,
     setDepthFilter,
-    highlightedNodeIds,
-    setHighlightedNodeIds,
-    aiCitationHighlightedNodeIds,
+      highlightedNodeIds,
+      setHighlightedNodeIds,
+      secondaryHighlightedNodeIds,
+      setSecondaryHighlightedNodeIds,
+      aiCitationHighlightedNodeIds,
     aiToolHighlightedNodeIds,
     blastRadiusNodeIds,
     isAIHighlightsEnabled,
@@ -1172,12 +1533,20 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
     chatMessages,
     isChatLoading,
     currentToolCalls,
+    chatConversationId,
+    chatConversationList,
+    chatOutputRootPath,
+    setChatOutputRootPath,
+    refreshChatConversations,
+    loadChatConversation,
+    startNewChatConversation,
     // LLM methods
     refreshLLMSettings,
     initializeAgent,
     sendChatMessage,
     stopChatResponse,
     clearChat,
+    returnToOnboarding,
     // Code References Panel
     codeReferences,
     isCodePanelOpen,

@@ -8,7 +8,29 @@
 /**
  * Supported LLM providers
  */
-export type LLMProvider = 'openai' | 'azure-openai' | 'gemini' | 'anthropic' | 'ollama' | 'openrouter';
+export type LLMProvider =
+  | 'openai'
+  | 'azure-openai'
+  | 'gemini'
+  | 'anthropic'
+  | 'ollama'
+  | 'openrouter'
+  | 'deepseek'
+  | 'qwen'
+  | 'glm'
+  | 'kimi'
+  | 'minimax'
+  | 'doubao';
+
+export type OpenAICompatibleProvider =
+  | 'openai'
+  | 'openrouter'
+  | 'deepseek'
+  | 'qwen'
+  | 'glm'
+  | 'kimi'
+  | 'minimax'
+  | 'doubao';
 
 /**
  * Base configuration shared by all providers
@@ -78,10 +100,64 @@ export interface OpenRouterConfig extends BaseProviderConfig {
   baseUrl?: string;  // defaults to https://openrouter.ai/api/v1
 }
 
+export interface DeepSeekConfig extends BaseProviderConfig {
+  provider: 'deepseek';
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+}
+
+export interface QwenConfig extends BaseProviderConfig {
+  provider: 'qwen';
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+}
+
+export interface GLMConfig extends BaseProviderConfig {
+  provider: 'glm';
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+}
+
+export interface KimiConfig extends BaseProviderConfig {
+  provider: 'kimi';
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+}
+
+export interface MiniMaxConfig extends BaseProviderConfig {
+  provider: 'minimax';
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+}
+
+export interface DoubaoConfig extends BaseProviderConfig {
+  provider: 'doubao';
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+}
+
 /**
  * Union type for all provider configurations
  */
-export type ProviderConfig = OpenAIConfig | AzureOpenAIConfig | GeminiConfig | AnthropicConfig | OllamaConfig | OpenRouterConfig;
+export type ProviderConfig =
+  | OpenAIConfig
+  | AzureOpenAIConfig
+  | GeminiConfig
+  | AnthropicConfig
+  | OllamaConfig
+  | OpenRouterConfig
+  | DeepSeekConfig
+  | QwenConfig
+  | GLMConfig
+  | KimiConfig
+  | MiniMaxConfig
+  | DoubaoConfig;
 
 /**
  * Stored settings (what goes to localStorage)
@@ -98,6 +174,12 @@ export interface LLMSettings {
   anthropic?: Partial<Omit<AnthropicConfig, 'provider'>>;
   ollama?: Partial<Omit<OllamaConfig, 'provider'>>;
   openrouter?: Partial<Omit<OpenRouterConfig, 'provider'>>;
+  deepseek?: Partial<Omit<DeepSeekConfig, 'provider'>>;
+  qwen?: Partial<Omit<QwenConfig, 'provider'>>;
+  glm?: Partial<Omit<GLMConfig, 'provider'>>;
+  kimi?: Partial<Omit<KimiConfig, 'provider'>>;
+  minimax?: Partial<Omit<MiniMaxConfig, 'provider'>>;
+  doubao?: Partial<Omit<DoubaoConfig, 'provider'>>;
 
   // Intelligent Clustering Settings
   intelligentClustering: boolean;
@@ -146,6 +228,42 @@ export const DEFAULT_LLM_SETTINGS: LLMSettings = {
     apiKey: '',
     model: '',
     baseUrl: 'https://openrouter.ai/api/v1',
+    temperature: 0.1,
+  },
+  deepseek: {
+    apiKey: '',
+    baseUrl: 'https://api.deepseek.com/v1',
+    model: 'deepseek-chat',
+    temperature: 0.1,
+  },
+  qwen: {
+    apiKey: '',
+    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    model: 'qwen-plus',
+    temperature: 0.1,
+  },
+  glm: {
+    apiKey: '',
+    baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    model: 'glm-4.5',
+    temperature: 0.1,
+  },
+  kimi: {
+    apiKey: '',
+    baseUrl: 'https://api.moonshot.ai/v1',
+    model: 'kimi-k2.5',
+    temperature: 0.1,
+  },
+  minimax: {
+    apiKey: '',
+    baseUrl: 'https://api.minimax.io/v1',
+    model: 'MiniMax-M2.5',
+    temperature: 0.1,
+  },
+  doubao: {
+    apiKey: '',
+    baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+    model: 'doubao-seed-1-6-250615',
     temperature: 0.1,
   },
 };

@@ -11,14 +11,14 @@ let pfs: any;
 
 const initFS = () => {
   // Create a fresh filesystem instance
-  const fsName = `gitnexus-git-${Date.now()}`;
+  const fsName = `create-graph-git-${Date.now()}`;
   fs = new LightningFS(fsName);
   pfs = fs.promises;
   return fsName;
 };
 
 // Hosted proxy URL - use this for localhost to avoid local proxy issues
-const HOSTED_PROXY_URL = 'https://gitnexus.vercel.app/api/proxy';
+const HOSTED_PROXY_URL = 'https://create-graph.vercel.app/api/proxy';
 
 /**
  * Custom HTTP client that uses a query-param based proxy

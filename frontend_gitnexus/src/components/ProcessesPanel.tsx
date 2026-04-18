@@ -11,6 +11,48 @@ import { useAppState } from '../hooks/useAppState';
 import { ProcessFlowModal } from './ProcessFlowModal';
 import type { ProcessData, ProcessStep } from '../lib/mermaid-generator';
 
+const readNumericStepCount = (value: unknown): number | null => {
+    return typeof value === 'number' && Number.isFinite(value) ? value : null;
+};
+
+const getProcessStepRelsFromGraph = (
+    graph: ReturnType<typeof useAppState>['graph'],
+    processId: string,
+) => {
+    if (!graph) return [];
+    return graph.relationships.filter((rel) => rel.type === 'STEP_IN_PROCESS' && rel.targetId === processId);
+};
+
+const getProcessStepIdsFromGraph = (
+    graph: ReturnType<typeof useAppState>['graph'],
+    processId: string,
+): string[] => {
+    return getProcessStepRelsFromGraph(graph, processId).map((rel) => rel.sourceId);
+};
+
+const buildProcessStepsFromGraph = (
+    graph: ReturnType<typeof useAppState>['graph'],
+    processId: string,
+): ProcessStep[] => {
+    if (!graph) return [];
+    const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
+    const rels = [...getProcessStepRelsFromGraph(graph, processId)].sort((left, right) => {
+        const leftStep = typeof left.step === 'number' ? left.step : Number.MAX_SAFE_INTEGER;
+        const rightStep = typeof right.step === 'number' ? right.step : Number.MAX_SAFE_INTEGER;
+        return leftStep - rightStep;
+    });
+
+    return rels.map((rel, index) => {
+        const stepNode = nodeById.get(rel.sourceId);
+        return {
+            id: rel.sourceId,
+            name: stepNode?.properties?.name || rel.sourceId,
+            filePath: stepNode?.properties?.filePath,
+            stepNumber: typeof rel.step === 'number' ? rel.step : index + 1,
+        };
+    });
+};
+
 export const ProcessesPanel = () => {
     const { graph, runQuery, setHighlightedNodeIds, highlightedNodeIds } = useAppState();
     const [searchQuery, setSearchQuery] = useState('');
@@ -24,15 +66,24 @@ export const ProcessesPanel = () => {
         if (!graph) return { cross: [], intra: [] };
 
         const processNodes = graph.nodes.filter(n => n.label === 'Process');
+        const relDerivedStepCount = new Map<string, number>();
+        for (const rel of graph.relationships) {
+            if (rel.type !== 'STEP_IN_PROCESS') continue;
+            relDerivedStepCount.set(rel.targetId, (relDerivedStepCount.get(rel.targetId) || 0) + 1);
+        }
 
         const cross: Array<{ id: string; label: string; stepCount: number; clusters: string[] }> = [];
         const intra: Array<{ id: string; label: string; stepCount: number; clusters: string[] }> = [];
 
         for (const node of processNodes) {
+            const nodeProps = node.properties as Record<string, unknown>;
+            const directStepCount = readNumericStepCount(nodeProps.stepCount) ?? readNumericStepCount(nodeProps.step_count);
             const item = {
                 id: node.id,
                 label: node.properties.heuristicLabel || node.properties.name || node.id,
-                stepCount: node.properties.stepCount || 0,
+                stepCount: directStepCount && directStepCount > 0
+                    ? directStepCount
+                    : (relDerivedStepCount.get(node.id) || 0),
                 clusters: node.properties.communities || [],
             };
 
@@ -165,14 +216,21 @@ export const ProcessesPanel = () => {
         ORDER BY r.step
       `;
 
-            const stepsResult = await runQuery(stepsQuery);
-
-            const steps: ProcessStep[] = stepsResult.map((row: any) => ({
-                id: row.id || row[0],
-                name: row.name || row[1] || 'Unknown',
-                filePath: row.filePath || row[2],
-                stepNumber: row.stepNumber || row.step || row[3] || 0,
-            }));
+            let steps: ProcessStep[] = [];
+            try {
+                const stepsResult = await runQuery(stepsQuery);
+                steps = stepsResult.map((row: any) => ({
+                    id: row.id || row[0],
+                    name: row.name || row[1] || 'Unknown',
+                    filePath: row.filePath || row[2],
+                    stepNumber: row.stepNumber || row.step || row[3] || 0,
+                }));
+            } catch (queryError) {
+                console.warn('Failed to query process steps, falling back to graph relationships:', queryError);
+            }
+            if (steps.length === 0) {
+                steps = buildProcessStepsFromGraph(graph, processId);
+            }
 
             // Get step IDs for edge query
             const stepIds = steps.map(s => s.id);
@@ -197,8 +255,14 @@ export const ProcessesPanel = () => {
                         }))
                         .filter(edge => edge.from !== edge.to); // Remove self-loops
                 } catch (err) {
-                    console.warn('Could not fetch edges:', err);
-                    // Continue with empty edges - will fallback to linear
+                    console.warn('Could not fetch edges from DB query, falling back to graph relationships:', err);
+                    if (graph) {
+                        const stepIdSet = new Set(stepIds);
+                        edges = graph.relationships
+                            .filter((rel) => rel.type === 'CALLS' && stepIdSet.has(rel.sourceId) && stepIdSet.has(rel.targetId))
+                            .map((rel) => ({ from: rel.sourceId, to: rel.targetId, type: rel.type }))
+                            .filter((edge) => edge.from !== edge.to);
+                    }
                 }
             }
 
@@ -250,8 +314,16 @@ export const ProcessesPanel = () => {
                 MATCH (s)-[r:CodeRelation {type: 'STEP_IN_PROCESS'}]->(p:Process {id: '${processId.replace(/'/g, "''")}'})
                 RETURN s.id AS id
             `;
-            const stepsResult = await runQuery(stepsQuery);
-            const stepIds = stepsResult.map((row: any) => row.id || row[0]);
+            let stepIds: string[] = [];
+            try {
+                const stepsResult = await runQuery(stepsQuery);
+                stepIds = stepsResult.map((row: any) => row.id || row[0]);
+            } catch (error) {
+                console.warn('Failed to query process focus steps, falling back to graph relationships:', error);
+            }
+            if (stepIds.length === 0) {
+                stepIds = getProcessStepIdsFromGraph(graph, processId);
+            }
 
             // Cache the result
             setProcessStepsCache(prev => new Map(prev).set(processId, stepIds));
@@ -264,7 +336,7 @@ export const ProcessesPanel = () => {
         } finally {
             setLoadingProcess(null);
         }
-    }, [focusedProcessId, processStepsCache, runQuery, setHighlightedNodeIds]);
+    }, [focusedProcessId, graph, processStepsCache, runQuery, setHighlightedNodeIds]);
 
     // Focus in graph callback - toggles highlight (used by modal)
     const handleFocusInGraph = useCallback((nodeIds: string[], processId: string) => {
@@ -297,9 +369,9 @@ export const ProcessesPanel = () => {
                 <div className="w-14 h-14 mb-4 flex items-center justify-center bg-surface rounded-xl">
                     <GitBranch className="w-7 h-7 text-text-muted" />
                 </div>
-                <h3 className="text-base font-medium text-text-primary mb-2">No Processes Detected</h3>
+                <h3 className="text-base font-medium text-text-primary mb-2">尚未识别到 Process</h3>
                 <p className="text-sm text-text-secondary max-w-xs">
-                    Processes are execution flows traced from entry points. Load a codebase to see detected processes.
+                    Process 表示从入口点推导出的执行流。导入代码后，这里会展示识别到的流程分组。
                 </p>
             </div>
         );
@@ -316,13 +388,13 @@ export const ProcessesPanel = () => {
                             type="text"
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
-                            placeholder="Filter processes..."
+                            placeholder="按名称筛选 Process…"
                             className="flex-1 bg-transparent border-none outline-none text-sm text-text-primary placeholder:text-text-muted"
                         />
                     </div>
                 </div>
                 <div className="flex items-center gap-2 text-xs text-text-muted">
-                    <span>{totalCount} processes detected</span>
+                    <span>共识别 {totalCount} 个 Process</span>
                 </div>
             </div>
 
@@ -331,6 +403,7 @@ export const ProcessesPanel = () => {
                 {/* View All Processes Card */}
                 <div className="px-4 py-3">
                     <button
+                        type="button"
                         onClick={handleViewAllProcesses}
                         disabled={loadingProcess !== null}
                         className="w-full flex items-center gap-3 p-3 bg-elevated/40 hover:bg-elevated/80 border border-border-subtle hover:border-cyan-500/30 rounded-xl transition-all group shadow-sm hover:shadow-cyan-900/10 text-left"
@@ -339,8 +412,8 @@ export const ProcessesPanel = () => {
                             <Layers className="w-5 h-5 text-cyan-400" />
                         </div>
                         <div className="flex-1">
-                            <h4 className="text-sm font-medium text-text-primary group-hover:text-cyan-200">Full Process Map</h4>
-                            <p className="text-xs text-text-muted">View combined map of {totalCount} processes</p>
+                            <h4 className="text-sm font-medium text-text-primary group-hover:text-cyan-200">全量流程地图</h4>
+                            <p className="text-xs text-text-muted">合并查看全部 {totalCount} 个 Process 的整体关系</p>
                         </div>
                         {loadingProcess === 'all' ? (
                             <span className="animate-spin mr-1">
@@ -356,6 +429,7 @@ export const ProcessesPanel = () => {
                 {filteredProcesses.cross.length > 0 && (
                     <div className="border-b border-border-subtle">
                         <button
+                            type="button"
                             onClick={() => toggleSection('cross')}
                             className="w-full flex items-center gap-2 px-4 py-2.5 text-left hover:bg-hover transition-colors"
                         >
@@ -365,7 +439,7 @@ export const ProcessesPanel = () => {
                                 <ChevronRight className="w-4 h-4 text-text-muted" />
                             )}
                             <Zap className="w-4 h-4 text-amber-400" />
-                            <span className="text-sm font-medium text-text-primary">Cross-Community</span>
+                            <span className="text-sm font-medium text-text-primary">跨社区流程</span>
                             <span className="ml-auto text-xs text-text-muted bg-surface px-2 py-0.5 rounded-full">
                                 {filteredProcesses.cross.length}
                             </span>
@@ -393,6 +467,7 @@ export const ProcessesPanel = () => {
                 {filteredProcesses.intra.length > 0 && (
                     <div>
                         <button
+                            type="button"
                             onClick={() => toggleSection('intra')}
                             className="w-full flex items-center gap-2 px-4 py-2.5 text-left hover:bg-hover transition-colors"
                         >
@@ -402,7 +477,7 @@ export const ProcessesPanel = () => {
                                 <ChevronRight className="w-4 h-4 text-text-muted" />
                             )}
                             <Home className="w-4 h-4 text-emerald-400" />
-                            <span className="text-sm font-medium text-text-primary">Intra-Community</span>
+                            <span className="text-sm font-medium text-text-primary">社区内流程</span>
                             <span className="ml-auto text-xs text-text-muted bg-surface px-2 py-0.5 rounded-full">
                                 {filteredProcesses.intra.length}
                             </span>
@@ -462,27 +537,29 @@ const ProcessItem = ({ process, isLoading, isSelected, isFocused, onView, onTogg
             <div className="flex-1 min-w-0">
                 <div className="text-sm text-text-primary truncate">{process.label}</div>
                 <div className="flex items-center gap-2 text-xs text-text-muted">
-                    <span>{process.stepCount} steps</span>
+                        <span>{process.stepCount} 个步骤</span>
                     {process.clusters.length > 0 && (
                         <>
                             <span>•</span>
-                            <span>{process.clusters.length} clusters</span>
+                            <span>{process.clusters.length} 个社区</span>
                         </>
                     )}
                 </div>
             </div>
             {/* Lightbulb icon - appears on hover, always visible when focused */}
             <button
+                type="button"
                 onClick={onToggleFocus}
                 className={`p-1.5 rounded-md transition-all ${isFocused
                     ? 'text-amber-400 hover:text-amber-300 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 animate-pulse opacity-100'
                     : 'text-text-muted hover:text-cyan-400 bg-white/5 hover:bg-cyan-500/20 border border-white/10 hover:border-cyan-400/40 opacity-0 group-hover:opacity-100'
                     }`}
-                title={isFocused ? 'Click to remove highlight from graph' : 'Click to highlight in graph'}
+                title={isFocused ? '取消图谱高亮' : '在图谱中高亮'}
             >
                 <Lightbulb className="w-4 h-4" />
             </button>
             <button
+                type="button"
                 onClick={onView}
                 disabled={isLoading}
                 className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md transition-all disabled:opacity-50 shadow-sm ${isSelected
@@ -491,16 +568,16 @@ const ProcessItem = ({ process, isLoading, isSelected, isFocused, onView, onTogg
                     }`}
             >
                 {isLoading ? (
-                    <span className="animate-pulse">Loading...</span>
+                    <span className="animate-pulse">加载中…</span>
                 ) : isSelected ? (
                     <>
                         <Eye className="w-3.5 h-3.5" />
-                        Viewing
+                        查看中
                     </>
                 ) : (
                     <>
                         <Eye className="w-3.5 h-3.5" />
-                        View
+                        查看
                     </>
                 )}
             </button>

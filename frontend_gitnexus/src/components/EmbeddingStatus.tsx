@@ -51,10 +51,10 @@ export const EmbeddingStatus = () => {
   };
   
   const handleTestArrayParams = async () => {
-    setTestResult('Testing...');
+      setTestResult('测试中…');
     const result = await testArrayParams();
     if (result.success) {
-      setTestResult('✅ Array params WORK!');
+       setTestResult('✅ 数组参数可用');
       console.log('✅ Array params test passed!');
     } else {
       setTestResult(`❌ ${result.error}`);
@@ -81,22 +81,24 @@ export const EmbeddingStatus = () => {
           {/* Test button (dev only) */}
           {import.meta.env.DEV && (
             <button
+              type="button"
               onClick={handleTestArrayParams}
               className="flex items-center gap-1 px-2 py-1.5 bg-surface border border-border-subtle rounded-lg text-xs text-text-muted hover:bg-hover hover:text-text-secondary transition-all"
-              title="Test if KuzuDB supports array params"
+             title="测试 KuzuDB 是否支持数组参数"
             >
               <FlaskConical className="w-3 h-3" />
-              {testResult || 'Test'}
+               {testResult || '测试'}
             </button>
           )}
           
           <button
+            type="button"
             onClick={() => handleStartEmbeddings()}
             className="flex items-center gap-2 px-3 py-1.5 bg-surface border border-border-subtle rounded-lg text-sm text-text-secondary hover:bg-hover hover:text-text-primary hover:border-accent/50 transition-all group"
-            title="Generate embeddings for semantic search"
+             title="生成语义检索向量"
           >
             <Brain className="w-4 h-4 text-node-interface group-hover:text-accent transition-colors" />
-            <span className="hidden sm:inline">Enable Semantic Search</span>
+             <span className="hidden sm:inline">启用语义检索</span>
             <Zap className="w-3 h-3 text-text-muted" />
           </button>
         </div>
@@ -113,7 +115,7 @@ export const EmbeddingStatus = () => {
         <div className="flex items-center gap-2.5 px-3 py-1.5 bg-surface border border-accent/30 rounded-lg text-sm">
           <Loader2 className="w-4 h-4 text-accent animate-spin" />
           <div className="flex flex-col gap-0.5">
-            <span className="text-text-secondary text-xs">Loading AI model...</span>
+             <span className="text-text-secondary text-xs">正在加载模型…</span>
             <div className="w-24 h-1 bg-elevated rounded-full overflow-hidden">
               <div 
                 className="h-full bg-gradient-to-r from-accent to-node-interface rounded-full transition-all duration-300"
@@ -138,7 +140,7 @@ export const EmbeddingStatus = () => {
         <Loader2 className="w-4 h-4 text-node-function animate-spin" />
         <div className="flex flex-col gap-0.5">
           <span className="text-text-secondary text-xs">
-            Embedding {processed}/{total} nodes
+             正在生成向量 {processed}/{total}
           </span>
           <div className="w-24 h-1 bg-elevated rounded-full overflow-hidden">
             <div 
@@ -156,7 +158,7 @@ export const EmbeddingStatus = () => {
     return (
       <div className="flex items-center gap-2 px-3 py-1.5 bg-surface border border-node-interface/30 rounded-lg text-sm text-text-secondary">
         <Loader2 className="w-4 h-4 text-node-interface animate-spin" />
-        <span className="text-xs">Creating vector index...</span>
+         <span className="text-xs">正在创建向量索引…</span>
       </div>
     );
   }
@@ -166,10 +168,10 @@ export const EmbeddingStatus = () => {
     return (
       <div 
         className="flex items-center gap-2 px-3 py-1.5 bg-node-function/10 border border-node-function/30 rounded-lg text-sm text-node-function"
-        title="Semantic search is ready! Use natural language in the AI chat."
+         title="语义检索已就绪，可在 AI 面板中直接使用自然语言提问。"
       >
         <Check className="w-4 h-4" />
-        <span className="text-xs font-medium">Semantic Ready</span>
+         <span className="text-xs font-medium">语义检索已就绪</span>
       </div>
     );
   }
@@ -179,12 +181,13 @@ export const EmbeddingStatus = () => {
     return (
       <>
         <button
+          type="button"
           onClick={() => handleStartEmbeddings()}
           className="flex items-center gap-2 px-3 py-1.5 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-400 hover:bg-red-500/20 transition-colors"
-          title={embeddingProgress?.error || 'Embedding failed. Click to retry.'}
+           title={embeddingProgress?.error || '向量生成失败，点击重试。'}
         >
           <AlertCircle className="w-4 h-4" />
-          <span className="text-xs">Failed - Retry</span>
+           <span className="text-xs">失败，点击重试</span>
         </button>
         {fallbackDialog}
       </>
@@ -193,4 +196,3 @@ export const EmbeddingStatus = () => {
 
   return null;
 };
-

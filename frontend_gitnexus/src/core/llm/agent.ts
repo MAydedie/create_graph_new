@@ -21,6 +21,12 @@ import type {
   AnthropicConfig,
   OllamaConfig,
   OpenRouterConfig,
+  DeepSeekConfig,
+  QwenConfig,
+  GLMConfig,
+  KimiConfig,
+  MiniMaxConfig,
+  DoubaoConfig,
   AgentStreamChunk,
 } from './types';
 import { 
@@ -221,6 +227,114 @@ export const createChatModel = (config: ProviderConfig): BaseChatModel => {
         configuration: {
           apiKey: openRouterConfig.apiKey, // Ensure client receives it
           baseURL: openRouterConfig.baseUrl ?? 'https://openrouter.ai/api/v1',
+        },
+        streaming: true,
+      });
+    }
+
+    case 'deepseek': {
+      const providerConfig = config as DeepSeekConfig;
+      if (!providerConfig.apiKey || providerConfig.apiKey.trim() === '') {
+        throw new Error('DeepSeek API key is required but was not provided');
+      }
+      return new ChatOpenAI({
+        apiKey: providerConfig.apiKey,
+        modelName: providerConfig.model,
+        temperature: providerConfig.temperature ?? 0.1,
+        maxTokens: providerConfig.maxTokens,
+        configuration: {
+          apiKey: providerConfig.apiKey,
+          baseURL: providerConfig.baseUrl,
+        },
+        streaming: true,
+      });
+    }
+
+    case 'qwen': {
+      const providerConfig = config as QwenConfig;
+      if (!providerConfig.apiKey || providerConfig.apiKey.trim() === '') {
+        throw new Error('Qwen API key is required but was not provided');
+      }
+      return new ChatOpenAI({
+        apiKey: providerConfig.apiKey,
+        modelName: providerConfig.model,
+        temperature: providerConfig.temperature ?? 0.1,
+        maxTokens: providerConfig.maxTokens,
+        configuration: {
+          apiKey: providerConfig.apiKey,
+          baseURL: providerConfig.baseUrl,
+        },
+        streaming: true,
+      });
+    }
+
+    case 'glm': {
+      const providerConfig = config as GLMConfig;
+      if (!providerConfig.apiKey || providerConfig.apiKey.trim() === '') {
+        throw new Error('GLM API key is required but was not provided');
+      }
+      return new ChatOpenAI({
+        apiKey: providerConfig.apiKey,
+        modelName: providerConfig.model,
+        temperature: providerConfig.temperature ?? 0.1,
+        maxTokens: providerConfig.maxTokens,
+        configuration: {
+          apiKey: providerConfig.apiKey,
+          baseURL: providerConfig.baseUrl,
+        },
+        streaming: true,
+      });
+    }
+
+    case 'kimi': {
+      const providerConfig = config as KimiConfig;
+      if (!providerConfig.apiKey || providerConfig.apiKey.trim() === '') {
+        throw new Error('Kimi API key is required but was not provided');
+      }
+      return new ChatOpenAI({
+        apiKey: providerConfig.apiKey,
+        modelName: providerConfig.model,
+        temperature: providerConfig.temperature ?? 0.1,
+        maxTokens: providerConfig.maxTokens,
+        configuration: {
+          apiKey: providerConfig.apiKey,
+          baseURL: providerConfig.baseUrl,
+        },
+        streaming: true,
+      });
+    }
+
+    case 'minimax': {
+      const providerConfig = config as MiniMaxConfig;
+      if (!providerConfig.apiKey || providerConfig.apiKey.trim() === '') {
+        throw new Error('MiniMax API key is required but was not provided');
+      }
+      return new ChatOpenAI({
+        apiKey: providerConfig.apiKey,
+        modelName: providerConfig.model,
+        temperature: providerConfig.temperature ?? 0.1,
+        maxTokens: providerConfig.maxTokens,
+        configuration: {
+          apiKey: providerConfig.apiKey,
+          baseURL: providerConfig.baseUrl,
+        },
+        streaming: true,
+      });
+    }
+
+    case 'doubao': {
+      const providerConfig = config as DoubaoConfig;
+      if (!providerConfig.apiKey || providerConfig.apiKey.trim() === '') {
+        throw new Error('Doubao API key is required but was not provided');
+      }
+      return new ChatOpenAI({
+        apiKey: providerConfig.apiKey,
+        modelName: providerConfig.model,
+        temperature: providerConfig.temperature ?? 0.1,
+        maxTokens: providerConfig.maxTokens,
+        configuration: {
+          apiKey: providerConfig.apiKey,
+          baseURL: providerConfig.baseUrl,
         },
         streaming: true,
       });

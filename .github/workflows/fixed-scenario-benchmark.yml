@@ -1,0 +1,51 @@
+name: fixed-scenario-benchmark
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 3 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: create_graph
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+          cache: pip
+          cache-dependency-path: create_graph/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run fixed scenario benchmark
+        run: |
+          python scripts/fixed_scenario_benchmark.py --project-path "$PWD" --report-dir "$PWD/benchmark_reports"
+
+      - name: Append latest markdown to run summary
+        shell: bash
+        run: |
+          latest_report=$(ls -t benchmark_reports/fixed_scenario_benchmark_*.md | head -n 1)
+          cat "$latest_report" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload benchmark artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: fixed-scenario-benchmark-${{ github.run_number }}
+          path: |
+            create_graph/benchmark_reports/fixed_scenario_benchmark_*.json
+            create_graph/benchmark_reports/fixed_scenario_benchmark_*.md
+          retention-days: 7

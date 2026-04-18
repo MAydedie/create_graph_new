@@ -4,23 +4,23 @@ import { useAppState } from '../hooks/useAppState';
 
 const EXAMPLE_QUERIES = [
   {
-    label: 'All Functions',
+    label: '全部函数',
     query: `MATCH (n:Function) RETURN n.id AS id, n.name AS name, n.filePath AS path LIMIT 50`,
   },
   {
-    label: 'All Classes',
+    label: '全部类',
     query: `MATCH (n:Class) RETURN n.id AS id, n.name AS name, n.filePath AS path LIMIT 50`,
   },
   {
-    label: 'All Interfaces',
+    label: '全部接口',
     query: `MATCH (n:Interface) RETURN n.id AS id, n.name AS name, n.filePath AS path LIMIT 50`,
   },
   {
-    label: 'Function Calls',
+    label: '函数调用',
     query: `MATCH (a:File)-[r:CodeRelation {type: 'CALLS'}]->(b:Function) RETURN a.id AS id, a.name AS caller, b.name AS callee LIMIT 50`,
   },
   {
-    label: 'Import Dependencies',
+    label: '导入依赖',
     query: `MATCH (a:File)-[r:CodeRelation {type: 'IMPORTS'}]->(b:File) RETURN a.id AS id, a.name AS from, b.name AS imports LIMIT 50`,
   },
 ];
@@ -69,13 +69,13 @@ export const QueryFAB = () => {
     if (!query.trim() || isRunning) return;
 
     if (!graph) {
-      setError('No project loaded. Load a project first.');
+      setError('尚未载入项目，请先导入代码仓。');
       return;
     }
 
     const ready = await isDatabaseReady();
     if (!ready) {
-      setError('Database not ready. Please wait for loading to complete.');
+      setError('数据库尚未就绪，请等待加载完成。');
       return;
     }
 
@@ -130,7 +130,7 @@ export const QueryFAB = () => {
       setQueryResult({ rows, nodeIds, executionTime });
       setHighlightedNodeIds(new Set(nodeIds));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Query execution failed');
+      setError(err instanceof Error ? err.message : '查询执行失败');
       setQueryResult(null);
       setHighlightedNodeIds(new Set());
     } finally {
@@ -168,20 +168,21 @@ export const QueryFAB = () => {
   if (!isExpanded) {
     return (
       <button
+        type="button"
         onClick={() => setIsExpanded(true)}
         className="
           group absolute bottom-4 left-4 z-20
           flex items-center gap-2 px-4 py-2.5
-          bg-gradient-to-r from-cyan-500 to-teal-500
+          bg-surface/95 border border-border-default
           rounded-xl text-white font-medium text-sm
-          shadow-[0_0_20px_rgba(6,182,212,0.4)]
-          hover:shadow-[0_0_30px_rgba(6,182,212,0.6)]
+          shadow-lg
+          hover:shadow-xl
           hover:-translate-y-0.5
           transition-all duration-200
         "
       >
         <Terminal className="w-4 h-4" />
-        <span>Query</span>
+        <span>查询</span>
         {queryResult && queryResult.nodeIds.length > 0 && (
           <span className="
             px-1.5 py-0.5 ml-1
@@ -202,20 +203,21 @@ export const QueryFAB = () => {
         absolute bottom-4 left-4 z-20
         w-[480px] max-w-[calc(100%-2rem)]
         bg-deep/95 backdrop-blur-md
-        border border-cyan-500/30
+         border border-border-default
         rounded-xl
-        shadow-[0_0_40px_rgba(6,182,212,0.2)]
+         shadow-2xl
         animate-fade-in
       "
     >
       <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle">
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 flex items-center justify-center bg-gradient-to-br from-cyan-500 to-teal-500 rounded-lg">
+           <div className="w-7 h-7 flex items-center justify-center bg-accent rounded-lg">
             <Terminal className="w-4 h-4 text-white" />
           </div>
-          <span className="font-medium text-sm">Cypher Query</span>
+           <span className="font-medium text-sm">Cypher 查询</span>
         </div>
         <button
+          type="button"
           onClick={handleClose}
           className="p-1.5 text-text-muted hover:text-text-primary hover:bg-hover rounded-md transition-colors"
         >
@@ -230,7 +232,7 @@ export const QueryFAB = () => {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="MATCH (n:Function) RETURN n.name, n.filePath LIMIT 10"
+            placeholder="输入 Cypher 查询，例如：MATCH (n:Function) RETURN n.name, n.filePath LIMIT 10"
             rows={3}
             className="
               w-full px-3 py-2.5
@@ -247,6 +249,7 @@ export const QueryFAB = () => {
         <div className="flex items-center justify-between mt-3">
           <div className="relative">
             <button
+              type="button"
               onClick={() => setShowExamples(!showExamples)}
               className="
                 flex items-center gap-1.5 px-3 py-1.5
@@ -256,7 +259,7 @@ export const QueryFAB = () => {
               "
             >
               <Sparkles className="w-3.5 h-3.5" />
-              <span>Examples</span>
+               <span>示例</span>
               <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showExamples ? 'rotate-180' : ''}`} />
             </button>
 
@@ -270,6 +273,7 @@ export const QueryFAB = () => {
               ">
                 {EXAMPLE_QUERIES.map((example) => (
                   <button
+                    type="button"
                     key={example.label}
                     onClick={() => handleSelectExample(example.query)}
                     className="
@@ -289,6 +293,7 @@ export const QueryFAB = () => {
           <div className="flex items-center gap-2">
             {query && (
               <button
+                type="button"
                 onClick={handleClear}
                 className="
                   px-3 py-1.5
@@ -301,11 +306,12 @@ export const QueryFAB = () => {
               </button>
             )}
             <button
+              type="button"
               onClick={handleRunQuery}
               disabled={!query.trim() || isRunning}
               className="
                 flex items-center gap-1.5 px-4 py-1.5
-                bg-gradient-to-r from-cyan-500 to-teal-500
+                 bg-accent
                 rounded-md text-white text-sm font-medium
                 shadow-[0_0_15px_rgba(6,182,212,0.3)]
                 hover:shadow-[0_0_20px_rgba(6,182,212,0.5)]
@@ -318,7 +324,7 @@ export const QueryFAB = () => {
               ) : (
                 <Play className="w-3.5 h-3.5" />
               )}
-              <span>Run</span>
+               <span>运行</span>
               <kbd className="ml-1 px-1 py-0.5 bg-white/20 rounded text-[10px]">⌘↵</kbd>
             </button>
           </div>
@@ -336,11 +342,11 @@ export const QueryFAB = () => {
           <div className="px-4 py-2.5 bg-cyan-500/5 flex items-center justify-between">
             <div className="flex items-center gap-3 text-xs">
               <span className="text-text-secondary">
-                <span className="text-cyan-400 font-semibold">{queryResult.rows.length}</span> rows
+                 <span className="text-cyan-400 font-semibold">{queryResult.rows.length}</span> 行
               </span>
               {queryResult.nodeIds.length > 0 && (
                 <span className="text-text-secondary">
-                  <span className="text-cyan-400 font-semibold">{queryResult.nodeIds.length}</span> highlighted
+                   <span className="text-cyan-400 font-semibold">{queryResult.nodeIds.length}</span> 个高亮节点
                 </span>
               )}
               <span className="text-text-muted">
@@ -350,13 +356,15 @@ export const QueryFAB = () => {
             <div className="flex items-center gap-2">
               {queryResult.nodeIds.length > 0 && (
                 <button
+                  type="button"
                   onClick={clearQueryHighlights}
                   className="text-xs text-text-muted hover:text-text-primary transition-colors"
                 >
-                  Clear
+                  清除
                 </button>
               )}
               <button
+                type="button"
                 onClick={() => setShowResults(!showResults)}
                 className="flex items-center gap-1 text-xs text-text-muted hover:text-text-primary transition-colors"
               >
@@ -380,9 +388,9 @@ export const QueryFAB = () => {
                 </thead>
                 <tbody>
                   {queryResult.rows.slice(0, 50).map((row, i) => (
-                    <tr key={i} className="hover:bg-hover/50 transition-colors">
-                      {Object.values(row).map((val, j) => (
-                        <td key={j} className="px-3 py-1.5 text-text-secondary border-b border-border-subtle/50 font-mono truncate max-w-[200px]">
+                    <tr key={JSON.stringify(row) || i} className="hover:bg-hover/50 transition-colors">
+                      {Object.entries(row).map(([fieldKey, val]) => (
+                        <td key={`${fieldKey}-${String(val ?? '')}`} className="px-3 py-1.5 text-text-secondary border-b border-border-subtle/50 font-mono truncate max-w-[200px]">
                           {typeof val === 'object' ? JSON.stringify(val) : String(val ?? '')}
                         </td>
                       ))}
@@ -392,7 +400,7 @@ export const QueryFAB = () => {
               </table>
               {queryResult.rows.length > 50 && (
                 <div className="px-3 py-2 text-xs text-text-muted bg-surface border-t border-border-subtle">
-                  Showing 50 of {queryResult.rows.length} rows
+                   仅显示前 50 行，共 {queryResult.rows.length} 行
                 </div>
               )}
             </div>
@@ -402,4 +410,3 @@ export const QueryFAB = () => {
     </div>
   );
 };
-

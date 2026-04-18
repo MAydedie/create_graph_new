@@ -84,13 +84,13 @@ const getStatusDisplay = (status: ToolCallInfo['status']) => {
 const getToolDisplayName = (name: string): string => {
   const names: Record<string, string> = {
     // Current 7-tool architecture
-    'search': '🔍 Search Code',
-    'cypher': '🔗 Cypher Query',
-    'grep': '🔎 Pattern Search',
-    'read': '📄 Read File',
-    'overview': '🗺️ Codebase Overview',
-    'explore': '🔬 Deep Dive',
-    'impact': '💥 Impact Analysis',
+    'search': '🔍 搜索代码',
+    'cypher': '🔗 Cypher 查询',
+    'grep': '🔎 模式检索',
+    'read': '📄 读取文件',
+    'overview': '🗺️ 仓库总览',
+    'explore': '🔬 深入探索',
+    'impact': '💥 影响分析',
   };
   return names[name] || name;
 };
@@ -123,7 +123,7 @@ export const ToolCallCard = ({ toolCall, defaultExpanded = false }: ToolCallCard
         {/* Status indicator */}
         <span className={`flex items-center gap-1 text-xs ${status.color}`}>
           {status.icon}
-          <span className="capitalize">{toolCall.status}</span>
+          <span>{toolCall.status === 'running' ? '执行中' : toolCall.status === 'completed' ? '已完成' : toolCall.status === 'error' ? '失败' : toolCall.status}</span>
         </span>
       </div>
 
@@ -134,7 +134,7 @@ export const ToolCallCard = ({ toolCall, defaultExpanded = false }: ToolCallCard
           {formattedArgs && (
             <div className="px-3 py-2 border-b border-border-subtle/50">
               <div className="text-[10px] uppercase tracking-wider text-text-muted mb-1.5">
-                {toolCall.name === 'cypher' ? 'Query' : 'Input'}
+                {toolCall.name === 'cypher' ? '查询语句' : '输入'}
               </div>
               <pre className="text-xs text-text-secondary bg-surface/50 rounded p-2 overflow-x-auto whitespace-pre-wrap font-mono">
                 {formattedArgs}
@@ -146,7 +146,7 @@ export const ToolCallCard = ({ toolCall, defaultExpanded = false }: ToolCallCard
           {toolCall.result && (
             <div className="px-3 py-2">
               <div className="text-[10px] uppercase tracking-wider text-text-muted mb-1.5">
-                Result
+                输出
               </div>
               <div className="max-h-[400px] overflow-y-auto bg-surface/50 rounded">
                 <pre className="text-xs text-text-secondary p-2 whitespace-pre-wrap font-mono">
@@ -163,7 +163,7 @@ export const ToolCallCard = ({ toolCall, defaultExpanded = false }: ToolCallCard
           {toolCall.status === 'running' && !toolCall.result && (
             <div className="px-3 py-3 flex items-center gap-2 text-xs text-text-muted">
               <Loader2 className="w-3 h-3 animate-spin" />
-              <span>Executing...</span>
+               <span>正在执行…</span>
             </div>
           )}
         </div>

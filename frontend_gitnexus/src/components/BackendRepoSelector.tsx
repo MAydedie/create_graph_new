@@ -26,7 +26,7 @@ export const BackendRepoSelector = ({
         Local Repositories
       </h2>
       <p className="text-sm text-text-secondary text-center mb-4">
-        Select an indexed repository from your local GitNexus server
+        Select an indexed repository from your local analysis server
       </p>
 
       {/* Connected status badge */}
@@ -42,6 +42,7 @@ export const BackendRepoSelector = ({
         <div className="max-h-80 overflow-y-auto space-y-2">
           {repos.map((repo) => (
             <button
+              type="button"
               key={repo.name}
               onClick={() => onSelectRepo(repo.name)}
               className="w-full p-4 bg-elevated border border-border-subtle rounded-xl hover:border-accent/50 hover:bg-hover transition-all text-left group"
@@ -67,9 +68,7 @@ export const BackendRepoSelector = ({
         <div className="text-center text-text-muted py-8">
           <p className="text-sm mb-2">No indexed repositories found</p>
           <p className="text-xs">
-            Run{' '}
-            <code className="px-1 py-0.5 bg-elevated rounded">gitnexus analyze</code>{' '}
-            in a repository
+            Analyze a repository on the backend first
           </p>
         </div>
       )}

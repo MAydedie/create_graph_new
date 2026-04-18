@@ -20,6 +20,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle>((_, ref) => {
     openCodePanel,
     depthFilter,
     highlightedNodeIds,
+    secondaryHighlightedNodeIds,
     setHighlightedNodeIds,
     aiCitationHighlightedNodeIds,
     aiToolHighlightedNodeIds,
@@ -93,6 +94,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle>((_, ref) => {
     onNodeHover: handleNodeHover,
     onStageClick: handleStageClick,
     highlightedNodeIds: effectiveHighlightedNodeIds,
+    secondaryHighlightedNodeIds,
     blastRadiusNodeIds: effectiveBlastRadiusNodeIds,
     animatedNodes: effectiveAnimatedNodes,
     visibleEdgeTypes,
@@ -179,7 +181,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle>((_, ref) => {
           className="absolute inset-0"
           style={{
             background: `
-              radial-gradient(circle at 50% 50%, rgba(124, 58, 237, 0.03) 0%, transparent 70%),
+              radial-gradient(circle at 50% 50%, rgba(79, 107, 149, 0.035) 0%, transparent 70%),
               linear-gradient(to bottom, #06060a, #0a0a10)
             `
           }}
@@ -210,10 +212,11 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle>((_, ref) => {
             ({appSelectedNode.label})
           </span>
           <button
+            type="button"
             onClick={handleClearSelection}
             className="ml-2 px-2 py-0.5 text-xs text-text-secondary hover:text-text-primary hover:bg-white/10 rounded transition-colors"
           >
-            Clear
+            清除
           </button>
         </div>
       )}
@@ -221,23 +224,26 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle>((_, ref) => {
       {/* Graph Controls - Bottom Right */}
       <div className="absolute bottom-4 right-4 flex flex-col gap-1 z-10">
         <button
+          type="button"
           onClick={zoomIn}
           className="w-9 h-9 flex items-center justify-center bg-elevated border border-border-subtle rounded-md text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
-          title="Zoom In"
+          title="放大"
         >
           <ZoomIn className="w-4 h-4" />
         </button>
         <button
+          type="button"
           onClick={zoomOut}
           className="w-9 h-9 flex items-center justify-center bg-elevated border border-border-subtle rounded-md text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
-          title="Zoom Out"
+          title="缩小"
         >
           <ZoomOut className="w-4 h-4" />
         </button>
         <button
+          type="button"
           onClick={resetZoom}
           className="w-9 h-9 flex items-center justify-center bg-elevated border border-border-subtle rounded-md text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
-          title="Fit to Screen"
+          title="适配画布"
         >
           <Maximize2 className="w-4 h-4" />
         </button>
@@ -248,9 +254,10 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle>((_, ref) => {
         {/* Focus on selected */}
         {appSelectedNode && (
           <button
+            type="button"
             onClick={handleFocusSelected}
             className="w-9 h-9 flex items-center justify-center bg-accent/20 border border-accent/30 rounded-md text-accent hover:bg-accent/30 transition-colors"
-            title="Focus on Selected Node"
+            title="聚焦当前节点"
           >
             <Focus className="w-4 h-4" />
           </button>
@@ -259,9 +266,10 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle>((_, ref) => {
         {/* Clear selection */}
         {sigmaSelectedNode && (
           <button
+            type="button"
             onClick={handleClearSelection}
             className="w-9 h-9 flex items-center justify-center bg-elevated border border-border-subtle rounded-md text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
-            title="Clear Selection"
+            title="清除选择"
           >
             <RotateCcw className="w-4 h-4" />
           </button>
@@ -272,15 +280,16 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle>((_, ref) => {
 
         {/* Layout control */}
         <button
+          type="button"
           onClick={isLayoutRunning ? stopLayout : startLayout}
           className={`
             w-9 h-9 flex items-center justify-center border rounded-md transition-all
             ${isLayoutRunning
-              ? 'bg-accent border-accent text-white shadow-glow animate-pulse'
+              ? 'bg-accent border-accent text-white animate-pulse'
               : 'bg-elevated border-border-subtle text-text-secondary hover:bg-hover hover:text-text-primary'
             }
           `}
-          title={isLayoutRunning ? 'Stop Layout' : 'Run Layout Again'}
+          title={isLayoutRunning ? '停止布局' : '重新布局'}
         >
           {isLayoutRunning ? (
             <Pause className="w-4 h-4" />
@@ -294,7 +303,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle>((_, ref) => {
       {isLayoutRunning && (
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 px-3 py-1.5 bg-emerald-500/20 border border-emerald-500/30 rounded-full backdrop-blur-sm z-10 animate-fade-in">
           <div className="w-2 h-2 bg-emerald-400 rounded-full animate-ping" />
-          <span className="text-xs text-emerald-400 font-medium">Layout optimizing...</span>
+          <span className="text-xs text-emerald-400 font-medium">正在优化布局…</span>
         </div>
       )}
 
@@ -304,6 +313,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle>((_, ref) => {
       {/* AI Highlights toggle - Top Right */}
       <div className="absolute top-4 right-4 z-20">
         <button
+          type="button"
           onClick={() => {
             // If turning off, also clear process highlights
             if (isAIHighlightsEnabled) {
@@ -316,7 +326,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle>((_, ref) => {
               ? 'w-10 h-10 flex items-center justify-center bg-cyan-500/15 border border-cyan-400/40 rounded-lg text-cyan-200 hover:bg-cyan-500/20 hover:border-cyan-300/60 transition-colors'
               : 'w-10 h-10 flex items-center justify-center bg-elevated border border-border-subtle rounded-lg text-text-muted hover:bg-hover hover:text-text-primary transition-colors'
           }
-          title={isAIHighlightsEnabled ? 'Turn off all highlights' : 'Turn on AI highlights'}
+          title={isAIHighlightsEnabled ? '关闭智能高亮' : '开启智能高亮'}
         >
           {isAIHighlightsEnabled ? <Lightbulb className="w-4 h-4" /> : <LightbulbOff className="w-4 h-4" />}
         </button>

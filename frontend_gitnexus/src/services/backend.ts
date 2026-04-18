@@ -1,5 +1,5 @@
 /**
- * Stateless HTTP client for the local GitNexus backend server.
+ * Stateless HTTP client for the local analysis backend server.
  * All functions use fetch() with AbortController timeouts.
  */
 
@@ -54,7 +54,7 @@ const fetchWithTimeout = async (
       throw new Error(`Request to ${url} timed out after ${timeoutMs}ms`);
     }
     if (error instanceof TypeError) {
-      throw new Error(`Network error reaching GitNexus backend at ${backendUrl}: ${error.message}`);
+      throw new Error(`Network error reaching backend at ${backendUrl}: ${error.message}`);
     }
     throw error;
   } finally {

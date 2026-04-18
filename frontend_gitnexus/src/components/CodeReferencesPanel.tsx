@@ -5,187 +5,7 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useAppState } from '../hooks/useAppState';
 import { NODE_COLORS } from '../lib/constants';
 import { createGraphExtensionsApi, type CreateGraphNodeDetailResponse } from '../services/create-graph-extensions';
-import { instance } from '@viz-js/viz';
-
-// ─── GraphVizBlock ────────────────────────────────────────────────────────────────
-// Renders a DOT/graphviz string as an SVG using @viz-js/viz.
-// Falls back to raw text if rendering fails or viz hasn't loaded yet.
-
-interface GraphVizBlockProps {
-  dotString: string;
-  color: 'violet' | 'fuchsia';
-}
-
-type GraphVizViewMode = 'diagram' | 'dot';
-
-const VIZ_COLOR_MAP = {
-  violet: { label: 'CFG', textClass: 'text-violet-300', bgClass: 'bg-violet-500/10', borderClass: 'border-violet-500/20' },
-  fuchsia: { label: 'DFG', textClass: 'text-fuchsia-300', bgClass: 'bg-fuchsia-500/10', borderClass: 'border-fuchsia-500/20' },
-};
-
-// Lazy-initialised viz instance (resolves once, reused for all blocks)
-type VizInstance = {
-  render: (src: string, options?: { format?: string; engine?: string }) => { status: string; output?: string; errors: Array<{ message?: string }> };
-  renderString: (src: string, options?: { format?: string; engine?: string }) => string;
-};
-let _vizPromise: Promise<VizInstance> | null = null;
-function getVizInstance() {
-  if (!_vizPromise) {
-    _vizPromise = instance().then((viz) => viz as unknown as VizInstance);
-  }
-  return _vizPromise;
-}
-
-function GraphVizBlock({ dotString, color }: GraphVizBlockProps) {
-  const [svg, setSvg] = useState<string>('');
-  const [error, setError] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<GraphVizViewMode>('diagram');
-  const [isRendering, setIsRendering] = useState(false);
-  const [fullscreen, setFullscreen] = useState(false);
-  const svgRef = useRef<HTMLDivElement>(null);
-  const fsRef = useRef<HTMLDivElement>(null);
-  const colorMap = VIZ_COLOR_MAP[color];
-
-  // Render DOT to SVG
-  useEffect(() => {
-    let cancelled = false;
-    setSvg('');
-    setError(null);
-    setIsRendering(true);
-    setFullscreen(false);
-
-    getVizInstance()
-      .then((viz) => {
-        if (cancelled) return;
-        try {
-          const result = viz.render(dotString, { format: 'svg', engine: 'dot' });
-          if (result.status === 'success' && result.output && result.output.trim() !== '') {
-            setSvg(result.output);
-          } else {
-            const errorMessages = (result.errors || [])
-              .map((e: { message?: string }) => e.message || 'Unknown error')
-              .join('; ');
-            setError(errorMessages || 'Graphviz rendered empty output');
-          }
-        } catch (err) {
-          if (!cancelled) setError(err instanceof Error ? err.message : String(err));
-        } finally {
-          if (!cancelled) setIsRendering(false);
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
-        if (!cancelled) setIsRendering(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [dotString]);
-
-  // Inject SVG into DOM when not in fullscreen
-  useEffect(() => {
-    const el = svgRef.current;
-    if (!el) return;
-    el.innerHTML = svg;
-    return () => {
-      el.innerHTML = '';
-    };
-  }, [svg, fullscreen]);
-
-  // Inject SVG into fullscreen overlay
-  useEffect(() => {
-    const el = fsRef.current;
-    if (!el) return;
-    el.innerHTML = svg;
-    return () => {
-      el.innerHTML = '';
-    };
-  }, [svg, fullscreen]);
-
-  const showDiagram = viewMode === 'diagram';
-
-  return (
-    <div className="rounded-lg border border-border-subtle overflow-hidden">
-      <div className={`px-2 py-1 text-[10px] uppercase tracking-wide ${colorMap.textClass} ${colorMap.bgClass} border-b ${colorMap.borderClass} flex items-center justify-between gap-2`}>
-        <span>{colorMap.label}</span>
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => setViewMode('diagram')}
-            className={`px-1.5 py-0.5 rounded border text-[9px] ${showDiagram
-              ? 'border-cyan-400/60 text-cyan-200 bg-cyan-500/15'
-              : 'border-border-subtle text-text-muted hover:text-text-primary hover:bg-elevated/60'
-              }`}
-          >
-            Diagram
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewMode('dot')}
-            className={`px-1.5 py-0.5 rounded border text-[9px] ${!showDiagram
-              ? 'border-cyan-400/60 text-cyan-200 bg-cyan-500/15'
-              : 'border-border-subtle text-text-muted hover:text-text-primary hover:bg-elevated/60'
-              }`}
-          >
-            DOT
-          </button>
-        </div>
-      </div>
-
-      {/* Fullscreen overlay */}
-      {fullscreen && svg && (
-        <button
-          type="button"
-          className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center cursor-zoom-out border-0 p-0 m-0"
-          style={{ width: '100vw', height: '100vh' }}
-          onDoubleClick={() => setFullscreen(false)}
-          onKeyDown={(e) => e.key === 'Enter' && setFullscreen(false)}
-          title="Double-click to exit fullscreen"
-        >
-          <div
-            className="max-w-full max-h-full overflow-auto"
-            ref={fsRef}
-          />
-        </button>
-      )}
-
-      {/* Normal view */}
-      <button
-        type="button"
-        className="block w-full text-left overflow-auto bg-[#0a0a10] cursor-zoom-in border-0 p-0"
-        style={{ maxHeight: fullscreen ? 0 : 256 }}
-        onDoubleClick={() => { if (svg) setFullscreen(true); }}
-        title={svg ? 'Double-click to expand' : undefined}
-      >
-        {showDiagram ? (
-          isRendering ? (
-            <div className="px-3 py-2 text-[11px] text-text-muted">Rendering graph…</div>
-          ) : error ? (
-            <div className="px-3 py-2 space-y-2">
-              <div className="text-[11px] text-rose-300">Graph render failed: {error}</div>
-              <button
-                type="button"
-                onClick={() => setViewMode('dot')}
-                className="px-2 py-1 text-[10px] rounded border border-rose-400/40 text-rose-200 bg-rose-500/15"
-              >
-                View DOT text
-              </button>
-            </div>
-          ) : svg ? (
-            <div className="p-2 [&>div>svg]:w-full [&>div>svg]:h-auto">
-              <div ref={svgRef} />
-            </div>
-          ) : (
-            <div className="px-3 py-2 text-[11px] text-text-muted">No graph available</div>
-          )
-        ) : (
-          <pre className="px-3 py-2 text-[11px] text-text-secondary overflow-x-auto whitespace-pre-wrap">{dotString}</pre>
-        )}
-      </button>
-    </div>
-  );
-}
+import { GraphVizBlock } from './GraphVizBlock';
 
 // Match the code theme used elsewhere in the app
 const customTheme: Record<string, CSSProperties> = {
@@ -234,8 +54,13 @@ export const CodeReferencesPanel = ({ onFocusNode }: CodeReferencesPanelProps) =
   const glowTimerRef = useRef<number | null>(null);
 
   const activeProjectPath = useMemo(() => {
-    if (!projectName || availableRepos.length === 0) return undefined;
-    return availableRepos.find((repo) => repo.name === projectName)?.path;
+    if (availableRepos.length === 0) return undefined;
+    const matchedPath = projectName
+      ? availableRepos.find((repo) => repo.name === projectName)?.path
+      : undefined;
+    if (matchedPath) return matchedPath;
+    if (availableRepos.length === 1) return availableRepos[0].path;
+    return undefined;
   }, [availableRepos, projectName]);
 
   useEffect(() => {
@@ -284,7 +109,7 @@ export const CodeReferencesPanel = ({ onFocusNode }: CodeReferencesPanelProps) =
 
   const [panelWidth, setPanelWidth] = useState<number>(() => {
     try {
-      const saved = window.localStorage.getItem('gitnexus.codePanelWidth');
+      const saved = window.localStorage.getItem('create-graph.codePanelWidth');
       const parsed = saved ? parseInt(saved, 10) : NaN;
       if (!Number.isFinite(parsed)) return 560; // increased default
       return Math.max(420, Math.min(parsed, 900));
@@ -295,7 +120,7 @@ export const CodeReferencesPanel = ({ onFocusNode }: CodeReferencesPanelProps) =
 
   useEffect(() => {
     try {
-      window.localStorage.setItem('gitnexus.codePanelWidth', String(panelWidth));
+      window.localStorage.setItem('create-graph.codePanelWidth', String(panelWidth));
     } catch {
       // ignore
     }
@@ -420,19 +245,19 @@ export const CodeReferencesPanel = ({ onFocusNode }: CodeReferencesPanelProps) =
           type="button"
           onClick={() => setIsCollapsed(false)}
           className="p-2 text-text-secondary hover:text-cyan-400 hover:bg-cyan-500/10 rounded transition-colors"
-          title="Expand Code Panel"
+          title="展开代码面板"
         >
           <PanelLeft className="w-5 h-5" />
         </button>
         <div className="w-6 h-px bg-border-subtle my-1" />
         {showSelectedViewer && (
           <div className="text-[9px] text-amber-400 rotate-90 whitespace-nowrap font-medium tracking-wide">
-            SELECTED
+            当前节点
           </div>
         )}
         {showCitations && (
           <div className="text-[9px] text-cyan-400 rotate-90 whitespace-nowrap font-medium tracking-wide mt-4">
-            AI • {aiReferences.length}
+            AI 引用 · {aiReferences.length}
           </div>
         )}
       </aside>
@@ -450,14 +275,14 @@ export const CodeReferencesPanel = ({ onFocusNode }: CodeReferencesPanelProps) =
         type="button"
         onMouseDown={startResize}
         className="absolute top-0 right-0 h-full w-2 cursor-col-resize bg-transparent hover:bg-cyan-500/25 transition-colors"
-        title="Drag to resize"
-        aria-label="Resize code panel"
+         title="拖动调整宽度"
+         aria-label="调整代码面板宽度"
       />
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-border-subtle bg-gradient-to-r from-elevated/60 to-surface/60">
         <div className="flex items-center gap-2">
           <Code className="w-4 h-4 text-cyan-400" />
-          <span className="text-sm font-semibold text-text-primary">Code Inspector</span>
+           <span className="text-sm font-semibold text-text-primary">代码检查面板</span>
         </div>
         <div className="flex items-center gap-1.5">
           {showCitations && (
@@ -465,7 +290,7 @@ export const CodeReferencesPanel = ({ onFocusNode }: CodeReferencesPanelProps) =
               type="button"
               onClick={() => clearCodeReferences()}
               className="p-1.5 text-text-muted hover:text-red-400 hover:bg-red-500/10 rounded transition-colors"
-              title="Clear AI citations"
+               title="清空 AI 引用"
             >
               <Trash2 className="w-4 h-4" />
             </button>
@@ -474,7 +299,7 @@ export const CodeReferencesPanel = ({ onFocusNode }: CodeReferencesPanelProps) =
             type="button"
             onClick={() => setIsCollapsed(true)}
             className="p-1.5 text-text-muted hover:text-text-primary hover:bg-hover rounded transition-colors"
-            title="Collapse Panel"
+             title="收起面板"
           >
             <PanelLeftClose className="w-4 h-4" />
           </button>
@@ -488,7 +313,7 @@ export const CodeReferencesPanel = ({ onFocusNode }: CodeReferencesPanelProps) =
             <div className="px-3 py-2 bg-gradient-to-r from-amber-500/8 to-orange-500/5 border-b border-amber-500/20 flex items-center gap-2">
               <div className="flex items-center gap-1.5 px-2 py-0.5 bg-amber-500/15 rounded-md border border-amber-500/25">
                 <MousePointerClick className="w-3 h-3 text-amber-400" />
-                <span className="text-[10px] text-amber-300 font-semibold uppercase tracking-wide">Selected</span>
+                 <span className="text-[10px] text-amber-300 font-semibold uppercase tracking-wide">当前节点</span>
               </div>
               <FileCode className="w-3.5 h-3.5 text-amber-400/70 ml-1" />
               <span className="text-xs text-text-primary font-mono truncate flex-1">
@@ -498,7 +323,7 @@ export const CodeReferencesPanel = ({ onFocusNode }: CodeReferencesPanelProps) =
                 type="button"
                 onClick={() => setSelectedNode(null)}
                 className="p-1 text-text-muted hover:text-amber-400 hover:bg-amber-500/10 rounded transition-colors"
-                title="Clear selection"
+                title="清除选择"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -508,7 +333,7 @@ export const CodeReferencesPanel = ({ onFocusNode }: CodeReferencesPanelProps) =
             {(nodeDetailLoading || nodeDetailError || nodeDetail) && (
               <div className="flex-shrink-0 min-h-0 flex flex-col border-b border-border-subtle bg-elevated/40 max-h-[58%]">
                 <div className="px-3 py-2 flex items-center justify-between">
-                  <span className="text-[11px] font-semibold uppercase tracking-wide text-cyan-300">Node Deep Analysis</span>
+                   <span className="text-[11px] font-semibold uppercase tracking-wide text-cyan-300">节点深入分析</span>
                   {nodeDetail?.kind && (
                     <span className="text-[10px] px-1.5 py-0.5 rounded border border-cyan-500/30 text-cyan-200 bg-cyan-500/10">
                       {nodeDetail.kind}
@@ -518,7 +343,7 @@ export const CodeReferencesPanel = ({ onFocusNode }: CodeReferencesPanelProps) =
 
                 <div className="min-h-0 overflow-y-auto scrollbar-thin">
                   {nodeDetailLoading && (
-                    <div className="px-3 pb-2 text-xs text-text-muted">Loading source / CFG / DFG / IO…</div>
+                     <div className="px-3 pb-2 text-xs text-text-muted">正在加载源码片段 / CFG / DFG / IO…</div>
                   )}
 
                   {nodeDetailError && (
@@ -528,14 +353,14 @@ export const CodeReferencesPanel = ({ onFocusNode }: CodeReferencesPanelProps) =
                   {!nodeDetailLoading && nodeDetail && (
                     <div className="px-3 pb-3 space-y-2">
                       <div className="text-[11px] text-text-secondary">
-                        <span className="text-text-muted">Entity:</span>{' '}
+                         <span className="text-text-muted">实体：</span>{' '}
                         <span className="text-text-primary">{nodeDetail.display_name || selectedNode?.properties?.name || selectedNode?.id}</span>
                       </div>
 
                       {nodeDetail.source?.snippet && (
                         <div className="rounded-lg border border-border-subtle overflow-hidden">
                           <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-cyan-300 bg-cyan-500/10 border-b border-cyan-500/20">
-                            Source Snippet
+                             源码片段
                           </div>
                           <SyntaxHighlighter
                             language={detailLanguage}
@@ -566,22 +391,22 @@ export const CodeReferencesPanel = ({ onFocusNode }: CodeReferencesPanelProps) =
 
                       {nodeDetail.io && (
                         <div className="rounded-lg border border-border-subtle overflow-hidden">
-                          <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-emerald-300 bg-emerald-500/10 border-b border-emerald-500/20">Input / Output</div>
+                           <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-emerald-300 bg-emerald-500/10 border-b border-emerald-500/20">输入 / 输出</div>
                           <div className="px-3 py-2 space-y-1 text-[11px] text-text-secondary">
                             <div>
-                              <span className="text-emerald-300">Inputs:</span>{' '}
+                               <span className="text-emerald-300">输入：</span>{' '}
                               <span>{JSON.stringify(nodeDetail.io.inputs ?? [])}</span>
                             </div>
                             <div>
-                              <span className="text-emerald-300">Outputs:</span>{' '}
+                               <span className="text-emerald-300">输出：</span>{' '}
                               <span>{JSON.stringify(nodeDetail.io.outputs ?? [])}</span>
                             </div>
                             <div>
-                              <span className="text-emerald-300">Global Reads:</span>{' '}
+                               <span className="text-emerald-300">全局读取：</span>{' '}
                               <span>{JSON.stringify(nodeDetail.io.global_reads ?? [])}</span>
                             </div>
                             <div>
-                              <span className="text-emerald-300">Global Writes:</span>{' '}
+                               <span className="text-emerald-300">全局写入：</span>{' '}
                               <span>{JSON.stringify(nodeDetail.io.global_writes ?? [])}</span>
                             </div>
                           </div>
@@ -636,11 +461,11 @@ export const CodeReferencesPanel = ({ onFocusNode }: CodeReferencesPanelProps) =
               ) : (
                 <div className="px-3 py-3 text-sm text-text-muted">
                   {!selectedFilePath ? (
-                    <>This node has no source file path to preview.</>
+                     <>当前节点没有可预览的源码路径。</>
                   ) : selectedIsFile ? (
-                    <>Code not available in memory for <span className="font-mono">{selectedFilePath}</span></>
+                     <>内存中暂无 <span className="font-mono">{selectedFilePath}</span> 的源码内容。</>
                   ) : (
-                    <>Select a file node to preview its contents.</>
+                     <>请选择文件节点以预览其内容。</>
                   )}
                 </div>
               )}
@@ -660,9 +485,9 @@ export const CodeReferencesPanel = ({ onFocusNode }: CodeReferencesPanelProps) =
             <div className="px-3 py-2 bg-gradient-to-r from-cyan-500/8 to-teal-500/5 border-b border-cyan-500/20 flex items-center gap-2">
               <div className="flex items-center gap-1.5 px-2 py-0.5 bg-cyan-500/15 rounded-md border border-cyan-500/25">
                 <Sparkles className="w-3 h-3 text-cyan-400" />
-                <span className="text-[10px] text-cyan-300 font-semibold uppercase tracking-wide">AI Citations</span>
+                 <span className="text-[10px] text-cyan-300 font-semibold uppercase tracking-wide">AI 引用片段</span>
               </div>
-              <span className="text-xs text-text-muted ml-1">{aiReferences.length} reference{aiReferences.length !== 1 ? 's' : ''}</span>
+               <span className="text-xs text-text-muted ml-1">共 {aiReferences.length} 条引用</span>
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin p-3 space-y-3">
             {refsWithSnippets.map(({ ref, content, start, highlightStart, highlightEnd, totalLines }) => {
@@ -691,9 +516,9 @@ export const CodeReferencesPanel = ({ onFocusNode }: CodeReferencesPanelProps) =
                 <span
                   className="mt-0.5 px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide flex-shrink-0"
                   style={{ backgroundColor: nodeColor, color: '#06060a' }}
-                  title={ref.label ?? 'Code'}
+                  title={ref.label ?? '代码'}
                 >
-                  {ref.label ?? 'Code'}
+                  {ref.label ?? '代码'}
                 </span>
                 <div className="min-w-0 flex-1">
                   <div className="text-xs text-text-primary font-medium truncate">
@@ -708,7 +533,7 @@ export const CodeReferencesPanel = ({ onFocusNode }: CodeReferencesPanelProps) =
                         {endDisplay !== startDisplay ? `–${endDisplay}` : ''}
                       </span>
                     )}
-                    {totalLines > 0 && <span className="text-text-muted"> • {totalLines} lines</span>}
+                    {totalLines > 0 && <span className="text-text-muted"> • {totalLines} 行</span>}
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
@@ -726,7 +551,7 @@ export const CodeReferencesPanel = ({ onFocusNode }: CodeReferencesPanelProps) =
                         onFocusNode(nodeId);
                       }}
                       className="p-1.5 text-text-muted hover:text-text-primary hover:bg-hover rounded transition-colors"
-                      title="Focus in graph"
+                       title="在图谱中聚焦"
                     >
                       <Target className="w-4 h-4" />
                     </button>
@@ -735,7 +560,7 @@ export const CodeReferencesPanel = ({ onFocusNode }: CodeReferencesPanelProps) =
                     type="button"
                     onClick={() => removeCodeReference(ref.id)}
                     className="p-1.5 text-text-muted hover:text-text-primary hover:bg-hover rounded transition-colors"
-                    title="Remove"
+                     title="移除"
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -777,7 +602,7 @@ export const CodeReferencesPanel = ({ onFocusNode }: CodeReferencesPanelProps) =
                   </SyntaxHighlighter>
                 ) : (
                   <div className="px-3 py-3 text-sm text-text-muted">
-                    Code not available in memory for <span className="font-mono">{ref.filePath}</span>
+                     内存中暂无 <span className="font-mono">{ref.filePath}</span> 的代码内容
                   </div>
                 )}
               </div>

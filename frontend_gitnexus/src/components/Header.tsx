@@ -1,10 +1,10 @@
-import { Search, Settings, HelpCircle, Sparkles, Github, Star, ChevronDown, Layers, RefreshCw } from 'lucide-react';
+import { ArrowLeft, BookOpen, ChevronDown, HelpCircle, Layers, RefreshCw, Search, Settings, Sparkles } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { GraphNode } from '../core/graph/types';
 import { useAppState } from '../hooks/useAppState';
+import { createGraphExtensionsApi, type CreateGraphWorkbenchProjectStatusResponse } from '../services/create-graph-extensions';
 import type { RepoSummary } from '../services/server-connection';
-import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
-import { GraphNode } from '../core/graph/types';
 import { EmbeddingStatus } from './EmbeddingStatus';
-import { createGraphExtensionsApi } from '../services/create-graph-extensions';
 
 // Color mapping for node types in search results
 const NODE_TYPE_COLORS: Record<string, string> = {
@@ -31,12 +31,15 @@ export const Header = ({ onFocusNode, availableRepos = [], onSwitchRepo }: Heade
     graph,
     openChatPanel,
     openHierarchyPanel,
+    openExperiencePanel,
     isRightPanelOpen,
     rightPanelTab,
     setSettingsPanelOpen,
+    returnToOnboarding,
   } = useAppState();
   const [hierarchyStatus, setHierarchyStatus] = useState<'checking' | 'ready' | 'missing' | 'error'>('checking');
-  const [hierarchyStatusMessage, setHierarchyStatusMessage] = useState('Checking hierarchy...');
+  const [hierarchyStatusMessage, setHierarchyStatusMessage] = useState('正在检查层级...');
+  const [experienceStatus, setExperienceStatus] = useState<CreateGraphWorkbenchProjectStatusResponse | null>(null);
   const [isRepoDropdownOpen, setIsRepoDropdownOpen] = useState(false);
   const repoDropdownRef = useRef<HTMLDivElement>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -48,35 +51,46 @@ export const Header = ({ onFocusNode, availableRepos = [], onSwitchRepo }: Heade
   const nodeCount = graph?.nodes.length ?? 0;
   const edgeCount = graph?.relationships.length ?? 0;
   const activeProjectPath = useMemo(() => {
-    if (!projectName || availableRepos.length === 0) return undefined;
-    return availableRepos.find((repo) => repo.name === projectName)?.path;
+    if (availableRepos.length === 0) return undefined;
+    const matchedPath = projectName
+      ? availableRepos.find((repo) => repo.name === projectName)?.path
+      : undefined;
+    if (matchedPath) return matchedPath;
+    if (availableRepos.length === 1) return availableRepos[0].path;
+    return undefined;
   }, [availableRepos, projectName]);
 
   const refreshHierarchyStatus = useCallback(async () => {
     if (!projectName) {
       setHierarchyStatus('missing');
-      setHierarchyStatusMessage('No project loaded');
+      setHierarchyStatusMessage('未加载项目');
+      return;
+    }
+
+    if (!activeProjectPath) {
+      setHierarchyStatus('checking');
+      setHierarchyStatusMessage('正在解析项目路径...');
       return;
     }
 
     setHierarchyStatus('checking');
-    setHierarchyStatusMessage('Checking hierarchy...');
+    setHierarchyStatusMessage('正在检查层级...');
 
     try {
       const payload = await createGraphExtensionsApi.fetchHierarchyContract('/api', activeProjectPath);
       const summaries = Array.isArray(payload.adapters?.partition_summaries) ? payload.adapters?.partition_summaries : [];
       if (summaries.length > 0) {
         setHierarchyStatus('ready');
-        setHierarchyStatusMessage(`Hierarchy ready (${summaries.length} partitions)`);
+        setHierarchyStatusMessage(`层级已就绪（${summaries.length} 个分区）`);
       } else {
         setHierarchyStatus('missing');
-        setHierarchyStatusMessage('Hierarchy contract is empty');
+        setHierarchyStatusMessage('层级结果为空');
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (message.includes('未找到可用于 Stage1 读契约的功能层级结果') || message.toLowerCase().includes('404')) {
         setHierarchyStatus('missing');
-        setHierarchyStatusMessage('Hierarchy not generated yet');
+        setHierarchyStatusMessage('尚未生成层级');
       } else {
         setHierarchyStatus('error');
         setHierarchyStatusMessage(message);
@@ -87,6 +101,34 @@ export const Header = ({ onFocusNode, availableRepos = [], onSwitchRepo }: Heade
   useEffect(() => {
     refreshHierarchyStatus();
   }, [refreshHierarchyStatus]);
+
+  useEffect(() => {
+    if (!activeProjectPath) {
+      setExperienceStatus(null);
+      return;
+    }
+
+    let cancelled = false;
+    const syncStatus = async () => {
+      try {
+        const payload = await createGraphExtensionsApi.fetchWorkbenchProjectStatus('/api', activeProjectPath);
+        if (!cancelled) {
+          setExperienceStatus(payload);
+        }
+      } catch {
+        if (!cancelled) {
+          setExperienceStatus(null);
+        }
+      }
+    };
+
+    syncStatus();
+    const timer = window.setInterval(syncStatus, 2500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [activeProjectPath]);
 
   // Search results - filter nodes by name
   const searchResults = useMemo(() => {
@@ -165,7 +207,7 @@ export const Header = ({ onFocusNode, availableRepos = [], onSwitchRepo }: Heade
           <div className="w-7 h-7 flex items-center justify-center bg-gradient-to-br from-accent to-node-interface rounded-md shadow-glow text-white text-sm font-bold">
             ◇
           </div>
-          <span className="font-semibold text-[15px] tracking-tight">GitNexus</span>
+          <span className="font-semibold text-[15px] tracking-tight">create_graph</span>
         </div>
 
         {/* Project badge / Repo selector dropdown */}
@@ -206,7 +248,7 @@ export const Header = ({ onFocusNode, availableRepos = [], onSwitchRepo }: Heade
                           {repo.name}
                         </div>
                         <div className="text-xs text-text-muted mt-0.5">
-                          {repo.stats?.nodes ?? '?'} nodes &middot; {repo.stats?.files ?? '?'} files
+                          {repo.stats?.nodes ?? '?'} 节点 &middot; {repo.stats?.files ?? '?'} 文件
                         </div>
                       </div>
                     </button>
@@ -225,7 +267,7 @@ export const Header = ({ onFocusNode, availableRepos = [], onSwitchRepo }: Heade
           <input
             ref={inputRef}
             type="text"
-            placeholder="Search nodes..."
+            placeholder="搜索节点..."
             value={searchQuery}
             onChange={(e) => {
               setSearchQuery(e.target.value);
@@ -246,7 +288,7 @@ export const Header = ({ onFocusNode, availableRepos = [], onSwitchRepo }: Heade
           <div className="absolute top-full left-0 right-0 mt-1 bg-surface border border-border-subtle rounded-lg shadow-xl overflow-hidden z-50">
             {searchResults.length === 0 ? (
               <div className="px-4 py-3 text-sm text-text-muted">
-                No nodes found for "{searchQuery}"
+                未找到“{searchQuery}”相关节点
               </div>
             ) : (
               <div className="max-h-80 overflow-y-auto">
@@ -283,36 +325,49 @@ export const Header = ({ onFocusNode, availableRepos = [], onSwitchRepo }: Heade
 
       {/* Right section */}
       <div className="flex items-center gap-2">
-        {/* GitHub Star Button */}
-        <a
-          href="https://github.com/abhigyanpatwari/GitNexus"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-2 px-3.5 py-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 rounded-lg text-white text-sm font-medium shadow-lg hover:shadow-xl hover:-translate-y-0.5 transition-all duration-200 group"
-        >
-          <Github className="w-4 h-4" />
-          <span className="hidden sm:inline">Star if cool</span>
-          <Star className="w-3.5 h-3.5 group-hover:fill-yellow-300 group-hover:text-yellow-300 transition-all" />
-          <span className="hidden sm:inline">✨</span>
-        </a>
-
         {/* Stats */}
         {graph && (
           <div className="flex items-center gap-4 mr-2 text-xs text-text-muted">
-            <span>{nodeCount} nodes</span>
-            <span>{edgeCount} edges</span>
+            <span>{nodeCount} 节点</span>
+            <span>{edgeCount} 连线</span>
           </div>
         )}
 
         {/* Embedding Status */}
         <EmbeddingStatus />
 
+        {experienceStatus && (
+          <div className="hidden xl:flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-amber-300/30 bg-amber-200/10 max-w-[360px]">
+            <div className="min-w-0">
+              <div className="text-[11px] text-amber-100 truncate">
+                经验库 {Math.max(0, Math.min(100, Number(experienceStatus.progress || 0)))}% · {experienceStatus.phase}
+              </div>
+              <div className="text-[10px] text-text-muted truncate">{experienceStatus.qualityHint}</div>
+            </div>
+            <div className="w-20 h-1.5 rounded-full bg-elevated overflow-hidden">
+              <div
+                className="h-full bg-amber-300 transition-all duration-300"
+                style={{ width: `${Math.max(0, Math.min(100, Number(experienceStatus.progress || 0)))}%` }}
+              />
+            </div>
+          </div>
+        )}
+
         {/* Icon buttons */}
+        <button
+          type="button"
+          onClick={() => returnToOnboarding('path')}
+          className="hidden lg:flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-surface border border-border-subtle text-text-secondary hover:text-text-primary hover:bg-hover transition-colors"
+          title="返回入口并重新选择项目/经验库"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          <span>返回入口</span>
+        </button>
         <button
           type="button"
           onClick={() => setSettingsPanelOpen(true)}
           className="w-9 h-9 flex items-center justify-center rounded-md text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
-          title="AI Settings"
+          title="AI 设置"
         >
           <Settings className="w-[18px] h-[18px]" />
         </button>
@@ -334,7 +389,7 @@ export const Header = ({ onFocusNode, availableRepos = [], onSwitchRepo }: Heade
           title={hierarchyStatusMessage}
         >
           <Layers className="w-4 h-4" />
-          <span>Hierarchy</span>
+          <span>层级</span>
           <span
             className={`w-2 h-2 rounded-full ${hierarchyStatus === 'ready'
               ? 'bg-emerald-400'
@@ -350,9 +405,25 @@ export const Header = ({ onFocusNode, availableRepos = [], onSwitchRepo }: Heade
           type="button"
           onClick={refreshHierarchyStatus}
           className="w-8 h-8 flex items-center justify-center rounded-md text-text-muted hover:text-text-primary hover:bg-hover transition-colors"
-          title="Refresh hierarchy status"
+          title="刷新层级状态"
         >
           <RefreshCw className="w-4 h-4" />
+        </button>
+
+        <button
+          type="button"
+          onClick={openExperiencePanel}
+          className={`
+            flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium transition-all border
+            ${isRightPanelOpen && rightPanelTab === 'experience'
+              ? 'bg-amber-500/20 border-amber-400/40 text-amber-100 shadow-[0_0_0_1px_rgba(251,191,36,0.25)]'
+              : 'bg-surface border-border-subtle text-text-secondary hover:text-text-primary hover:bg-hover'
+            }
+          `}
+          title="打开经验库管理器"
+        >
+          <BookOpen className="w-4 h-4" />
+          <span>经验库</span>
         </button>
 
         <button
@@ -367,7 +438,7 @@ export const Header = ({ onFocusNode, availableRepos = [], onSwitchRepo }: Heade
           `}
         >
           <Sparkles className="w-4 h-4" />
-          <span>Nexus AI</span>
+          <span>AI 助手</span>
         </button>
       </div>
     </header>

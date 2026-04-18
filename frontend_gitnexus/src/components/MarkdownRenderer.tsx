@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -51,7 +51,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     };
 
     // Helper to format text for display (convert [[links]] to markdown links)
-    const formatMarkdownForDisplay = (md: string) => {
+    const formatMarkdownForDisplay = useCallback((md: string) => {
         // Avoid rewriting inside fenced code blocks.
         const parts = md.split('```');
         for (let i = 0; i < parts.length; i += 2) {
@@ -76,19 +76,19 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
             );
         }
         return parts.join('```');
-    };
+    }, []);
 
-    const handleLinkClick = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
+    const handleLinkClick = useCallback((e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
         if (href.startsWith('code-ref:') || href.startsWith('node-ref:')) {
             e.preventDefault();
             onLinkClick?.(href);
         }
         // External links open in new tab (default behavior)
-    };
+    }, [onLinkClick]);
 
-    const formattedContent = React.useMemo(() => formatMarkdownForDisplay(content), [content]);
+    const formattedContent = useMemo(() => formatMarkdownForDisplay(content), [content, formatMarkdownForDisplay]);
 
-    const markdownComponents = React.useMemo(() => ({
+    const markdownComponents = useMemo(() => ({
         a: ({ href, children, ...props }: any) => {
             const hrefStr = href || '';
 
@@ -108,7 +108,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
                         href={hrefStr}
                         onClick={(e) => handleLinkClick(e, hrefStr)}
                         className={`${baseParams} ${colorParams}`}
-                        title={isNodeRef ? `View ${inner} in Code panel` : `Open in Code panel • ${inner}`}
+                        title={isNodeRef ? `在代码面板查看 ${inner}` : `在代码面板打开 · ${inner}`}
                         {...props}
                     >
                         <span className="text-inherit">{children}</span>
@@ -164,7 +164,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
             );
         },
         pre: ({ children }: any) => <>{children}</>,
-    }), [onLinkClick]); // Removed handleLinkClick dependency as it is defined inside component but depends on onLinkClick
+    }), [handleLinkClick]);
 
     return (
         <div className="text-text-primary text-sm">
@@ -184,12 +184,13 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
             {showCopyButton && (
                 <div className="mt-2 flex justify-end">
                     <button
+                        type="button"
                         onClick={handleCopy}
                         className="flex items-center gap-1.5 px-2 py-1 text-xs text-text-muted hover:text-text-primary hover:bg-surface border border-transparent hover:border-border-subtle rounded transition-all"
-                        title="Copy to clipboard"
+                        title="复制到剪贴板"
                     >
                         {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                        <span>{copied ? 'Copied' : 'Copy'}</span>
+                        <span>{copied ? '已复制' : '复制'}</span>
                     </button>
                 </div>
             )}
@@ -205,5 +206,3 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
         </div>
     );
 };
-
-

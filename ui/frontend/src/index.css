@@ -1,0 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: #f7f8fa;
+  color: #1f2329;
+}
+
+.markdown-body { font-size: 15px; line-height: 1.7; }
+.markdown-body code { background: #f2f3f5; padding: 0.2em 0.4em; border-radius: 4px; color: #3370ff; }
+.thought-panel { background: #f7f8fa; border: 1px solid #e5e6eb; border-radius: 12px; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }

@@ -140,6 +140,7 @@ class CodeAnalyzer:
         data_flow_analyzer.analyze_field_accesses(self.report)
         if call_graph:
             data_flow_analyzer.analyze_parameter_flow(call_graph, self.report)
+            data_flow_analyzer.analyze_return_value_flow(call_graph, self.report)
         data_flow_analyzer.analyze_variable_flows(self.report)
         self.data_flow_analyzer = data_flow_analyzer
         

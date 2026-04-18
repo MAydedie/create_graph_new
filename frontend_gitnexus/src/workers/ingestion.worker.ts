@@ -629,7 +629,7 @@ const workerApi = {
    * Initialize the Graph RAG agent in backend mode (HTTP-backed tools).
    * Uses HTTP wrappers instead of local KuzuDB for all tool queries.
    * @param config - Provider configuration for the LLM
-   * @param backendUrl - Base URL of the gitnexus serve backend
+   * @param backendUrl - Base URL of the analysis backend service
    * @param repoName - Repository name on the backend
    * @param fileContentsEntries - File contents as [path, content][] (Comlink can't transfer Maps)
    * @param projectName - Display name for the project

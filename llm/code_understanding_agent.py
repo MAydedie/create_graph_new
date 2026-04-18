@@ -1524,19 +1524,35 @@ class CodeUnderstandingAgent:
 5) 如果图太大，看不清，给出缩放/定位建议（例如从入口/调用边开始）
 不要输出与问题无关的内容。"""
 
+        raw_io_items = os.getenv('FH_CFG_DFG_LLM_IO_MAX_ITEMS', '80')
+        raw_io_lines = os.getenv('FH_CFG_DFG_LLM_IO_MAX_LINES', '120')
+        raw_dot_max_chars = os.getenv('FH_CFG_DFG_LLM_DOT_MAX_CHARS', '4000')
+        try:
+            io_max_items = max(10, min(int(raw_io_items), 400))
+        except (TypeError, ValueError):
+            io_max_items = 80
+        try:
+            io_max_lines = max(20, min(int(raw_io_lines), 500))
+        except (TypeError, ValueError):
+            io_max_lines = 120
+        try:
+            dot_max_chars = max(1200, min(int(raw_dot_max_chars), 20000))
+        except (TypeError, ValueError):
+            dot_max_chars = 4000
+
         # 收集IO摘要（可选）
         io_lines: List[str] = []
         if inputs:
-            for inp in inputs[:200]:
+            for inp in inputs[:io_max_items]:
                 ms = inp.get("method_signature", "")
                 if ms in path:
                     io_lines.append(f"- IN  {ms}: {inp.get('parameter_name','')} : {inp.get('parameter_type','')}")
         if outputs:
-            for out in outputs[:200]:
+            for out in outputs[:io_max_items]:
                 ms = out.get("method_signature", "")
                 if ms in path:
                     io_lines.append(f"- OUT {ms}: return {out.get('return_type','')}")
-        io_summary = "\n".join(io_lines[:400])
+        io_summary = "\n".join(io_lines[:io_max_lines])
 
         # 控制 token：DOT 很长时截断
         def _truncate(s: str, n: int) -> str:
@@ -1553,10 +1569,10 @@ class CodeUnderstandingAgent:
 {io_summary if io_summary else "(none)"}
 
 ## CFG DOT
-{_truncate(cfg_dot, 12000)}
+{_truncate(cfg_dot, dot_max_chars)}
 
 ## DFG DOT
-{_truncate(dfg_dot, 12000)}
+{_truncate(dfg_dot, dot_max_chars)}
 """
 
         try:
@@ -1583,11 +1599,11 @@ def main():
     from dotenv import load_dotenv
     
     load_dotenv()
-    api_key = os.getenv('DEEPSEEK_API_KEY')
-    base_url = os.getenv('DEEPSEEK_BASE_URL', 'https://api.deepseek.com/v1')
+    api_key = os.getenv('MINIMAX_API_KEY') or os.getenv('OPENAI_API_KEY') or os.getenv('DEEPSEEK_API_KEY')
+    base_url = os.getenv('MINIMAX_BASE_URL') or os.getenv('OPENAI_BASE_URL') or os.getenv('DEEPSEEK_BASE_URL', 'https://api.minimax.io/v1')
     
     if not api_key:
-        print("❌ DEEPSEEK_API_KEY 环境变量未设置，请在 .env 文件中配置")
+        print("❌ MINIMAX_API_KEY/OPENAI_API_KEY/DEEPSEEK_API_KEY 未设置，请在 .env 文件中配置")
         print("   请参考 ENV_SETUP.md 了解如何配置环境变量")
         sys.exit(1)
     

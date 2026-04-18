@@ -15,6 +15,173 @@ from .partition_data_flow_generator import PartitionDataFlowGenerator
 
 logger = logging.getLogger(__name__)
 
+
+def _mermaid_safe_id(raw: str) -> str:
+    return _dot_safe_id(raw)
+
+
+def _mermaid_safe_label(raw: Any) -> str:
+    text = str(raw or '').replace('"', '\\"')
+    return text.replace('\n', '<br/>')
+
+
+def _normalize_type_label(raw: Any, fallback: str) -> str:
+    text = str(raw or '').strip()
+    if not text or text.lower() in {'none', 'void'}:
+        return fallback
+    return text
+
+
+def _resolve_path_method_info(method_sig: str, analyzer_report):
+    if not analyzer_report or not method_sig:
+        return None
+    if '.' in method_sig:
+        class_name, method_name = method_sig.rsplit('.', 1)
+        if class_name in analyzer_report.classes:
+            class_info = analyzer_report.classes[class_name]
+            if method_name in class_info.methods:
+                return class_info.methods[method_name]
+    for func_info in getattr(analyzer_report, 'functions', []) or []:
+        if func_info.name == method_sig or getattr(func_info, 'signature', None) == method_sig:
+            return func_info
+    return None
+
+
+def _build_path_method_io_list(
+    path: List[str],
+    analyzer_report,
+    inputs: Optional[List[Dict[str, Any]]] = None,
+    outputs: Optional[List[Dict[str, Any]]] = None,
+) -> List[Dict[str, Any]]:
+    methods_info: List[Dict[str, Any]] = []
+    inputs = inputs or []
+    outputs = outputs or []
+
+    for index, method_sig in enumerate(path):
+        method_info = _resolve_path_method_info(method_sig, analyzer_report)
+        method_inputs = [
+            {
+                'name': inp.get('parameter_name', 'data'),
+                'type': _normalize_type_label(inp.get('parameter_type'), 'Any'),
+            }
+            for inp in inputs
+            if inp.get('method_signature') == method_sig
+        ]
+        method_outputs = [
+            {
+                'type': _normalize_type_label(out.get('return_type'), '结果'),
+            }
+            for out in outputs
+            if out.get('method_signature') == method_sig
+        ]
+
+        if method_info and not method_inputs:
+            for param in getattr(method_info, 'parameters', []) or []:
+                param_name = getattr(param, 'name', '') or 'data'
+                param_type = _normalize_type_label(getattr(param, 'param_type', None) or getattr(param, 'type', None), 'Any')
+                method_inputs.append({'name': param_name, 'type': param_type})
+
+        if method_info and not method_outputs:
+            return_type = _normalize_type_label(getattr(method_info, 'return_type', None), '结果')
+            if return_type:
+                method_outputs.append({'type': return_type})
+
+        if index == 0 and not method_inputs:
+            method_inputs.append({'name': 'data', 'type': 'Any'})
+        if index < len(path) - 1 and not method_outputs:
+            method_outputs.append({'type': 'Any'})
+        if index == len(path) - 1 and not method_outputs:
+            method_outputs.append({'type': '结果'})
+
+        methods_info.append({
+            'signature': method_sig,
+            'name': method_sig.split('.')[-1] if '.' in method_sig else method_sig,
+            'inputs': method_inputs,
+            'outputs': method_outputs,
+        })
+
+    return methods_info
+
+
+def _build_path_dataflow_mermaid(
+    path: List[str],
+    methods_info: List[Dict[str, Any]],
+    path_dfg: Optional[Dict[str, Any]] = None,
+) -> str:
+    mermaid_lines = ['graph LR']
+    seen_nodes: Set[str] = set()
+    parameter_flow_map: Dict[tuple, List[str]] = {}
+    return_flow_map: Dict[tuple, List[str]] = {}
+
+    for flow in (path_dfg or {}).get('parameter_flows', []) or []:
+        if not isinstance(flow, dict):
+            continue
+        key = (flow.get('source'), flow.get('target'))
+        label = str(flow.get('parameter') or '参数').strip() or '参数'
+        parameter_flow_map.setdefault(key, []).append(label)
+
+    for flow in (path_dfg or {}).get('return_flows', []) or []:
+        if not isinstance(flow, dict):
+            continue
+        key = (flow.get('source'), flow.get('target'))
+        label = str(flow.get('return_value') or '返回值').strip() or '返回值'
+        return_flow_map.setdefault(key, []).append(label)
+
+    def add_node(node_id: str, label: str, shape: str = '["{label}"]'):
+        if node_id in seen_nodes:
+            return
+        seen_nodes.add(node_id)
+        escaped_label = _mermaid_safe_label(label)
+        mermaid_lines.append(f'    {node_id}{shape.format(label=escaped_label)}')
+
+    for index, method in enumerate(methods_info):
+        method_sig = method.get('signature') or ''
+        method_id = f'M{index}'
+        add_node(method_id, method.get('name') or method_sig)
+
+        if index == 0:
+            for input_index, method_input in enumerate(method.get('inputs') or []):
+                input_id = f'I_{index}_{input_index}'
+                input_name = method_input.get('name', 'data')
+                input_type = _normalize_type_label(method_input.get('type'), 'Any')
+                add_node(input_id, f'输入: {input_name} : {input_type}', '(["{label}"])')
+                mermaid_lines.append(f'    {input_id} -->|输入| {method_id}')
+
+        if index < len(methods_info) - 1:
+            next_method = methods_info[index + 1]
+            data_id = f'D_{index}'
+            output_types = [
+                _normalize_type_label(item.get('type'), 'Any')
+                for item in (method.get('outputs') or [])
+            ]
+            data_label = ' / '.join(dict.fromkeys(output_types)) if output_types else 'Any'
+            add_node(data_id, f'中间数据: {data_label}', '(["{label}"])')
+            mermaid_lines.append(f'    {method_id} -->|输出| {data_id}')
+
+            flow_key = (method_sig, next_method.get('signature'))
+            param_labels = ' / '.join(dict.fromkeys(parameter_flow_map.get(flow_key, [])))
+            edge_label = f'输入: {param_labels}' if param_labels else '输入'
+            mermaid_lines.append(f'    {data_id} -->|{_mermaid_safe_label(edge_label)}| M{index + 1}')
+        else:
+            output_types = [
+                _normalize_type_label(item.get('type'), '结果')
+                for item in (method.get('outputs') or [])
+            ]
+            output_label = ' / '.join(dict.fromkeys(output_types)) if output_types else '结果'
+            output_id = 'O_FINAL'
+            add_node(output_id, f'最终输出: {output_label}', '(["{label}"])')
+            mermaid_lines.append(f'    {method_id} -->|输出| {output_id}')
+
+    for index in range(len(methods_info) - 1):
+        current_method = methods_info[index]
+        next_method = methods_info[index + 1]
+        return_key = (next_method.get('signature'), current_method.get('signature'))
+        return_labels = ' / '.join(dict.fromkeys(return_flow_map.get(return_key, [])))
+        if return_labels:
+            mermaid_lines.append(f'    M{index + 1} -.->|返回: {_mermaid_safe_label(return_labels)}| M{index}')
+
+    return '\n'.join(mermaid_lines)
+
 def _dot_safe_id(raw: str) -> str:
     """
     将任意字符串转换为 DOT 安全的节点/边 id（保证同一个 raw 产生同一个结果）。
@@ -40,8 +207,8 @@ def generate_path_level_cfg(
     call_graph: Dict[str, Set[str]],
     analyzer_report,
     partition_methods: Set[str],
-    inputs: List[Dict] = None,
-    outputs: List[Dict] = None
+    inputs: Optional[List[Dict]] = None,
+    outputs: Optional[List[Dict]] = None
 ) -> Dict[str, Any]:
     """
     为一条路径生成功能层级的CFG（控制流图）
@@ -554,9 +721,10 @@ def generate_path_level_dataflow_mermaid(
     call_graph: Dict[str, Set[str]],
     analyzer_report,
     partition_methods: Set[str],
-    inputs: List[Dict] = None,
-    outputs: List[Dict] = None,
-    llm_agent=None
+    inputs: Optional[List[Dict]] = None,
+    outputs: Optional[List[Dict]] = None,
+    llm_agent=None,
+    path_dfg: Optional[Dict[str, Any]] = None,
 ) -> str:
     """
     使用LLM为一条路径生成mermaid格式的数据流图
@@ -574,142 +742,20 @@ def generate_path_level_dataflow_mermaid(
         mermaid格式的数据流图代码
     """
     try:
-        if not llm_agent:
-            # 如果没有LLM，生成简单的mermaid图
-            mermaid_lines = ['graph LR']
-            for i, method_sig in enumerate(path):
-                method_name = method_sig.split('.')[-1] if '.' in method_sig else method_sig
-                node_id = f"M{i}"
-                mermaid_lines.append(f'    {node_id}["{method_name}"]')
-                if i > 0:
-                    mermaid_lines.append(f'    M{i-1} --> M{i}')
-            return '\n'.join(mermaid_lines)
-        
-        # 收集路径上的方法信息
-        methods_info = []
-        for method_sig in path:
-            method_info = None
-            if '.' in method_sig:
-                class_name, method_name = method_sig.rsplit('.', 1)
-                if analyzer_report and class_name in analyzer_report.classes:
-                    class_info = analyzer_report.classes[class_name]
-                    if method_name in class_info.methods:
-                        method_info = class_info.methods[method_name]
-            else:
-                if analyzer_report:
-                    for func_info in analyzer_report.functions:
-                        if func_info.name == method_sig or func_info.signature == method_sig:
-                            method_info = func_info
-                            break
-            
-            if method_info:
-                method_data = {
-                    'signature': method_sig,
-                    'name': method_sig.split('.')[-1] if '.' in method_sig else method_sig,
-                    'source_code': getattr(method_info, 'source_code', '')[:500] if hasattr(method_info, 'source_code') else '',
-                    'docstring': getattr(method_info, 'docstring', '') or ''
-                }
-                
-                # 添加参数信息
-                if inputs:
-                    method_data['inputs'] = [
-                        {'name': inp.get('parameter_name'), 'type': inp.get('parameter_type')}
-                        for inp in inputs if inp.get('method_signature') == method_sig
-                    ]
-                
-                # 添加返回值信息
-                if outputs:
-                    method_data['output'] = next(
-                        (out.get('return_type') for out in outputs if out.get('method_signature') == method_sig),
-                        None
-                    )
-                
-                methods_info.append(method_data)
-        
-        # 构建LLM提示
-        system_prompt = """你是一个代码分析专家，擅长生成数据流图。
-
-请根据给定的方法调用路径，生成一个mermaid格式的数据流图。
-
-要求：
-1. 使用graph LR格式（从左到右）
-2. 每个方法作为一个节点，节点标签使用简短的方法名
-3. 显示方法间的数据流动（参数传递、返回值传递）
-4. 如果有输入参数，在节点上标注输入
-5. 如果有返回值，在边上标注返回值类型
-6. 只返回mermaid代码，不要其他解释
-
-mermaid格式示例：
-graph LR
-    A["方法A<br/>输入: param1: str"] -->|"返回: int"| B["方法B"]
-    B -->|"返回: bool"| C["方法C"]
-"""
-        
-        user_prompt = f"""请为以下方法调用路径生成mermaid数据流图：
-
-路径：{' -> '.join([m['name'] for m in methods_info])}
-
-方法详情：
-{json.dumps(methods_info, indent=2, ensure_ascii=False)}
-
-请生成mermaid代码："""
-        
-        # 调用LLM
-        if hasattr(llm_agent, 'llm') and llm_agent.llm:
-            from langchain_core.messages import SystemMessage, HumanMessage
-            response = llm_agent.llm.invoke([
-                SystemMessage(content=system_prompt),
-                HumanMessage(content=user_prompt)
-            ])
-            mermaid_code = response.content.strip()
-        elif hasattr(llm_agent, '_call_api_directly'):
-            mermaid_code = llm_agent._call_api_directly(system_prompt, user_prompt).strip()
-        else:
-            # 回退到简单生成
-            mermaid_lines = ['graph LR']
-            for i, method in enumerate(methods_info):
-                method_name = method['name']
-                node_id = f"M{i}"
-                input_text = ""
-                if method.get('inputs'):
-                    input_list = []
-                    for inp in method['inputs']:
-                        inp_name = inp.get('name', '')
-                        inp_type = inp.get('type', '')
-                        input_list.append(f'{inp_name}: {inp_type}')
-                    input_text = "<br/>输入: " + ', '.join(input_list)
-                mermaid_lines.append(f'    {node_id}["{method_name}{input_text}"]')
-                if i > 0:
-                    output_text = ""
-                    if methods_info[i-1].get('output'):
-                        output_value = methods_info[i-1]["output"]
-                        output_text = f'|"返回: {output_value}"|'
-                    mermaid_lines.append(f'    M{i-1} {output_text}--> M{i}')
-            mermaid_code = '\n'.join(mermaid_lines)
-        
-        # 验证mermaid代码格式
-        if not mermaid_code.startswith('graph'):
-            # 如果不是有效的mermaid代码，回退到简单生成
-            mermaid_lines = ['graph LR']
-            for i, method in enumerate(methods_info):
-                method_name = method['name']
-                node_id = f"M{i}"
-                mermaid_lines.append(f'    {node_id}["{method_name}"]')
-                if i > 0:
-                    mermaid_lines.append(f'    M{i-1} --> M{i}')
-            mermaid_code = '\n'.join(mermaid_lines)
-        
-        return mermaid_code
+        methods_info = _build_path_method_io_list(
+            path=path,
+            analyzer_report=analyzer_report,
+            inputs=inputs,
+            outputs=outputs,
+        )
+        return _build_path_dataflow_mermaid(path, methods_info, path_dfg=path_dfg)
         
     except Exception as e:
         logger.error(f"[PathLevelAnalyzer] 生成路径数据流图失败: {e}", exc_info=True)
-        # 回退到简单生成
-        mermaid_lines = ['graph LR']
-        for i, method_sig in enumerate(path):
-            method_name = method_sig.split('.')[-1] if '.' in method_sig else method_sig
-            node_id = f"M{i}"
-            mermaid_lines.append(f'    {node_id}["{method_name}"]')
-            if i > 0:
-                mermaid_lines.append(f'    M{i-1} --> M{i}')
-        return '\n'.join(mermaid_lines)
-
+        methods_info = _build_path_method_io_list(
+            path=path,
+            analyzer_report=analyzer_report,
+            inputs=inputs,
+            outputs=outputs,
+        )
+        return _build_path_dataflow_mermaid(path, methods_info, path_dfg=path_dfg)

@@ -1,0 +1,1 @@
+生成一个最小可运行的 Python Web 项目，并输出多个代码文件（README.md, requirements.txt, app/main.py, app/routes.py, run.py）。

@@ -110,7 +110,8 @@ const OpenRouterModelCombobox = ({ value, onChange, models, isLoading, onLoadMod
   return (
     <div ref={containerRef} className="relative">
       {/* Main input/button */}
-      <div
+      <button
+        type="button"
         onClick={handleOpen}
         className={`w-full px-4 py-3 bg-elevated border rounded-xl cursor-pointer transition-all flex items-center gap-2
           ${isOpen ? 'border-accent ring-2 ring-accent/20' : 'border-border-subtle hover:border-accent/50'}`}
@@ -122,20 +123,20 @@ const OpenRouterModelCombobox = ({ value, onChange, models, isLoading, onLoadMod
             value={searchTerm}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
-            placeholder="Search or type model ID..."
+            placeholder="搜索或输入模型 ID…"
             className="flex-1 bg-transparent text-text-primary placeholder:text-text-muted outline-none font-mono text-sm"
             onClick={e => e.stopPropagation()}
           />
         ) : (
           <span className={`flex-1 font-mono text-sm truncate ${value ? 'text-text-primary' : 'text-text-muted'}`}>
-            {displayValue || 'Select or type a model...'}
+            {displayValue || '选择模型，或直接输入模型 ID…'}
           </span>
         )}
         <div className="flex items-center gap-1">
           {isLoading && <Loader2 className="w-4 h-4 animate-spin text-text-muted" />}
           <ChevronDown className={`w-4 h-4 text-text-muted transition-transform ${isOpen ? 'rotate-180' : ''}`} />
         </div>
-      </div>
+      </button>
 
       {/* Dropdown */}
       {isOpen && (
@@ -143,20 +144,20 @@ const OpenRouterModelCombobox = ({ value, onChange, models, isLoading, onLoadMod
           {isLoading ? (
             <div className="px-4 py-6 text-center text-text-muted text-sm flex items-center justify-center gap-2">
               <Loader2 className="w-4 h-4 animate-spin" />
-              Loading models...
+               正在加载模型列表…
             </div>
           ) : filteredModels.length === 0 ? (
             <div className="px-4 py-4 text-center">
               {models.length === 0 ? (
                 <div className="text-text-muted text-sm">
                   <Search className="w-5 h-5 mx-auto mb-2 opacity-50" />
-                  <p>Type a model ID or press Enter</p>
-                  <p className="text-xs mt-1">e.g. openai/gpt-4o</p>
+                   <p>输入模型 ID 后按回车即可使用</p>
+                   <p className="text-xs mt-1">例如：openai/gpt-4o</p>
                 </div>
               ) : (
                 <div className="text-text-muted text-sm">
-                  <p>No models match "{searchTerm}"</p>
-                  <p className="text-xs mt-1">Press Enter to use as custom ID</p>
+                   <p>没有匹配 “{searchTerm}” 的模型</p>
+                   <p className="text-xs mt-1">按回车可直接使用它作为自定义 ID</p>
                 </div>
               )}
             </div>
@@ -164,6 +165,7 @@ const OpenRouterModelCombobox = ({ value, onChange, models, isLoading, onLoadMod
             <div className="max-h-64 overflow-y-auto">
               {filteredModels.slice(0, 50).map(model => (
                 <button
+                  type="button"
                   key={model.id}
                   onClick={() => handleSelect(model.id)}
                   className={`w-full px-4 py-2.5 text-left hover:bg-hover transition-colors flex flex-col
@@ -175,7 +177,7 @@ const OpenRouterModelCombobox = ({ value, onChange, models, isLoading, onLoadMod
               ))}
               {filteredModels.length > 50 && (
                 <div className="px-4 py-2 text-xs text-text-muted text-center border-t border-border-subtle">
-                  +{filteredModels.length - 50} more • Refine your search
+                   还有 {filteredModels.length - 50} 项，请继续缩小范围
                 </div>
               )}
             </div>
@@ -198,16 +200,16 @@ const checkOllamaStatus = async (baseUrl: string): Promise<{ ok: boolean; error:
 
     if (!response.ok) {
       if (response.status === 0 || response.status === 404) {
-        return { ok: false, error: 'Cannot connect to Ollama. Make sure it\'s running with `ollama serve`' };
+        return { ok: false, error: '无法连接 Ollama，请确认已执行 `ollama serve`' };
       }
-      return { ok: false, error: `Ollama API error: ${response.status}` };
+      return { ok: false, error: `Ollama API 错误：${response.status}` };
     }
 
     return { ok: true, error: null };
   } catch (error) {
     return {
       ok: false,
-      error: 'Cannot connect to Ollama. Make sure it\'s running with `ollama serve`'
+      error: '无法连接 Ollama，请确认已执行 `ollama serve`'
     };
   }
 };
@@ -264,6 +266,93 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
     setSettings(prev => ({ ...prev, activeProvider: provider }));
   };
 
+  const domesticProviderMeta = {
+    deepseek: {
+      docsUrl: 'https://platform.deepseek.com/api-docs/',
+      keyPlaceholder: '输入 DeepSeek API Key',
+      modelPlaceholder: 'deepseek-chat / deepseek-reasoner',
+      baseUrlPlaceholder: 'https://api.deepseek.com/v1',
+      requiredHint: '必填：API Key、Model。建议填写 Base URL（默认 https://api.deepseek.com/v1）。',
+    },
+    qwen: {
+      docsUrl: 'https://docs.qwencloud.com/developer-guides/text-generation/quickstart',
+      keyPlaceholder: '输入 DashScope / Qwen API Key',
+      modelPlaceholder: 'qwen-plus / qwen-max / qwen3-coder-plus',
+      baseUrlPlaceholder: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      requiredHint: '必填：API Key、Model、Base URL（国内/国际域名按账号区域选择）。',
+    },
+    glm: {
+      docsUrl: 'https://docs.z.ai/guides/llm/glm-4.5',
+      keyPlaceholder: '输入 智谱 GLM API Key',
+      modelPlaceholder: 'glm-4.5 / glm-4.7 / glm-5',
+      baseUrlPlaceholder: 'https://open.bigmodel.cn/api/paas/v4',
+      requiredHint: '必填：API Key、Model、Base URL（OpenAI 兼容端点）。',
+    },
+    kimi: {
+      docsUrl: 'https://platform.kimi.ai/docs/guide/start-using-kimi-api',
+      keyPlaceholder: '输入 Kimi (Moonshot) API Key',
+      modelPlaceholder: 'kimi-k2.5 / moonshot-v1-8k',
+      baseUrlPlaceholder: 'https://api.moonshot.ai/v1',
+      requiredHint: '必填：API Key、Model、Base URL。组织/项目可在 Moonshot 平台控制台管理。',
+    },
+    minimax: {
+      docsUrl: 'https://platform.minimax.io/docs/api-reference/text-openai-api',
+      keyPlaceholder: '输入 MiniMax API Key',
+      modelPlaceholder: 'MiniMax-M2.5 / MiniMax-M2.7',
+      baseUrlPlaceholder: 'https://api.minimax.io/v1',
+      requiredHint: '必填：API Key、Model、Base URL（OpenAI 兼容接口）。',
+    },
+    doubao: {
+      docsUrl: 'https://www.volcengine.com/docs/82379/1494384',
+      keyPlaceholder: '输入 豆包 Ark API Key',
+      modelPlaceholder: 'doubao-seed-1-6-250615 / doubao-pro-32k',
+      baseUrlPlaceholder: 'https://ark.cn-beijing.volces.com/api/v3',
+      requiredHint: '必填：API Key、Model、Base URL（Ark 对话接口，OpenAI 兼容）。',
+    },
+  } as const;
+
+  const activeDomesticProvider = (
+    settings.activeProvider === 'deepseek'
+    || settings.activeProvider === 'qwen'
+    || settings.activeProvider === 'glm'
+    || settings.activeProvider === 'kimi'
+    || settings.activeProvider === 'minimax'
+    || settings.activeProvider === 'doubao'
+  ) ? settings.activeProvider : null;
+
+  const activeDomesticConfig = activeDomesticProvider
+    ? (
+      activeDomesticProvider === 'deepseek' ? settings.deepseek
+      : activeDomesticProvider === 'qwen' ? settings.qwen
+      : activeDomesticProvider === 'glm' ? settings.glm
+      : activeDomesticProvider === 'kimi' ? settings.kimi
+      : activeDomesticProvider === 'minimax' ? settings.minimax
+      : settings.doubao
+    )
+    : null;
+
+  const updateActiveDomesticConfig = (updates: { apiKey?: string; model?: string; baseUrl?: string }) => {
+    if (!activeDomesticProvider) return;
+    setSettings((prev) => {
+      switch (activeDomesticProvider) {
+        case 'deepseek':
+          return { ...prev, deepseek: { ...prev.deepseek!, ...updates } };
+        case 'qwen':
+          return { ...prev, qwen: { ...prev.qwen!, ...updates } };
+        case 'glm':
+          return { ...prev, glm: { ...prev.glm!, ...updates } };
+        case 'kimi':
+          return { ...prev, kimi: { ...prev.kimi!, ...updates } };
+        case 'minimax':
+          return { ...prev, minimax: { ...prev.minimax!, ...updates } };
+        case 'doubao':
+          return { ...prev, doubao: { ...prev.doubao!, ...updates } };
+        default:
+          return prev;
+      }
+    });
+  };
+
   const handleSave = () => {
     try {
       saveSettings(settings);
@@ -281,15 +370,17 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
 
   if (!isOpen) return null;
 
-  const providers: LLMProvider[] = ['openai', 'gemini', 'anthropic', 'azure-openai', 'ollama', 'openrouter'];
+  const providers: LLMProvider[] = ['openai', 'deepseek', 'qwen', 'glm', 'kimi', 'minimax', 'doubao', 'gemini', 'anthropic', 'azure-openai', 'ollama', 'openrouter'];
 
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* Backdrop */}
-      <div
+      <button
+        type="button"
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         onClick={onClose}
+        aria-label="关闭设置面板"
       />
 
       {/* Panel */}
@@ -301,11 +392,12 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
               <Brain className="w-5 h-5 text-accent" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-text-primary">AI Settings</h2>
-              <p className="text-xs text-text-muted">Configure your LLM provider</p>
+               <h2 className="text-lg font-semibold text-text-primary">AI 设置</h2>
+               <p className="text-xs text-text-muted">配置当前使用的 LLM 提供方</p>
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
             className="p-2 text-text-muted hover:text-text-primary hover:bg-hover rounded-lg transition-colors"
           >
@@ -318,16 +410,16 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
           {/* Local Server */}
           {backendUrl !== undefined && onBackendUrlChange && (
             <div className="space-y-3">
-              <label className="block text-sm font-medium text-text-secondary">
-                Local Server
-              </label>
+              <div className="block text-sm font-medium text-text-secondary">
+                 本地服务
+              </div>
               <div className="space-y-2">
                 <div className="flex items-center gap-2 mb-2">
                   <Server className="w-4 h-4 text-text-muted" />
-                  <span className="text-sm text-text-secondary">Backend URL</span>
+                   <span className="text-sm text-text-secondary">后端地址</span>
                   <span className={`w-2 h-2 rounded-full ${isBackendConnected ? 'bg-green-400' : 'bg-red-400'}`} />
                   <span className="text-xs text-text-muted">
-                    {isBackendConnected ? 'Connected' : 'Not connected'}
+                     {isBackendConnected ? '已连接' : '未连接'}
                   </span>
                 </div>
                 <input
@@ -338,7 +430,7 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
                   className="w-full px-4 py-3 bg-elevated border border-border-subtle rounded-xl text-text-primary placeholder:text-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 outline-none transition-all font-mono text-sm"
                 />
                 <p className="text-xs text-text-muted">
-                  Run <code className="px-1 py-0.5 bg-elevated rounded">gitnexus serve</code> to start the local server
+                   运行对应后端启动命令后再连接本地服务
                 </p>
               </div>
             </div>
@@ -346,12 +438,13 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
 
           {/* Provider Selection */}
           <div className="space-y-3">
-            <label className="block text-sm font-medium text-text-secondary">
-              Provider
-            </label>
+            <div className="block text-sm font-medium text-text-secondary">
+               提供方
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               {providers.map(provider => (
                 <button
+                  type="button"
                   key={provider}
                   onClick={() => handleProviderChange(provider)}
                   className={`
@@ -366,7 +459,7 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
                     w-8 h-8 rounded-lg flex items-center justify-center text-lg
                     ${settings.activeProvider === provider ? 'bg-accent/20' : 'bg-surface'}
                   `}>
-                    {provider === 'openai' ? '🤖' : provider === 'gemini' ? '💎' : provider === 'anthropic' ? '🧠' : provider === 'ollama' ? '🦙' : provider === 'openrouter' ? '🌐' : '☁️'}
+                    {provider === 'openai' ? '🤖' : provider === 'deepseek' ? '🧭' : provider === 'qwen' ? '🌀' : provider === 'glm' ? '🧠' : provider === 'kimi' ? '🌙' : provider === 'minimax' ? '⚡' : provider === 'doubao' ? '🫘' : provider === 'gemini' ? '💎' : provider === 'anthropic' ? '🧠' : provider === 'ollama' ? '🦙' : provider === 'openrouter' ? '🌐' : '☁️'}
                   </div>
                   <span className="font-medium">{getProviderDisplayName(provider)}</span>
                 </button>
@@ -378,10 +471,9 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
           {settings.activeProvider === 'openai' && (
             <div className="space-y-4 animate-fade-in">
               <div className="space-y-2">
-                <label className="flex items-center gap-2 text-sm font-medium text-text-secondary">
-                  <Key className="w-4 h-4" />
-                  API Key
-                </label>
+                <div className="flex items-center gap-2 text-sm font-medium text-text-secondary"><Key className="w-4 h-4" />
+                密钥
+                                </div>
                 <div className="relative">
                   <input
                     type={showApiKey['openai'] ? 'text' : 'password'}
@@ -390,7 +482,7 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
                       ...prev,
                       openai: { ...prev.openai!, apiKey: e.target.value }
                     }))}
-                    placeholder="Enter your OpenAI API key"
+                     placeholder="输入 OpenAI API Key"
                     className="w-full px-4 py-3 pr-12 bg-elevated border border-border-subtle rounded-xl text-text-primary placeholder:text-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 outline-none transition-all"
                   />
                   <button
@@ -402,7 +494,7 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
                   </button>
                 </div>
                 <p className="text-xs text-text-muted">
-                  Get your API key from{' '}
+                   可在{' '}
                   <a
                     href="https://platform.openai.com/api-keys"
                     target="_blank"
@@ -415,7 +507,7 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium text-text-secondary">Model</label>
+                <div className="text-sm font-medium text-text-secondary">模型</div>
                 <input
                   type="text"
                   value={settings.openai?.model ?? 'gpt-5.2-chat'}
@@ -423,16 +515,14 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
                     ...prev,
                     openai: { ...prev.openai!, model: e.target.value }
                   }))}
-                  placeholder="e.g., gpt-4o, gpt-4-turbo, gpt-3.5-turbo"
+                   placeholder="例如：gpt-4o、gpt-4-turbo、gpt-3.5-turbo"
                   className="w-full px-4 py-3 bg-elevated border border-border-subtle rounded-xl text-text-primary placeholder:text-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 outline-none transition-all font-mono text-sm"
                 />
               </div>
 
               <div className="space-y-2">
-                <label className="flex items-center gap-2 text-sm font-medium text-text-secondary">
-                  <Server className="w-4 h-4" />
-                  Base URL <span className="text-text-muted font-normal">(optional)</span>
-                </label>
+                <div className="flex items-center gap-2 text-sm font-medium text-text-secondary"><Server className="w-4 h-4" />
+                 基础地址 <span className="text-text-muted font-normal">（可选）</span></div>
                 <input
                   type="url"
                   value={settings.openai?.baseUrl ?? ''}
@@ -440,11 +530,77 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
                     ...prev,
                     openai: { ...prev.openai!, baseUrl: e.target.value }
                   }))}
-                  placeholder="https://api.openai.com/v1 (default)"
+                   placeholder="https://api.openai.com/v1（默认）"
                   className="w-full px-4 py-3 bg-elevated border border-border-subtle rounded-xl text-text-primary placeholder:text-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 outline-none transition-all"
                 />
                 <p className="text-xs text-text-muted">
-                  Leave empty to use the default OpenAI API. Set a custom URL for proxies or compatible APIs.
+                   留空则使用默认 OpenAI API；如需代理或兼容接口，可填写自定义地址。
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Domestic OpenAI-compatible Providers */}
+          {activeDomesticProvider && activeDomesticConfig && (
+            <div className="space-y-4 animate-fade-in">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm font-medium text-text-secondary"><Key className="w-4 h-4" />
+                密钥
+                                </div>
+                <div className="relative">
+                  <input
+                    type={showApiKey[`domestic-${activeDomesticProvider}`] ? 'text' : 'password'}
+                    value={activeDomesticConfig.apiKey ?? ''}
+                    onChange={e => updateActiveDomesticConfig({ apiKey: e.target.value })}
+                    placeholder={domesticProviderMeta[activeDomesticProvider].keyPlaceholder}
+                    className="w-full px-4 py-3 pr-12 bg-elevated border border-border-subtle rounded-xl text-text-primary placeholder:text-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 outline-none transition-all"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => toggleApiKeyVisibility(`domestic-${activeDomesticProvider}`)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-text-muted hover:text-text-primary transition-colors"
+                  >
+                    {showApiKey[`domestic-${activeDomesticProvider}`] ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="text-sm font-medium text-text-secondary">模型</div>
+                <input
+                  type="text"
+                  value={activeDomesticConfig.model ?? ''}
+                  onChange={e => updateActiveDomesticConfig({ model: e.target.value })}
+                  placeholder={domesticProviderMeta[activeDomesticProvider].modelPlaceholder}
+                  className="w-full px-4 py-3 bg-elevated border border-border-subtle rounded-xl text-text-primary placeholder:text-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 outline-none transition-all font-mono text-sm"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm font-medium text-text-secondary"><Server className="w-4 h-4" />
+                 基础地址
+                                </div>
+                <input
+                  type="url"
+                  value={activeDomesticConfig.baseUrl ?? ''}
+                  onChange={e => updateActiveDomesticConfig({ baseUrl: e.target.value })}
+                  placeholder={domesticProviderMeta[activeDomesticProvider].baseUrlPlaceholder}
+                  className="w-full px-4 py-3 bg-elevated border border-border-subtle rounded-xl text-text-primary placeholder:text-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 outline-none transition-all"
+                />
+              </div>
+
+              <div className="p-3 bg-elevated/50 border border-border-subtle rounded-xl text-xs text-text-muted leading-relaxed">
+                <p>{domesticProviderMeta[activeDomesticProvider].requiredHint}</p>
+                <p className="mt-1">
+                  官方文档：
+                  <a
+                    href={domesticProviderMeta[activeDomesticProvider].docsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-accent hover:underline ml-1"
+                  >
+                    {domesticProviderMeta[activeDomesticProvider].docsUrl}
+                  </a>
                 </p>
               </div>
             </div>
@@ -454,10 +610,9 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
           {settings.activeProvider === 'gemini' && (
             <div className="space-y-4 animate-fade-in">
               <div className="space-y-2">
-                <label className="flex items-center gap-2 text-sm font-medium text-text-secondary">
-                  <Key className="w-4 h-4" />
-                  API Key
-                </label>
+                <div className="flex items-center gap-2 text-sm font-medium text-text-secondary"><Key className="w-4 h-4" />
+                密钥
+                                </div>
                 <div className="relative">
                   <input
                     type={showApiKey['gemini'] ? 'text' : 'password'}
@@ -466,7 +621,7 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
                       ...prev,
                       gemini: { ...prev.gemini!, apiKey: e.target.value }
                     }))}
-                    placeholder="Enter your Google AI API key"
+                     placeholder="输入 Google AI API Key"
                     className="w-full px-4 py-3 pr-12 bg-elevated border border-border-subtle rounded-xl text-text-primary placeholder:text-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 outline-none transition-all"
                   />
                   <button
@@ -478,7 +633,7 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
                   </button>
                 </div>
                 <p className="text-xs text-text-muted">
-                  Get your API key from{' '}
+                   可在{' '}
                   <a
                     href="https://aistudio.google.com/app/apikey"
                     target="_blank"
@@ -491,7 +646,7 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium text-text-secondary">Model</label>
+                <div className="text-sm font-medium text-text-secondary">模型</div>
                 <input
                   type="text"
                   value={settings.gemini?.model ?? 'gemini-2.0-flash'}
@@ -499,7 +654,7 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
                     ...prev,
                     gemini: { ...prev.gemini!, model: e.target.value }
                   }))}
-                  placeholder="e.g., gemini-2.0-flash, gemini-1.5-pro"
+                   placeholder="例如：gemini-2.0-flash、gemini-1.5-pro"
                   className="w-full px-4 py-3 bg-elevated border border-border-subtle rounded-xl text-text-primary placeholder:text-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 outline-none transition-all font-mono text-sm"
                 />
               </div>
@@ -510,10 +665,9 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
           {settings.activeProvider === 'anthropic' && (
             <div className="space-y-4 animate-fade-in">
               <div className="space-y-2">
-                <label className="flex items-center gap-2 text-sm font-medium text-text-secondary">
-                  <Key className="w-4 h-4" />
-                  API Key
-                </label>
+                <div className="flex items-center gap-2 text-sm font-medium text-text-secondary"><Key className="w-4 h-4" />
+                密钥
+                                </div>
                 <div className="relative">
                   <input
                     type={showApiKey['anthropic'] ? 'text' : 'password'}
@@ -522,7 +676,7 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
                       ...prev,
                       anthropic: { ...prev.anthropic!, apiKey: e.target.value }
                     }))}
-                    placeholder="Enter your Anthropic API key"
+                     placeholder="输入 Anthropic API Key"
                     className="w-full px-4 py-3 pr-12 bg-elevated border border-border-subtle rounded-xl text-text-primary placeholder:text-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 outline-none transition-all"
                   />
                   <button
@@ -534,7 +688,7 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
                   </button>
                 </div>
                 <p className="text-xs text-text-muted">
-                  Get your API key from{' '}
+                   可在{' '}
                   <a
                     href="https://console.anthropic.com/settings/keys"
                     target="_blank"
@@ -547,7 +701,7 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium text-text-secondary">Model</label>
+                <div className="text-sm font-medium text-text-secondary">模型</div>
                 <input
                   type="text"
                   value={settings.anthropic?.model ?? 'claude-sonnet-4-20250514'}
@@ -555,7 +709,7 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
                     ...prev,
                     anthropic: { ...prev.anthropic!, model: e.target.value }
                   }))}
-                  placeholder="e.g., claude-sonnet-4-20250514, claude-3-opus"
+                   placeholder="例如：claude-sonnet-4-20250514、claude-3-opus"
                   className="w-full px-4 py-3 bg-elevated border border-border-subtle rounded-xl text-text-primary placeholder:text-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 outline-none transition-all font-mono text-sm"
                 />
               </div>
@@ -566,10 +720,9 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
           {settings.activeProvider === 'azure-openai' && (
             <div className="space-y-4 animate-fade-in">
               <div className="space-y-2">
-                <label className="flex items-center gap-2 text-sm font-medium text-text-secondary">
-                  <Key className="w-4 h-4" />
-                  API Key
-                </label>
+                <div className="flex items-center gap-2 text-sm font-medium text-text-secondary"><Key className="w-4 h-4" />
+                密钥
+                                </div>
                 <div className="relative">
                   <input
                     type={showApiKey['azure'] ? 'text' : 'password'}
@@ -578,7 +731,7 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
                       ...prev,
                       azureOpenAI: { ...prev.azureOpenAI!, apiKey: e.target.value }
                     }))}
-                    placeholder="Enter your Azure OpenAI API key"
+                    placeholder="输入 Azure OpenAI API Key"
                     className="w-full px-4 py-3 pr-12 bg-elevated border border-border-subtle rounded-xl text-text-primary placeholder:text-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 outline-none transition-all"
                   />
                   <button
@@ -592,10 +745,9 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
               </div>
 
               <div className="space-y-2">
-                <label className="flex items-center gap-2 text-sm font-medium text-text-secondary">
-                  <Server className="w-4 h-4" />
-                  Endpoint
-                </label>
+                <div className="flex items-center gap-2 text-sm font-medium text-text-secondary"><Server className="w-4 h-4" />
+                 接入地址
+                                </div>
                 <input
                   type="url"
                   value={settings.azureOpenAI?.endpoint ?? ''}
@@ -609,7 +761,7 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium text-text-secondary">Deployment Name</label>
+                <div className="text-sm font-medium text-text-secondary">部署名称</div>
                 <input
                   type="text"
                   value={settings.azureOpenAI?.deploymentName ?? ''}
@@ -617,14 +769,14 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
                     ...prev,
                     azureOpenAI: { ...prev.azureOpenAI!, deploymentName: e.target.value }
                   }))}
-                  placeholder="e.g., gpt-4o-deployment"
+                  placeholder="例如：gpt-4o-deployment"
                   className="w-full px-4 py-3 bg-elevated border border-border-subtle rounded-xl text-text-primary placeholder:text-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 outline-none transition-all"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-text-secondary">Model</label>
+                  <div className="text-sm font-medium text-text-secondary">模型</div>
                   <input
                     type="text"
                     value={settings.azureOpenAI?.model ?? 'gpt-4o'}
@@ -638,7 +790,7 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-text-secondary">API Version</label>
+                  <div className="text-sm font-medium text-text-secondary">API 版本</div>
                   <input
                     type="text"
                     value={settings.azureOpenAI?.apiVersion ?? '2024-08-01-preview'}
@@ -653,7 +805,7 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
               </div>
 
               <p className="text-xs text-text-muted">
-                Configure your Azure OpenAI service in the{' '}
+                 可在{' '}
                 <a
                   href="https://portal.azure.com/#view/Microsoft_Azure_ProjectOxford/CognitiveServicesHub/~/OpenAI"
                   target="_blank"
@@ -672,7 +824,7 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
               {/* How to run Ollama */}
               <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl">
                 <p className="text-xs text-amber-300 leading-relaxed">
-                  <span className="font-medium">📋 Quick Start:</span> Install Ollama from{' '}
+                   <span className="font-medium">📋 快速开始：</span>先从{' '}
                   <a
                     href="https://ollama.ai"
                     target="_blank"
@@ -680,7 +832,7 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
                     className="text-accent hover:underline"
                   >
                     ollama.ai
-                  </a>, then run:
+                   </a> 安装 Ollama，然后运行：
                 </p>
                 <code className="block mt-2 px-3 py-2 bg-black/30 rounded-lg text-amber-200 font-mono text-sm">
                   ollama serve
@@ -688,10 +840,9 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
               </div>
 
               <div className="space-y-2">
-                <label className="flex items-center gap-2 text-sm font-medium text-text-secondary">
-                  <Server className="w-4 h-4" />
-                  Base URL
-                </label>
+                <div className="flex items-center gap-2 text-sm font-medium text-text-secondary"><Server className="w-4 h-4" />
+                基础地址
+                                </div>
                 <div className="flex gap-2">
                   <input
                     type="url"
@@ -708,18 +859,18 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
                     onClick={() => checkOllamaConnection(settings.ollama?.baseUrl ?? 'http://localhost:11434')}
                     disabled={isCheckingOllama}
                     className="px-3 py-3 bg-elevated border border-border-subtle rounded-xl text-text-secondary hover:text-text-primary hover:border-accent/50 transition-colors disabled:opacity-50"
-                    title="Check connection"
+                     title="检查连接"
                   >
                     <RefreshCw className={`w-4 h-4 ${isCheckingOllama ? 'animate-spin' : ''}`} />
                   </button>
                 </div>
                 <p className="text-xs text-text-muted">
-                  Default port is <code className="px-1 py-0.5 bg-elevated rounded">11434</code>.
+                  默认端口为 <code className="px-1 py-0.5 bg-elevated rounded">11434</code>。
                 </p>
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium text-text-secondary">Model</label>
+                <div className="text-sm font-medium text-text-secondary">模型</div>
 
                 {ollamaError && !isCheckingOllama && (
                   <div className="p-2 bg-red-500/10 border border-red-500/30 rounded-lg">
@@ -737,11 +888,11 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
                     ...prev,
                     ollama: { ...prev.ollama!, model: e.target.value }
                   }))}
-                  placeholder="e.g., llama3.2, mistral, codellama"
+                  placeholder="例如：llama3.2、mistral、codellama"
                   className="w-full px-4 py-3 bg-elevated border border-border-subtle rounded-xl text-text-primary placeholder:text-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 outline-none transition-all font-mono text-sm"
                 />
                 <p className="text-xs text-text-muted">
-                  Pull a model with <code className="px-1 py-0.5 bg-elevated rounded">ollama pull llama3.2</code>
+                   可通过 <code className="px-1 py-0.5 bg-elevated rounded">ollama pull llama3.2</code> 拉取模型。
                 </p>
               </div>
             </div>
@@ -751,10 +902,9 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
           {settings.activeProvider === 'openrouter' && (
             <div className="space-y-4 animate-fade-in">
               <div className="space-y-2">
-                <label className="flex items-center gap-2 text-sm font-medium text-text-secondary">
-                  <Key className="w-4 h-4" />
-                  API Key
-                </label>
+                <div className="flex items-center gap-2 text-sm font-medium text-text-secondary"><Key className="w-4 h-4" />
+                密钥
+                                </div>
                 <div className="relative">
                   <input
                     type={showApiKey['openrouter'] ? 'text' : 'password'}
@@ -763,7 +913,7 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
                       ...prev,
                       openrouter: { ...prev.openrouter!, apiKey: e.target.value }
                     }))}
-                    placeholder="Enter your OpenRouter API key"
+                     placeholder="输入 OpenRouter API Key"
                     className="w-full px-4 py-3 pr-12 bg-elevated border border-border-subtle rounded-xl text-text-primary placeholder:text-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20 outline-none transition-all"
                   />
                   <button
@@ -775,7 +925,7 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
                   </button>
                 </div>
                 <p className="text-xs text-text-muted">
-                  Get your API key from{' '}
+                   可在{' '}
                   <a
                     href="https://openrouter.ai/keys"
                     target="_blank"
@@ -788,7 +938,7 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium text-text-secondary">Model</label>
+                <div className="text-sm font-medium text-text-secondary">模型</div>
                 <OpenRouterModelCombobox
                   value={settings.openrouter?.model ?? ''}
                   onChange={(model) => setSettings(prev => ({
@@ -800,7 +950,7 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
                   onLoadModels={loadOpenRouterModels}
                 />
                 <p className="text-xs text-text-muted">
-                  Browse all models at{' '}
+                   完整模型列表见{' '}
                   <a
                     href="https://openrouter.ai/models"
                     target="_blank"
@@ -823,8 +973,8 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
                 🔒
               </div>
               <div className="text-xs text-text-muted leading-relaxed">
-                <span className="text-text-secondary font-medium">Privacy:</span> Your API keys are stored only in your browser's local storage.
-                They're sent directly to the LLM provider when you chat. Your code never leaves your machine.
+                 <span className="text-text-secondary font-medium">隐私说明：</span>API Key 仅保存在当前浏览器本地存储中。
+                 在“AI 问答”模式会直接请求模型提供方；在“问答”模式会随会话请求发送到你的本地服务用于后端推理。
               </div>
             </div>
           </div>
@@ -836,28 +986,30 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
             {saveStatus === 'saved' && (
               <span className="flex items-center gap-1.5 text-green-400 animate-fade-in">
                 <Check className="w-4 h-4" />
-                Settings saved
+                 设置已保存
               </span>
             )}
             {saveStatus === 'error' && (
               <span className="flex items-center gap-1.5 text-red-400 animate-fade-in">
                 <AlertCircle className="w-4 h-4" />
-                Failed to save
+                 保存失败
               </span>
             )}
           </div>
           <div className="flex items-center gap-3">
             <button
+              type="button"
               onClick={onClose}
               className="px-4 py-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
             >
-              Cancel
+               取消
             </button>
             <button
+              type="button"
               onClick={handleSave}
               className="px-5 py-2 bg-accent text-white text-sm font-medium rounded-lg hover:bg-accent-dim transition-colors"
             >
-              Save Settings
+               保存设置
             </button>
           </div>
         </div>
@@ -865,4 +1017,3 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
     </div>
   );
 };
-

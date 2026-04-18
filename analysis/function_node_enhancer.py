@@ -6,6 +6,7 @@
 """
 
 from typing import Dict, List, Set, Optional, Any
+import os
 import logging
 
 from .function_call_hypergraph import FunctionCallHypergraph, HyperEdge
@@ -289,11 +290,11 @@ def merge_paths(
             merged[leaf] = merged[leaf][:max_per_leaf]
 
     for p in entry_paths or []:
-        if p and p[-1] in merged:
+        if p:
             add_to_leaf(p[-1], p)
 
     for p in intermediate_paths or []:
-        if p and p[-1] in merged:
+        if p:
             add_to_leaf(p[-1], p)
 
     return merged
@@ -436,6 +437,30 @@ def add_function_nodes_to_hypergraph(
     return hypergraph
 
 
+def _cap_paths_map(
+    paths_map: Dict[str, List[List[str]]],
+    max_total_paths: int,
+    max_per_leaf: int,
+) -> Dict[str, List[List[str]]]:
+    if max_total_paths <= 0:
+        return paths_map
+
+    capped: Dict[str, List[List[str]]] = {}
+    total_collected = 0
+    for leaf_node, paths in (paths_map or {}).items():
+        if total_collected >= max_total_paths:
+            break
+        selected_paths: List[List[str]] = []
+        for path in paths[:max_per_leaf]:
+            if total_collected >= max_total_paths:
+                break
+            selected_paths.append(path)
+            total_collected += 1
+        if selected_paths:
+            capped[leaf_node] = selected_paths
+    return capped
+
+
 def enhance_hypergraph_with_function_nodes(
     hypergraph: FunctionCallHypergraph,
     call_graph: Dict[str, Set[str]],
@@ -480,11 +505,10 @@ def enhance_hypergraph_with_function_nodes(
     logger.info(f"[FunctionNodeEnhancement] 找到 {len(leaf_nodes)} 个分区内的叶子节点: {leaf_nodes[:5]}...")  # 只显示前5个
     
     if not leaf_nodes:
-        logger.warning("[FunctionNodeEnhancement] 未找到分区内的叶子节点，跳过功能节点增强")
-        return hypergraph, {}
+        logger.warning("[FunctionNodeEnhancement] 未找到分区内的叶子节点，将回退到入口点/中间节点路径探索")
     
     # 步骤2：路径探索（限制在分区内）
-    if entry_points:
+    if leaf_nodes and entry_points:
         paths_map = explore_paths_in_partition_enhanced(
             leaf_nodes,
             entry_points,
@@ -493,7 +517,7 @@ def enhance_hypergraph_with_function_nodes(
             partition_methods,
             max_path_length=max(max_path_length, 15),
         )
-    else:
+    elif leaf_nodes:
         paths_map = explore_paths_in_partition(
             leaf_nodes,
             hypergraph,
@@ -501,8 +525,45 @@ def enhance_hypergraph_with_function_nodes(
             partition_methods,  # 关键：传递分区边界
             max_path_length
         )
+    else:
+        fallback_entry_paths = explore_paths_from_entries(
+            entry_points or [],
+            call_graph,
+            partition_methods,
+            max_path_length=max(max_path_length, 15),
+        )
+        fallback_intermediate_paths = explore_intermediate_paths(
+            call_graph,
+            partition_methods,
+            entry_points or [],
+            leaf_nodes,
+            max_path_length=max(max_path_length, 15),
+        )
+        paths_map = merge_paths({}, fallback_entry_paths, fallback_intermediate_paths)
+
+        if not paths_map and partition_methods:
+            fallback_method = sorted(partition_methods)[0]
+            paths_map = {fallback_method: [[fallback_method]]}
+            logger.warning(
+                "[FunctionNodeEnhancement] 入口点/中间节点补全仍为空，回退为单方法路径: %s",
+                fallback_method,
+            )
     total_paths = sum(len(paths) for paths in paths_map.values())
     logger.info(f"[FunctionNodeEnhancement] 探索到 {total_paths} 条路径（全部限制在分区内）")
+
+    max_total_paths = int(os.getenv('FH_MAX_CANDIDATE_PATHS_PER_PARTITION', '80'))
+    max_paths_per_leaf = int(os.getenv('FH_MAX_CANDIDATE_PATHS_PER_LEAF', '12'))
+    capped_paths_map = _cap_paths_map(paths_map, max_total_paths=max_total_paths, max_per_leaf=max_paths_per_leaf)
+    capped_total_paths = sum(len(paths) for paths in capped_paths_map.values())
+    if capped_total_paths != total_paths:
+        logger.info(
+            "[FunctionNodeEnhancement] 候选路径已裁剪: original=%s capped=%s max_total=%s max_per_leaf=%s",
+            total_paths,
+            capped_total_paths,
+            max_total_paths,
+            max_paths_per_leaf,
+        )
+    paths_map = capped_paths_map
     
     # 步骤3：生成功能描述（目前只使用启发式方法，LLM支持待后续实现）
     descriptions_map = {}
@@ -530,4 +591,3 @@ def enhance_hypergraph_with_function_nodes(
     logger.info(f"[FunctionNodeEnhancement] ✓ 超图增强完成，新增功能节点数: {new_function_nodes}")
     
     return enhanced_hypergraph, paths_map
-

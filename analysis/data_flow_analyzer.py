@@ -26,9 +26,24 @@ class DataFlowAnalyzer:
     def __init__(self):
         self.variable_dependencies: Dict[str, Set[str]] = {}  # 变量 -> 依赖的变量
         self.parameter_flows: List[Tuple[str, str, str]] = []  # (方法, 参数, 类型)
+        self.return_value_flows: List[Tuple[str, str, str]] = []  # (被调用方法, 返回值类型, 调用方法)
         self.field_accesses: Dict[str, Set[str]] = {}  # 方法 -> 访问的字段集合
         self.variable_definitions: Dict[str, Set[str]] = {}  # 方法/函数 -> 定义的变量
         self.variable_usages: Dict[str, Set[str]] = {}  # 方法/函数 -> 使用的变量
+
+    def _resolve_callable_info(self, analyzer_report, method_sig: str):
+        if not analyzer_report or not method_sig:
+            return None
+        if "." in method_sig:
+            class_name, method_name = method_sig.rsplit(".", 1)
+            if class_name in analyzer_report.classes:
+                class_info = analyzer_report.classes[class_name]
+                if method_name in class_info.methods:
+                    return class_info.methods[method_name]
+        for func_info in getattr(analyzer_report, 'functions', []) or []:
+            if func_info.name == method_sig or getattr(func_info, 'signature', None) == method_sig:
+                return func_info
+        return None
         
     def extract_variable_dependencies(self, method_code: str, class_name: str, 
                                      method_name: str) -> Dict:
@@ -239,29 +254,54 @@ class DataFlowAnalyzer:
         parameter_flows = []
         
         for caller, callees in call_graph.items():
-            # 获取caller的参数
-            if "." in caller:
-                class_name, method_name = caller.rsplit(".", 1)
-                if class_name in analyzer_report.classes:
-                    class_info = analyzer_report.classes[class_name]
-                    if method_name in class_info.methods:
-                        caller_method = class_info.methods[method_name]
-                        
-                        if caller_method.parameters:
-                            for param in caller_method.parameters:
-                                for callee in callees:
-                                    # 创建参数流记录
-                                    parameter_flows.append((
-                                        caller,
-                                        param.name,
-                                        callee
-                                    ))
-        
+            caller_method = self._resolve_callable_info(analyzer_report, caller)
+            caller_param_names = [getattr(param, 'name', '') for param in getattr(caller_method, 'parameters', []) or [] if getattr(param, 'name', '')]
+            caller_defined_names = list(self.variable_definitions.get(caller, set()) or [])
+            caller_used_names = list(self.variable_usages.get(caller, set()) or [])
+
+            for callee in callees:
+                callee_method = self._resolve_callable_info(analyzer_report, callee)
+                callee_param_names = [getattr(param, 'name', '') for param in getattr(callee_method, 'parameters', []) or [] if getattr(param, 'name', '')]
+
+                flow_names = callee_param_names or caller_param_names or caller_defined_names or caller_used_names or ['data']
+                for flow_name in flow_names:
+                    parameter_flows.append((caller, flow_name, callee))
+
         self.parameter_flows = parameter_flows
         _safe_print(f"[DataFlowAnalyzer] ✓ 参数流动分析完成")
         _safe_print(f"[DataFlowAnalyzer]   - 参数流动数: {len(parameter_flows)}")
         
         return parameter_flows
+
+    def analyze_return_value_flow(self, call_graph: Dict[str, Set[str]], analyzer_report) -> List[Tuple]:
+        """分析返回值在调用链中的流动。"""
+        _safe_print("\n[DataFlowAnalyzer] 分析返回值流动...")
+
+        return_value_flows = []
+
+        for caller, callees in call_graph.items():
+            for callee in callees:
+                callee_method = self._resolve_callable_info(analyzer_report, callee)
+                if not callee_method:
+                    continue
+
+                return_type = getattr(callee_method, 'return_type', None)
+                if return_type is None:
+                    return_label = '返回值'
+                elif isinstance(return_type, str):
+                    normalized = return_type.strip()
+                    return_label = normalized if normalized and normalized.lower() not in {'none', 'void'} else '返回值'
+                else:
+                    normalized = str(return_type).strip()
+                    return_label = normalized if normalized and normalized.lower() not in {'none', 'void'} else '返回值'
+
+                return_value_flows.append((callee, return_label, caller))
+
+        self.return_value_flows = return_value_flows
+        _safe_print(f"[DataFlowAnalyzer] ✓ 返回值流动分析完成")
+        _safe_print(f"[DataFlowAnalyzer]   - 返回值流动数: {len(return_value_flows)}")
+
+        return return_value_flows
 
     def analyze_variable_flows(self, analyzer_report) -> Dict[str, Dict[str, Set[str]]]:
         """分析方法/函数中的局部变量定义与使用"""
@@ -445,6 +485,7 @@ class DataFlowAnalyzer:
             "total_variable_dependencies": len(self.variable_dependencies),
             "total_field_accesses": sum(len(fields) for fields in self.field_accesses.values()),
             "total_parameter_flows": len(self.parameter_flows),
+            "total_return_value_flows": len(self.return_value_flows),
             "methods_with_field_access": len(self.field_accesses)
         }
 

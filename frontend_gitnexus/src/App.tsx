@@ -32,11 +32,9 @@ const AppContent = () => {
     refreshLLMSettings,
     initializeAgent,
     startEmbeddings,
-    embeddingStatus,
     codeReferences,
     selectedNode,
     isCodePanelOpen,
-    serverBaseUrl,
     setServerBaseUrl,
     availableRepos,
     setAvailableRepos,
@@ -48,7 +46,7 @@ const AppContent = () => {
   const handleFileSelect = useCallback(async (file: File) => {
     const projectName = file.name.replace('.zip', '');
     setProjectName(projectName);
-    setProgress({ phase: 'extracting', percent: 0, message: 'Starting...', detail: 'Preparing to extract files' });
+    setProgress({ phase: 'extracting', percent: 0, message: '开始处理…', detail: '正在准备解压文件' });
     setViewMode('loading');
 
     try {
@@ -72,7 +70,7 @@ const AppContent = () => {
         if (err?.name === 'WebGPUNotAvailableError' || err?.message?.includes('WebGPU')) {
           startEmbeddings('wasm').catch(console.warn);
         } else {
-          console.warn('Embeddings auto-start failed:', err);
+         console.warn('Embeddings auto-start failed:', err);
         }
       });
     } catch (error) {
@@ -80,8 +78,8 @@ const AppContent = () => {
       setProgress({
         phase: 'error',
         percent: 0,
-        message: 'Error processing file',
-        detail: error instanceof Error ? error.message : 'Unknown error',
+        message: '文件处理失败',
+        detail: error instanceof Error ? error.message : '未知错误',
       });
       setTimeout(() => {
         setViewMode('onboarding');
@@ -95,7 +93,7 @@ const AppContent = () => {
     const projectName = firstPath.split('/')[0].replace(/-\d+$/, '') || 'repository';
 
     setProjectName(projectName);
-    setProgress({ phase: 'extracting', percent: 0, message: 'Starting...', detail: 'Preparing to process files' });
+    setProgress({ phase: 'extracting', percent: 0, message: '开始处理…', detail: '正在准备仓库文件' });
     setViewMode('loading');
 
     try {
@@ -123,8 +121,8 @@ const AppContent = () => {
       setProgress({
         phase: 'error',
         percent: 0,
-        message: 'Error processing repository',
-        detail: error instanceof Error ? error.message : 'Unknown error',
+        message: '仓库处理失败',
+        detail: error instanceof Error ? error.message : '未知错误',
       });
       setTimeout(() => {
         setViewMode('onboarding');
@@ -136,7 +134,8 @@ const AppContent = () => {
   const handleServerConnect = useCallback((result: ConnectToServerResult) => {
     // Extract project name from repoPath
     const repoPath = result.repoInfo.repoPath;
-    const projectName = repoPath.split('/').pop() || 'server-project';
+    const normalizedRepoPath = repoPath.replace(/\\/g, '/');
+    const projectName = result.repoInfo.name || normalizedRepoPath.split('/').filter(Boolean).pop() || 'server-project';
     setProjectName(projectName);
 
     // Build KnowledgeGraph from server data (bypasses WASM pipeline entirely)
@@ -173,13 +172,24 @@ const AppContent = () => {
       }
     });
 
-    // Trigger workbench session in background so Hierarchy data gets generated.
-    // The RightPanel will lazily load /api/phase6/read_contract when the user
-    // opens the Hierarchy tab — by then the background thread should have
-    // populated the hierarchy cache on the Flask side.
-    createGraphExtensionsApi.startWorkbenchSession('/api', { project_path: repoPath }).catch(() => {
-      // Silently ignore — hierarchy data is best-effort, graph is already loaded.
-    });
+    // Only start a new workbench session when experience library is not ready.
+    // This avoids regressing historical completed projects to a transient running state.
+    createGraphExtensionsApi.fetchWorkbenchProjectStatus('/api', repoPath)
+      .then((status) => {
+        const alreadyReady = status.experienceReady || status.status === 'completed';
+        const alreadyRunning = status.status === 'running' || status.status === 'starting';
+        if (alreadyReady || alreadyRunning) {
+          return;
+        }
+        return createGraphExtensionsApi.startWorkbenchSession('/api', { project_path: repoPath });
+      })
+      .catch(() => {
+        // If status lookup fails, keep best-effort behavior and attempt background bootstrap.
+        return createGraphExtensionsApi.startWorkbenchSession('/api', { project_path: repoPath });
+      })
+      .catch(() => {
+        // Silently ignore — hierarchy data is best-effort, graph is already loaded.
+      });
   }, [setViewMode, setGraph, setFileContents, setProjectName, initializeAgent, startEmbeddings]);
 
   // Auto-connect when ?server query param is present (bookmarkable shortcut)
@@ -194,7 +204,7 @@ const AppContent = () => {
     const cleanUrl = window.location.pathname + window.location.hash;
     window.history.replaceState(null, '', cleanUrl);
 
-    setProgress({ phase: 'extracting', percent: 0, message: 'Connecting to server...', detail: 'Validating server' });
+    setProgress({ phase: 'extracting', percent: 0, message: '正在连接服务…', detail: '正在校验服务可用性' });
     setViewMode('loading');
 
     const serverUrl = params.get('server') || window.location.origin;
@@ -203,18 +213,16 @@ const AppContent = () => {
 
     connectToServer(serverUrl, (phase, downloaded, total) => {
       if (phase === 'validating') {
-        setProgress({ phase: 'extracting', percent: 5, message: 'Connecting to server...', detail: 'Validating server' });
+          setProgress({ phase: 'extracting', percent: 5, message: '正在连接服务…', detail: '正在校验服务可用性' });
       } else if (phase === 'downloading') {
         const pct = total ? Math.round((downloaded / total) * 90) + 5 : 50;
         const mb = (downloaded / (1024 * 1024)).toFixed(1);
-        setProgress({ phase: 'extracting', percent: pct, message: 'Downloading graph...', detail: `${mb} MB downloaded` });
+          setProgress({ phase: 'extracting', percent: pct, message: '正在下载图谱…', detail: `已下载 ${mb} MB` });
       } else if (phase === 'extracting') {
-        setProgress({ phase: 'extracting', percent: 97, message: 'Processing...', detail: 'Extracting file contents' });
+          setProgress({ phase: 'extracting', percent: 97, message: '正在整理数据…', detail: '正在提取文件内容' });
       }
     }).then(async (result) => {
-      handleServerConnect(result);
-
-      // Store server URL and fetch available repos for the repo switcher
+      // Ensure server context is ready before app initialization logic.
       setServerBaseUrl(baseUrl);
       try {
         const repos = await fetchRepos(baseUrl);
@@ -222,13 +230,15 @@ const AppContent = () => {
       } catch (e) {
         console.warn('Failed to fetch repo list:', e);
       }
+
+      handleServerConnect(result);
     }).catch((err) => {
       console.error('Auto-connect failed:', err);
       setProgress({
         phase: 'error',
         percent: 0,
-        message: 'Failed to connect to server',
-        detail: err instanceof Error ? err.message : 'Unknown error',
+        message: '连接服务失败',
+        detail: err instanceof Error ? err.message : '未知错误',
       });
       setTimeout(() => {
         setViewMode('onboarding');
@@ -251,23 +261,32 @@ const AppContent = () => {
   // Render based on view mode
   if (viewMode === 'onboarding') {
     return (
-      <DropZone
-        onFileSelect={handleFileSelect}
-        onGitClone={handleGitClone}
-        onServerConnect={async (result, serverUrl) => {
-          handleServerConnect(result);
-          if (serverUrl) {
-            const baseUrl = normalizeServerUrl(serverUrl);
-            setServerBaseUrl(baseUrl);
-            try {
-              const repos = await fetchRepos(baseUrl);
-              setAvailableRepos(repos);
-            } catch (e) {
-              console.warn('Failed to fetch repo list:', e);
-            }
-          }
-        }}
-      />
+            <DropZone
+              onFileSelect={handleFileSelect}
+              onGitClone={handleGitClone}
+              onServerConnectStart={(message) => {
+                setProgress({
+                  phase: 'extracting',
+                  percent: 5,
+                  message: message || '正在连接服务…',
+                  detail: '正在校验服务可用性',
+                });
+                setViewMode('loading');
+              }}
+              onServerConnect={async (result, serverUrl) => {
+                if (serverUrl) {
+                  const baseUrl = normalizeServerUrl(serverUrl);
+                  setServerBaseUrl(baseUrl);
+                  try {
+                    const repos = await fetchRepos(baseUrl);
+                    setAvailableRepos(repos);
+                  } catch (e) {
+                    console.warn('Failed to fetch repo list:', e);
+                  }
+                }
+                handleServerConnect(result);
+              }}
+            />
     );
   }
 

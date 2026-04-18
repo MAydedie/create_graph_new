@@ -138,9 +138,18 @@ from dotenv import load_dotenv
 # 加载 .env 文件
 load_dotenv()
 
-# DeepSeek API 配置
-DEEPSEEK_API_KEY = "sk-1a507b1f2afc4a37bb35bbc6b6e87595"
-DEEPSEEK_BASE_URL = os.getenv('DEEPSEEK_BASE_URL', 'https://api.deepseek.com/v1')
+# MiniMax（OpenAI 兼容）默认配置
+_DEFAULT_MINIMAX_API_KEY = ""
+_DEFAULT_MINIMAX_BASE_URL = "https://api.minimax.io/v1"
+_DEFAULT_MINIMAX_MODEL = "MiniMax-M2.7-highspeed"
+
+MINIMAX_API_KEY = os.getenv('MINIMAX_API_KEY', _DEFAULT_MINIMAX_API_KEY)
+MINIMAX_BASE_URL = os.getenv('MINIMAX_BASE_URL', _DEFAULT_MINIMAX_BASE_URL)
+MINIMAX_MODEL = os.getenv('MINIMAX_MODEL', _DEFAULT_MINIMAX_MODEL)
+
+# 兼容旧字段（避免改动全链路调用点）
+DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY', MINIMAX_API_KEY)
+DEEPSEEK_BASE_URL = os.getenv('DEEPSEEK_BASE_URL', MINIMAX_BASE_URL)
 
 # ============= Model Cache Configuration =============
 from pathlib import Path
@@ -157,10 +166,11 @@ os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"  # 使用镜像加速
 
 
 # OpenAI API Key (保留兼容性)
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY') or MINIMAX_API_KEY
+OPENAI_BASE_URL = os.getenv('OPENAI_BASE_URL', MINIMAX_BASE_URL)
 
 # OpenAI 模型
-OPENAI_MODEL = 'gpt-4'
+OPENAI_MODEL = os.getenv('OPENAI_MODEL', MINIMAX_MODEL)
 
 API_TIMEOUT = 30
 
@@ -168,9 +178,50 @@ API_TIMEOUT = 30
 # ============= RAG System Configuration =============
 # Migrated from 喜哥问答agent
 
-# DeepSeek Model Config
-DEEPSEEK_API_BASE = "https://api.deepseek.com/v1"
-DEEPSEEK_MODEL = "deepseek-chat"
+# 兼容旧命名：保留 DEEPSEEK_*，底层默认切到 MiniMax
+DEEPSEEK_API_BASE = os.getenv('DEEPSEEK_API_BASE', DEEPSEEK_BASE_URL)
+DEEPSEEK_MODEL = os.getenv('DEEPSEEK_MODEL', MINIMAX_MODEL)
+
+
+def _normalize_optional_string(value):
+    if value is None:
+        return ''
+    return str(value).strip()
+
+
+def get_deepseek_settings():
+    api_key = (
+        _normalize_optional_string(os.getenv('MINIMAX_API_KEY'))
+        or _normalize_optional_string(os.getenv('OPENAI_API_KEY'))
+        or _normalize_optional_string(MINIMAX_API_KEY)
+        or _normalize_optional_string(os.getenv('DEEPSEEK_API_KEY'))
+        or _normalize_optional_string(DEEPSEEK_API_KEY)
+    )
+    base_url = (
+        _normalize_optional_string(os.getenv('MINIMAX_BASE_URL'))
+        or _normalize_optional_string(os.getenv('OPENAI_BASE_URL'))
+        or _normalize_optional_string(MINIMAX_BASE_URL)
+        or _normalize_optional_string(os.getenv('DEEPSEEK_BASE_URL'))
+        or _normalize_optional_string(DEEPSEEK_API_BASE)
+        or 'https://api.minimax.io/v1'
+    )
+    model = (
+        _normalize_optional_string(os.getenv('MINIMAX_MODEL'))
+        or _normalize_optional_string(os.getenv('OPENAI_MODEL'))
+        or _normalize_optional_string(MINIMAX_MODEL)
+        or _normalize_optional_string(os.getenv('DEEPSEEK_MODEL'))
+        or _normalize_optional_string(DEEPSEEK_MODEL)
+        or 'MiniMax-M2.7-highspeed'
+    )
+    return {
+        'api_key': api_key,
+        'base_url': base_url,
+        'model': model,
+    }
+
+
+def has_deepseek_config():
+    return bool(get_deepseek_settings().get('api_key'))
 
 # RAG Configuration
 RAG_CONFIG = {

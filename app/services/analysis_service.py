@@ -6,7 +6,7 @@
 """
 
 from flask import request, jsonify, Response
-from typing import Any, Dict, Optional, Tuple, List
+from typing import Any, Dict, Optional, Tuple, List, Set
 import os
 import sys
 import io
@@ -16,12 +16,15 @@ import copy
 import hashlib
 import time
 import threading
+import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from types import SimpleNamespace
 from pathlib import Path
 from datetime import datetime
 from uuid import uuid4
 from dotenv import load_dotenv
+
+FUNCTION_HIERARCHY_PIPELINE_VERSION = 'hierarchy-parity-v4-2026-03-23'
 
 # ========== Safe print utility ==========
 def _resolve_open_stream(preferred_stream=None):
@@ -123,9 +126,12 @@ from src.analysis.entry_scoring import build_entry_points_shadow, filter_entry_p
 from src.analysis.community_shadow import build_community_shadow, CommunityShadowStorage
 from src.analysis.process_pipeline import build_process_shadow, ProcessShadowStorage
 from src.search.adapters.hybrid_shadow_adapter import run_hybrid_shadow
+from llm.rag_core.llm_api import DeepSeekAPI
+from config.config import RAG_CONFIG, get_deepseek_settings, has_deepseek_config
 
 # Phase 0 / Task 0.1: 统一数据访问接口（替换 app.py 内的全局缓存读写）
 from data.data_accessor import get_data_accessor
+from data.project_library_storage import ProjectLibraryStorage
 
 
 def print_progress_bar(current: int, total: int, prefix: str = "", suffix: str = "", length: int = 40, show_per_line: bool = False):
@@ -160,6 +166,31 @@ def print_progress_bar(current: int, total: int, prefix: str = "", suffix: str =
 
 # 全局数据访问器（线程安全单例）
 data_accessor = get_data_accessor()
+_project_library_storage = ProjectLibraryStorage()
+_parallel_llm_agent_local = threading.local()
+
+
+def _get_deepseek_runtime_settings() -> Dict[str, str]:
+    settings = get_deepseek_settings()
+    return {
+        'api_key': str(settings.get('api_key') or '').strip(),
+        'base_url': str(settings.get('base_url') or 'https://api.deepseek.com/v1').strip(),
+        'model': str(settings.get('model') or 'deepseek-chat').strip(),
+    }
+
+
+def _create_code_understanding_agent() -> Optional[CodeUnderstandingAgent]:
+    settings = _get_deepseek_runtime_settings()
+    if not settings['api_key']:
+        return None
+    return CodeUnderstandingAgent(api_key=settings['api_key'], base_url=settings['base_url'])
+
+
+def _create_deepseek_api_client() -> Optional[DeepSeekAPI]:
+    settings = _get_deepseek_runtime_settings()
+    if not settings['api_key']:
+        return None
+    return DeepSeekAPI(api_key=settings['api_key'], base_url=settings['base_url'], model=settings['model'])
 
 
 def _get_phase4_threshold() -> float:
@@ -181,12 +212,23 @@ def _get_phase5_max_nodes() -> int:
 
 
 def _get_phase5_timeout_seconds() -> float:
-    raw_value = os.getenv('FH_PHASE5_TIMEOUT', '5.0')
+    raw_value = os.getenv('FH_PHASE5_TIMEOUT_SECONDS')
+    if raw_value is None:
+        raw_value = os.getenv('FH_PHASE5_TIMEOUT', '30.0')
     try:
         timeout_seconds = float(raw_value)
     except (TypeError, ValueError):
-        timeout_seconds = 5.0
+        timeout_seconds = 12.0
     return max(0.5, timeout_seconds)
+
+
+def _get_max_paths_per_partition(default_limit: int = 10) -> int:
+    raw_value = os.getenv('FH_MAX_PATHS_PER_PARTITION', str(default_limit))
+    try:
+        max_paths = int(raw_value)
+    except (TypeError, ValueError):
+        max_paths = default_limit
+    return max(1, min(max_paths, 12))
 
 
 class _FunctionHierarchyTimingCollector:
@@ -359,24 +401,24 @@ def _resolve_function_hierarchy_execution_profile() -> Dict[str, Any]:
     layer_enabled = {
         'default_visible': _read_env_bool('FH_ENABLE_DEFAULT_VISIBLE_LAYER', True),
         'expand_visible': _read_env_bool('FH_ENABLE_EXPAND_VISIBLE_LAYER', True),
-        'advanced_visible': _read_env_bool('FH_ENABLE_ADVANCED_VISIBLE_LAYER', False),
+        'advanced_visible': _read_env_bool('FH_ENABLE_ADVANCED_VISIBLE_LAYER', True),
     }
     raw_steps = {
-        'partition_llm_semantics': _read_env_bool('FH_ENABLE_PARTITION_LLM_SEMANTICS', False),
-        'path_llm_analysis': _read_env_bool('FH_ENABLE_PATH_LLM_ANALYSIS', False),
-        'path_supplement_generation': _read_env_bool('FH_ENABLE_PATH_SUPPLEMENT_GENERATION', False),
-        'path_cfg_dfg_io': _read_env_bool('FH_ENABLE_PATH_CFG_DFG_IO', False),
-        'cfg_dfg_llm_explain': _read_env_bool('FH_ENABLE_CFG_DFG_LLM_EXPLAIN', False),
-        'include_deep_analysis_in_default_result': _read_env_bool('FH_INCLUDE_DEEP_ANALYSIS_IN_DEFAULT_RESULT', False),
+        'partition_llm_semantics': _read_env_bool('FH_ENABLE_PARTITION_LLM_SEMANTICS', True),
+        'path_llm_analysis': _read_env_bool('FH_ENABLE_PATH_LLM_ANALYSIS', True),
+        'path_supplement_generation': _read_env_bool('FH_ENABLE_PATH_SUPPLEMENT_GENERATION', True),
+        'path_cfg_dfg_io': _read_env_bool('FH_ENABLE_PATH_CFG_DFG_IO', True),
+        'cfg_dfg_llm_explain': _read_env_bool('FH_ENABLE_CFG_DFG_LLM_EXPLAIN', True),
+        'include_deep_analysis_in_default_result': _read_env_bool('FH_INCLUDE_DEEP_ANALYSIS_IN_DEFAULT_RESULT', True),
     }
     index_rebuild_mode = _read_index_rebuild_mode()
 
     effective_steps = {
-        'partition_llm_semantics': layer_enabled['advanced_visible'] and raw_steps['partition_llm_semantics'],
-        'path_llm_analysis': layer_enabled['advanced_visible'] and raw_steps['path_llm_analysis'],
-        'path_supplement_generation': layer_enabled['advanced_visible'] and raw_steps['path_supplement_generation'],
-        'path_cfg_dfg_io': layer_enabled['advanced_visible'] and raw_steps['path_cfg_dfg_io'],
-        'cfg_dfg_llm_explain': layer_enabled['advanced_visible'] and raw_steps['path_cfg_dfg_io'] and raw_steps['path_llm_analysis'] and raw_steps['cfg_dfg_llm_explain'],
+        'partition_llm_semantics': raw_steps['partition_llm_semantics'],
+        'path_llm_analysis': raw_steps['path_llm_analysis'],
+        'path_supplement_generation': raw_steps['path_supplement_generation'],
+        'path_cfg_dfg_io': raw_steps['path_cfg_dfg_io'],
+        'cfg_dfg_llm_explain': raw_steps['path_cfg_dfg_io'] and raw_steps['path_llm_analysis'] and raw_steps['cfg_dfg_llm_explain'],
         'include_deep_analysis_in_default_result': layer_enabled['default_visible'] and raw_steps['include_deep_analysis_in_default_result'],
         'index_rebuild_immediate': index_rebuild_mode == 'immediate',
         'index_rebuild_deferred': index_rebuild_mode == 'deferred',
@@ -412,7 +454,19 @@ def _get_path_analysis_partition_limit(default_limit: int) -> int:
         partition_limit = int(raw_value)
     except (TypeError, ValueError):
         partition_limit = default_limit
-    return max(1, partition_limit)
+    return max(0, partition_limit)
+
+
+def _get_structural_path_partition_limit(path_analysis_partition_limit: int, total_partitions: int) -> int:
+    derived_default = max(path_analysis_partition_limit, 8)
+    if total_partitions > 0:
+        derived_default = max(derived_default, min(total_partitions, 16))
+    raw_value = os.getenv('FH_STRUCTURAL_PATH_PARTITION_LIMIT', str(derived_default))
+    try:
+        partition_limit = int(raw_value)
+    except (TypeError, ValueError):
+        partition_limit = derived_default
+    return max(0, partition_limit)
 
 
 def _build_fqmn_info_map(fqns_list: Any) -> Dict[str, Dict[str, Any]]:
@@ -461,8 +515,6 @@ def _evaluate_path_candidate(path: Any, fqmn_info_map: Dict[str, Dict[str, Any]]
 
     if fqmn_known_count == 0:
         invalid_reasons.append('no_fqmn_info')
-    if internal_segment4_count == 0:
-        invalid_reasons.append('no_internal_segment4_method')
 
     score = 0.0
     if not invalid_reasons:
@@ -476,6 +528,8 @@ def _evaluate_path_candidate(path: Any, fqmn_info_map: Dict[str, Dict[str, Any]]
             score -= 0.5 * float(len(methods) - 4)
         score -= 0.5 * float(external_count)
         score -= 0.5 * float(segment_anomaly_count)
+        if internal_segment4_count == 0:
+            score -= 1.0
 
     return {
         'is_valid': not invalid_reasons,
@@ -566,6 +620,17 @@ def _rank_partitions_for_path_analysis(partition_path_stats: Any, partition_limi
             str(item.get('partition_id', '')),
         ),
     )
+    if not ranked_stats:
+        ranked_stats = sorted(
+            [item for item in (partition_path_stats or []) if item.get('total_path_count', 0) > 0],
+            key=lambda item: (
+                -int(item.get('total_path_count', 0)),
+                -int(item.get('internal_segment4_path_count', 0)),
+                str(item.get('partition_id', '')),
+            ),
+        )
+    if partition_limit <= 0:
+        return [item.get('partition_id') for item in ranked_stats if item.get('partition_id')]
     return [item.get('partition_id') for item in ranked_stats[:partition_limit] if item.get('partition_id')]
 
 
@@ -589,8 +654,8 @@ def _compute_partition_path_stat_item(partition: Dict[str, Any], partition_analy
             'reason': '没有路径信息',
         }
 
-    fqns_list = (partition_analyses.get(partition_id) or {}).get('fqns', [])
-    fqmn_info_map = _build_fqmn_info_map(fqns_list)
+    partition_analysis = partition_analyses.get(partition_id) or {}
+    fqmn_info_map = partition_analysis.get('fqmn_info_map') or _build_fqmn_info_map(partition_analysis.get('fqns', []))
 
     valid_path_count = 0
     total_path_count = 0
@@ -629,6 +694,59 @@ def _compute_partition_path_stat_item(partition: Dict[str, Any], partition_analy
         'filtered_by_fqmn_not_internal': filtered_by_fqmn_not_internal,
         'filtered_by_no_fqmn': filtered_by_no_fqmn,
         'internal_segment4_path_count': internal_segment4_path_count,
+    }
+
+
+def _generate_partition_call_graph_item(partition: Dict[str, Any], call_graph: Dict[str, Set[str]]) -> Dict[str, Any]:
+    partition_id = partition.get('partition_id', 'unknown')
+    generator = FunctionCallGraphGenerator(call_graph)
+    return {
+        'partition_id': partition_id,
+        'call_graph': generator.generate_partition_call_graph(partition),
+    }
+
+
+def _generate_partition_hypergraph_item(
+    partition: Dict[str, Any],
+    call_graph: Dict[str, Set[str]],
+    analyzer_report: Any,
+    entry_points: Optional[List[Any]],
+    enable_advanced_path_expansion: bool,
+) -> Dict[str, Any]:
+    partition_id = partition.get('partition_id', 'unknown')
+    partition_methods = set(partition.get('methods', []))
+    hypergraph_generator = FunctionCallHypergraphGenerator(call_graph)
+    hypergraph = hypergraph_generator.generate_partition_hypergraph(partition)
+    if enable_advanced_path_expansion:
+        entry_point_sigs = [ep.method_sig for ep in (entry_points or [])] if entry_points else None
+        enhanced_hypergraph, paths_map = enhance_hypergraph_with_function_nodes(
+            hypergraph=hypergraph,
+            call_graph=call_graph,
+            partition_methods=partition_methods,
+            analyzer_report=analyzer_report,
+            max_path_length=10,
+            use_llm=False,
+            llm_agent=None,
+            entry_points=entry_point_sigs,
+        )
+    else:
+        enhanced_hypergraph = hypergraph
+        paths_map = {}
+    hypergraph_viz = enhanced_hypergraph.to_visualization_data()
+    return {
+        'partition_id': partition_id,
+        'paths_map': paths_map,
+        'hypergraph': enhanced_hypergraph.to_dict(),
+        'hypergraph_viz': hypergraph_viz,
+        'function_node_count': len([n for n in enhanced_hypergraph.nodes.values() if n.get('type') == 'function']),
+        'total_paths': sum(len(paths) for paths in paths_map.values()),
+        'leaf_node_count': len(paths_map),
+        'total_nodes': len(enhanced_hypergraph.nodes),
+        'method_nodes': len([n for n in enhanced_hypergraph.nodes.values() if n.get('type') == 'method']),
+        'function_nodes': len([n for n in enhanced_hypergraph.nodes.values() if n.get('type') == 'function']),
+        'hyperedge_count': len(enhanced_hypergraph.hyperedges),
+        'total_edges': len(hypergraph_viz.get('edges', [])),
+        'direct_call_edges': hypergraph_viz.get('statistics', {}).get('direct_call_edges', 0),
     }
 
 # 全局分析状态（加锁保护，避免多线程读写冲突）
@@ -743,6 +861,35 @@ def _utcnow_iso() -> str:
     return datetime.utcnow().isoformat() + 'Z'
 
 
+def _parse_iso_timestamp(timestamp: Optional[str]) -> Optional[datetime]:
+    text = str(timestamp or '').strip()
+    if not text:
+        return None
+    normalized = text[:-1] + '+00:00' if text.endswith('Z') else text
+    try:
+        return datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+
+
+def _derive_workbench_stage_meta(phase: Any, message: Any) -> Tuple[str, str]:
+    normalized_phase = str(phase or '').strip()
+    normalized_message = str(message or '').strip()
+
+    if normalized_phase == 'starting':
+        return '准备分析', normalized_message or '正在初始化统一工作台会话'
+    if normalized_phase == 'main_running':
+        return '主图谱分析', normalized_message or '正在构建主图谱与基础索引'
+    if normalized_phase == 'hierarchy_running':
+        detail = normalized_message or '正在生成功能层级、路径与经验沉淀'
+        return '功能层级分析', detail
+    if normalized_phase == 'bootstrap_ready':
+        return '工作台已就绪', normalized_message or '主图谱与工作台引导数据已就绪'
+    if normalized_phase == 'failed':
+        return '分析失败', normalized_message or '统一分析会话失败'
+    return '处理中', normalized_message or '正在处理请求'
+
+
 def _normalize_existing_project_path(project_path: Optional[str]) -> str:
     if not project_path or not os.path.isdir(project_path) or 'tmp' in project_path:
         return str(PROJECT_ROOT)
@@ -752,6 +899,7 @@ def _normalize_existing_project_path(project_path: Optional[str]) -> str:
 def _create_workbench_session(project_path: str) -> Dict[str, Any]:
     session_id = uuid4().hex
     now = _utcnow_iso()
+    stage_label, stage_detail = _derive_workbench_stage_meta('starting', '统一分析会话已创建')
     payload = {
         'sessionId': session_id,
         'projectPath': project_path,
@@ -759,9 +907,13 @@ def _create_workbench_session(project_path: str) -> Dict[str, Any]:
         'phase': 'starting',
         'progress': 0,
         'message': '统一分析会话已创建',
+        'stageLabel': stage_label,
+        'stageDetail': stage_detail,
         'error': None,
         'bootstrapReady': False,
         'bootstrap': None,
+        'experienceOutputRoot': None,
+        'hierarchyStartedAt': None,
         'startedAt': now,
         'updatedAt': now,
         'completedAt': None,
@@ -785,26 +937,123 @@ def _update_workbench_session(session_id: str, **changes: Any) -> Optional[Dict[
     return payload
 
 
+def _normalize_benchmark_report_dir(report_dir: Optional[str]) -> str:
+    value = str(report_dir or '').strip()
+    if value:
+        candidate = os.path.normpath(value)
+    else:
+        candidate = os.path.normpath(str(PROJECT_ROOT / 'benchmark_reports'))
+    if not os.path.isabs(candidate):
+        candidate = os.path.normpath(os.path.abspath(candidate))
+    return candidate
+
+
+def _create_benchmark_session(project_path: str, report_dir: str) -> Dict[str, Any]:
+    session_id = uuid4().hex
+    now = _utcnow_iso()
+    payload = {
+        'sessionId': session_id,
+        'projectPath': project_path,
+        'reportDir': report_dir,
+        'status': 'starting',
+        'phase': 'starting',
+        'progress': 0,
+        'message': '固定场景基准会话已创建',
+        'error': None,
+        'result': None,
+        'startedAt': now,
+        'updatedAt': now,
+        'completedAt': None,
+    }
+    data_accessor.save_benchmark_session(session_id, payload)
+    return payload
+
+
+def _get_benchmark_session_or_none(session_id: str) -> Optional[Dict[str, Any]]:
+    return data_accessor.get_benchmark_session(session_id)
+
+
+def _update_benchmark_session(session_id: str, **changes: Any) -> Optional[Dict[str, Any]]:
+    payload = _get_benchmark_session_or_none(session_id)
+    if not payload:
+        return None
+    next_payload = copy.deepcopy(payload)
+    next_payload.update(changes)
+    next_payload['updatedAt'] = _utcnow_iso()
+    data_accessor.save_benchmark_session(session_id, next_payload)
+    return next_payload
+
+
+def _run_fixed_scenario_benchmark_session(session_id: str, project_path: str, report_dir: str) -> None:
+    _update_benchmark_session(
+        session_id,
+        status='running',
+        phase='benchmark_running',
+        progress=20,
+        message='固定场景基准执行中',
+        error=None,
+    )
+    try:
+        from scripts.fixed_scenario_benchmark import run_benchmark
+
+        result = run_benchmark(project_path=project_path, report_dir=report_dir)
+        _update_benchmark_session(
+            session_id,
+            status='completed',
+            phase='completed',
+            progress=100,
+            message='固定场景基准执行完成',
+            error=None,
+            result=result,
+            completedAt=_utcnow_iso(),
+        )
+    except Exception as exc:
+        _update_benchmark_session(
+            session_id,
+            status='failed',
+            phase='failed',
+            progress=100,
+            message='固定场景基准执行失败',
+            error=str(exc),
+            completedAt=_utcnow_iso(),
+        )
+
+
 def _resolve_main_analysis_cached(project_path: str) -> Optional[Dict[str, Any]]:
+    project_path = os.path.normpath(os.path.abspath(project_path))
     cached = data_accessor.get_main_analysis(project_path)
     if cached:
         return cached
     for cached_path in data_accessor.list_main_analysis_keys():
         if os.path.normpath(cached_path) == project_path:
             return data_accessor.get_main_analysis(cached_path)
+
+    persisted = _project_library_storage.load_graph_data(project_path)
+    if isinstance(persisted, dict):
+        data_accessor.save_main_analysis(project_path, persisted)
+        return persisted
     return None
 
 
-def _resolve_runtime_project_path(project_path: Optional[str]) -> str:
+def _normalize_project_lookup_path(project_path: Optional[str]) -> str:
+    if not project_path:
+        return ''
+    return os.path.normpath(os.path.abspath(project_path))
+
+
+def _resolve_runtime_project_path(project_path: Optional[str], allow_global_fallback: bool = True) -> str:
     if project_path:
-        return os.path.normpath(project_path)
+        return _normalize_project_lookup_path(project_path)
+    if not allow_global_fallback:
+        return ''
     current_project_path = analysis_status.get('project_path')
     if current_project_path:
-        return os.path.normpath(current_project_path)
+        return _normalize_project_lookup_path(current_project_path)
     return str(PROJECT_ROOT)
 
 
-def _resolve_report_cached(project_path: str):
+def _resolve_report_cached(project_path: str, allow_global_fallback: bool = True):
+    project_path = _normalize_project_lookup_path(project_path)
     report = data_accessor.get_report(project_path)
     if report:
         return report
@@ -815,12 +1064,16 @@ def _resolve_report_cached(project_path: str):
             if report:
                 return report
 
+    if not allow_global_fallback:
+        return None
     return analysis_status.get('report')
 
 
-def _resolve_graph_node_data(project_path: str, entity_id: str) -> Optional[Dict[str, Any]]:
+def _resolve_graph_node_data(project_path: str, entity_id: str, allow_global_fallback: bool = True) -> Optional[Dict[str, Any]]:
     graph_data = _resolve_main_analysis_cached(project_path)
     if not graph_data:
+        if not allow_global_fallback:
+            return None
         current_data = analysis_status.get('data') or {}
         if current_data.get('nodes') and current_data.get('edges'):
             graph_data = current_data
@@ -1088,19 +1341,74 @@ def _build_workbench_file_tree(graph_data: Dict[str, Any], project_path: str) ->
     }
 
 
-def _build_workbench_bootstrap(session_id: str, project_path: str) -> Dict[str, Any]:
+def _build_empty_phase6_read_contract(project_path: str) -> Dict[str, Any]:
+    return {
+        'contract_version': 'phase6-stage1-v1',
+        'project_path': project_path,
+        'capabilities': {
+            'hybrid_search_shadow': False,
+            'entry_points_shadow': False,
+            'process_shadow': False,
+            'community_shadow': False,
+            'cfg_dfg_entity_api': False,
+            'path_level_cfg_dfg_io': False,
+        },
+        'sources': {
+            'hierarchy': '/api/function_hierarchy/result',
+            'entry_points_shadow': '/api/entry_points_shadow',
+            'process_shadow': '/api/process_shadow',
+            'community_shadow': '/api/community_shadow',
+            'hybrid_search_shadow': '/api/search_hybrid_shadow',
+            'cfg_dfg': '/api/cfg_dfg/<entity_id>',
+        },
+        'adapters': {
+            'partition_summaries': [],
+        },
+        'hierarchy_result': None,
+        'shadow_results': {
+            'entry_points': None,
+            'process': None,
+            'community': None,
+        },
+    }
+
+
+def _build_workbench_bootstrap(session_id: str, project_path: str, *, hierarchy_state: str = 'ready', hierarchy_error: Optional[str] = None) -> Dict[str, Any]:
     graph_data = _resolve_main_analysis_cached(project_path)
     hierarchy_cached = _resolve_function_hierarchy_cached(project_path)
     if not graph_data:
         raise ValueError('主分析结果未就绪')
-    if not hierarchy_cached:
-        raise ValueError('功能层级分析结果未就绪')
 
-    read_contract = _build_phase6_read_contract(project_path, hierarchy_cached)
+    read_contract: Optional[Dict[str, Any]] = None
+    index_rebuild_status: Dict[str, Any] = {}
+    hierarchy_hint: Optional[str] = None
+
+    if hierarchy_cached:
+        hierarchy_cached = _select_best_phase6_hierarchy_payload(project_path, hierarchy_cached)
+        if isinstance(hierarchy_cached, dict):
+            read_contract = _build_phase6_read_contract(project_path, hierarchy_cached)
+            index_rebuild_status = hierarchy_cached.get('index_rebuild_status') or {}
+        else:
+            hierarchy_hint = '功能层级结果暂不可用，工作区将以主图谱先行加载。'
+    else:
+        hierarchy_hint = '功能层级仍在后台处理中，工作区已可先行使用。'
+
     if not read_contract:
-        raise ValueError('Phase6 读契约构建失败')
+        read_contract = _build_empty_phase6_read_contract(project_path)
+        index_rebuild_status = {
+            **index_rebuild_status,
+            'state': 'pending' if hierarchy_state == 'ongoing' else 'degraded',
+            'continues_in_background': hierarchy_state == 'ongoing',
+        }
+        if hierarchy_error:
+            hierarchy_hint = hierarchy_hint or f'功能层级未完成，已降级返回主图谱：{hierarchy_error}'
+        elif hierarchy_state == 'ongoing':
+            hierarchy_hint = hierarchy_hint or '功能层级仍在后台处理中，稍后会自动补齐。'
 
-    index_rebuild_status = hierarchy_cached.get('index_rebuild_status') or {}
+    if hierarchy_state == 'ready' and not hierarchy_hint and index_rebuild_status.get('continues_in_background'):
+        hierarchy_hint = '功能层级已就绪，后台仍在完善索引。'
+
+    degraded = hierarchy_state != 'ready' or bool((hierarchy_cached or {}).get('degradation_summary') or [])
     bootstrap = {
         'contractVersion': 'workbench-bootstrap-v1',
         'sessionId': session_id,
@@ -1108,8 +1416,10 @@ def _build_workbench_bootstrap(session_id: str, project_path: str) -> Dict[str, 
         'status': {
             'phase': 'bootstrap_ready',
             'progress': 100,
-            'degraded': bool((hierarchy_cached.get('degradation_summary') or [])),
-            'backgroundContinuing': bool(index_rebuild_status.get('continues_in_background')),
+            'degraded': degraded,
+            'backgroundContinuing': bool(index_rebuild_status.get('continues_in_background')) or hierarchy_state == 'ongoing',
+            'hierarchyState': hierarchy_state,
+            'hint': hierarchy_hint,
         },
         'layoutHints': {
             'leftTreeFixed': True,
@@ -1125,6 +1435,8 @@ def _build_workbench_bootstrap(session_id: str, project_path: str) -> Dict[str, 
             'shadowResults': read_contract.get('shadow_results') or {},
             'capabilities': read_contract.get('capabilities') or {},
             'indexRebuildStatus': index_rebuild_status,
+            'degraded': degraded,
+            'hint': hierarchy_hint,
         },
         'sources': {
             'legacyGraph': '/api/result',
@@ -1138,11 +1450,24 @@ def _build_workbench_bootstrap(session_id: str, project_path: str) -> Dict[str, 
 
 def _map_workbench_progress(session_payload: Dict[str, Any]) -> Tuple[int, str]:
     phase = session_payload.get('phase')
-    project_path = session_payload.get('projectPath')
+    project_path = _normalize_project_lookup_path(session_payload.get('projectPath'))
     with status_lock:
         legacy_status = dict(analysis_status)
 
-    if legacy_status.get('project_path') != project_path or not legacy_status.get('is_analyzing'):
+    legacy_project_path = _normalize_project_lookup_path(legacy_status.get('project_path'))
+    legacy_active = bool(legacy_status.get('is_analyzing')) and legacy_project_path == project_path
+
+    if not legacy_active:
+        if phase == 'hierarchy_running':
+            hierarchy_started_at = _parse_iso_timestamp(session_payload.get('hierarchyStartedAt'))
+            started_at = hierarchy_started_at or _parse_iso_timestamp(session_payload.get('updatedAt')) or _parse_iso_timestamp(session_payload.get('startedAt'))
+            if started_at:
+                current_time = datetime.now(started_at.tzinfo) if started_at.tzinfo is not None else datetime.utcnow()
+                elapsed_seconds = max(0.0, (current_time - started_at).total_seconds())
+            else:
+                elapsed_seconds = 0.0
+            gradual_progress = min(96, 55 + int(min(elapsed_seconds / 3.0, 41)))
+            return max(int(session_payload.get('progress', 55) or 55), gradual_progress), str(session_payload.get('message') or '处理中')
         return int(session_payload.get('progress', 0)), str(session_payload.get('message') or '处理中')
 
     legacy_progress = int(legacy_status.get('progress', 0) or 0)
@@ -1150,54 +1475,90 @@ def _map_workbench_progress(session_payload: Dict[str, Any]) -> Tuple[int, str]:
     if phase == 'main_running':
         return min(50, max(1, int(legacy_progress * 0.5))), legacy_message
     if phase == 'hierarchy_running':
-        return min(95, 50 + max(0, int(legacy_progress * 0.45))), legacy_message
+        return min(96, 50 + max(0, int(legacy_progress * 0.45))), legacy_message
     return int(session_payload.get('progress', 0)), legacy_message
 
 
-def _run_workbench_session(session_id: str, project_path: str) -> None:
+def _run_workbench_session(session_id: str, project_path: str, experience_output_root: Optional[str] = None) -> None:
     try:
+        main_stage_label, main_stage_detail = _derive_workbench_stage_meta('main_running', '统一分析会话开始：主分析阶段')
         _update_workbench_session(
             session_id,
             status='running',
             phase='main_running',
             progress=1,
             message='统一分析会话开始：主分析阶段',
+            stageLabel=main_stage_label,
+            stageDetail=main_stage_detail,
+            experienceOutputRoot=experience_output_root,
         )
         artifacts = analyze_project(project_path, return_artifacts=True)
         if not artifacts or not artifacts.get('graph_data') or not artifacts.get('analyzer'):
             raise RuntimeError('主分析未返回可复用产物')
 
+        bootstrap = _build_workbench_bootstrap(session_id, project_path, hierarchy_state='ongoing')
+        hierarchy_started_at = _utcnow_iso()
+        hierarchy_stage_label, hierarchy_stage_detail = _derive_workbench_stage_meta('hierarchy_running', '主图谱已就绪，功能层级继续处理中')
         _update_workbench_session(
             session_id,
             status='running',
             phase='hierarchy_running',
             progress=55,
-            message='统一分析会话进入功能层级阶段',
-        )
-        analyze_function_hierarchy(
-            project_path,
-            precomputed_graph_data=artifacts.get('graph_data'),
-            precomputed_analyzer=artifacts.get('analyzer'),
+            message='主图谱已就绪，功能层级继续处理中',
+            stageLabel=hierarchy_stage_label,
+            stageDetail=hierarchy_stage_detail,
+            hierarchyStartedAt=hierarchy_started_at,
+            bootstrapReady=True,
+            bootstrap=bootstrap,
         )
 
-        bootstrap = _build_workbench_bootstrap(session_id, project_path)
+        hierarchy_error: Optional[Exception] = None
+        try:
+            analyze_function_hierarchy(
+                project_path,
+                precomputed_graph_data=artifacts.get('graph_data'),
+                precomputed_analyzer=artifacts.get('analyzer'),
+                experience_output_root=experience_output_root,
+            )
+        except Exception as exc:
+            hierarchy_error = exc
+            print(f"[_run_workbench_session] ⚠️ 功能层级阶段降级完成: {exc}", flush=True)
+
+        if hierarchy_error is None:
+            bootstrap = _build_workbench_bootstrap(session_id, project_path, hierarchy_state='ready')
+            final_message = '统一分析会话完成'
+        else:
+            bootstrap = _build_workbench_bootstrap(
+                session_id,
+                project_path,
+                hierarchy_state='degraded',
+                hierarchy_error=str(hierarchy_error),
+            )
+            final_message = '主图谱已完成，功能层级降级收尾'
+
+        final_stage_label, final_stage_detail = _derive_workbench_stage_meta('bootstrap_ready', final_message)
         _update_workbench_session(
             session_id,
             status='completed',
             phase='bootstrap_ready',
             progress=100,
-            message='统一分析会话完成',
+            message=final_message,
+            stageLabel=final_stage_label,
+            stageDetail=final_stage_detail,
             bootstrapReady=True,
             bootstrap=bootstrap,
             completedAt=_utcnow_iso(),
         )
     except Exception as exc:
+        failed_stage_label, failed_stage_detail = _derive_workbench_stage_meta('failed', '统一分析会话失败')
         _update_workbench_session(
             session_id,
             status='failed',
             phase='failed',
             progress=0,
             message='统一分析会话失败',
+            stageLabel=failed_stage_label,
+            stageDetail=failed_stage_detail,
             error=str(exc),
             completedAt=_utcnow_iso(),
         )
@@ -1253,6 +1614,236 @@ def _get_llm_timeout_seconds() -> float:
     return max(1.0, timeout_seconds)
 
 
+def _get_partition_llm_parallel_workers(total_items: int) -> int:
+    raw_value = os.getenv('FH_PARTITION_LLM_PARALLEL_WORKERS', '1')
+    try:
+        configured_workers = int(raw_value)
+    except (TypeError, ValueError):
+        configured_workers = 1
+    safe_workers = max(1, min(configured_workers, 16))
+    if total_items <= 0:
+        return 1
+    return max(1, min(safe_workers, total_items))
+
+
+def _get_path_llm_parallel_workers(task_count: int) -> int:
+    raw_value = os.getenv('FH_PATH_LLM_PARALLEL_WORKERS', '1')
+    try:
+        configured_workers = int(raw_value)
+    except (TypeError, ValueError):
+        configured_workers = 1
+    safe_workers = max(1, min(configured_workers, 8))
+    if task_count <= 0:
+        return 1
+    return max(1, min(safe_workers, task_count))
+
+
+def _is_path_llm_task_parallel_enabled() -> bool:
+    return _read_env_bool('FH_ENABLE_PATH_LLM_TASK_PARALLEL', False)
+
+
+def _get_cfg_dfg_llm_explain_max_paths_per_partition() -> int:
+    raw_value = os.getenv('FH_CFG_DFG_LLM_EXPLAIN_MAX_PATHS_PER_PARTITION', '1')
+    try:
+        max_paths = int(raw_value)
+    except (TypeError, ValueError):
+        max_paths = 1
+    return max(0, min(max_paths, 12))
+
+
+def _resolve_parallel_llm_agent(fallback_agent: Optional[CodeUnderstandingAgent], *, use_thread_local_agent: bool) -> Optional[CodeUnderstandingAgent]:
+    if not use_thread_local_agent:
+        return fallback_agent if fallback_agent is not None else _create_code_understanding_agent()
+
+    local_agent = getattr(_parallel_llm_agent_local, 'agent', None)
+    if local_agent is None:
+        local_agent = _create_code_understanding_agent()
+        if local_agent is None:
+            local_agent = fallback_agent
+        setattr(_parallel_llm_agent_local, 'agent', local_agent)
+    return local_agent
+
+
+def _run_partition_llm_enhance_task(
+    partition_payload: Dict[str, Any],
+    analyzer_report: Any,
+    project_path: str,
+    llm_timeout_seconds: Optional[float],
+    llm_agent_for_partition: Any,
+    *,
+    use_thread_local_agent: bool,
+) -> Dict[str, Any]:
+    agent = _resolve_parallel_llm_agent(llm_agent_for_partition, use_thread_local_agent=use_thread_local_agent)
+    if agent is None:
+        return {
+            'ok': False,
+            'error': 'llm_agent_unavailable',
+            'is_timeout': False,
+            'enhanced_partition': partition_payload,
+        }
+
+    started_at = time.perf_counter() if llm_timeout_seconds is not None else None
+    try:
+        enhanced_partition = agent.enhance_partition_with_llm(
+            partition_payload,
+            analyzer_report,
+            project_path,
+        )
+    except Exception as error:
+        return {
+            'ok': False,
+            'error': str(error),
+            'is_timeout': isinstance(error, TimeoutError) or 'timeout' in str(error).lower(),
+            'enhanced_partition': partition_payload,
+        }
+
+    elapsed_seconds = None
+    timeout_exceeded = False
+    if llm_timeout_seconds is not None and started_at is not None:
+        elapsed_seconds = time.perf_counter() - started_at
+        timeout_exceeded = elapsed_seconds > llm_timeout_seconds
+
+    if timeout_exceeded:
+        return {
+            'ok': False,
+            'error': f'partition_llm_timeout>{llm_timeout_seconds}s',
+            'is_timeout': True,
+            'enhanced_partition': partition_payload,
+            'elapsed_seconds': elapsed_seconds,
+        }
+
+    return {
+        'ok': True,
+        'error': None,
+        'is_timeout': False,
+        'enhanced_partition': enhanced_partition,
+        'elapsed_seconds': elapsed_seconds,
+    }
+
+
+def _run_path_cfg_dfg_explain_task(
+    *,
+    path: List[str],
+    path_cfg: Optional[Dict[str, Any]],
+    path_dfg: Optional[Dict[str, Any]],
+    analyzer_report: Any,
+    inputs: List[Dict[str, Any]],
+    outputs: List[Dict[str, Any]],
+    llm_agent: Any,
+    use_thread_local_agent: bool,
+) -> Dict[str, Any]:
+    agent = _resolve_parallel_llm_agent(llm_agent, use_thread_local_agent=use_thread_local_agent)
+    if agent is None:
+        return {'ok': False, 'error': 'llm_agent_unavailable', 'markdown': None}
+    try:
+        explain = agent.explain_path_cfg_dfg(
+            path=path,
+            cfg_dot=(path_cfg or {}).get('dot', ''),
+            dfg_dot=(path_dfg or {}).get('dot', ''),
+            analyzer_report=analyzer_report,
+            inputs=inputs,
+            outputs=outputs,
+        )
+        return {'ok': True, 'error': None, 'markdown': (explain or {}).get('markdown')}
+    except Exception as error:
+        return {'ok': False, 'error': str(error), 'markdown': None}
+
+
+def _run_path_dataflow_mermaid_task(
+    *,
+    path: List[str],
+    call_graph: Dict[str, Set[str]],
+    analyzer_report: Any,
+    partition_methods: Set[str],
+    inputs: List[Dict[str, Any]],
+    outputs: List[Dict[str, Any]],
+    llm_agent: Any,
+    path_dfg: Optional[Dict[str, Any]],
+    use_thread_local_agent: bool,
+) -> Dict[str, Any]:
+    try:
+        dataflow_mermaid = generate_path_level_dataflow_mermaid(
+            path=path,
+            call_graph=call_graph,
+            analyzer_report=analyzer_report,
+            partition_methods=partition_methods,
+            inputs=inputs,
+            outputs=outputs,
+            llm_agent=llm_agent,
+            path_dfg=path_dfg,
+        )
+        return {'ok': True, 'error': None, 'dataflow_mermaid': dataflow_mermaid}
+    except Exception as error:
+        return {'ok': False, 'error': str(error), 'dataflow_mermaid': None}
+
+
+def _run_path_name_description_task(
+    *,
+    path: List[str],
+    analyzer_report: Any,
+    project_path: str,
+    llm_agent: Any,
+    use_thread_local_agent: bool,
+) -> Dict[str, Any]:
+    agent = _resolve_parallel_llm_agent(llm_agent, use_thread_local_agent=use_thread_local_agent)
+    if agent is None:
+        return {'ok': False, 'error': 'llm_agent_unavailable', 'path_info': None}
+    try:
+        path_info = agent.generate_path_name_and_description(
+            path=path,
+            analyzer_report=analyzer_report,
+            project_path=project_path,
+        )
+        return {'ok': True, 'error': None, 'path_info': path_info}
+    except Exception as error:
+        return {'ok': False, 'error': str(error), 'path_info': None}
+
+
+def _run_path_io_chain_task(
+    *,
+    path: List[str],
+    analyzer_report: Any,
+    inputs: List[Dict[str, Any]],
+    outputs: List[Dict[str, Any]],
+    call_graph: Dict[str, Set[str]],
+    llm_agent: Any,
+    use_thread_local_agent: bool,
+) -> Dict[str, Any]:
+    agent = _resolve_parallel_llm_agent(llm_agent, use_thread_local_agent=use_thread_local_agent)
+    if agent is None:
+        return {
+            'ok': False,
+            'error': 'llm_agent_unavailable',
+            'io_graph': None,
+            'call_chain_analysis': None,
+        }
+    try:
+        io_graph = agent.generate_path_input_output_graph(
+            path=path,
+            analyzer_report=analyzer_report,
+            inputs=inputs,
+            outputs=outputs,
+        )
+        call_chain_analysis = agent.analyze_path_call_chain_type(
+            path=path,
+            call_graph=call_graph,
+            analyzer_report=analyzer_report,
+        )
+        return {
+            'ok': True,
+            'error': None,
+            'io_graph': io_graph,
+            'call_chain_analysis': call_chain_analysis,
+        }
+    except Exception as error:
+        return {
+            'ok': False,
+            'error': str(error),
+            'io_graph': None,
+            'call_chain_analysis': None,
+        }
+
+
 def _get_index_rebuild_visibility_timeout_seconds() -> float:
     raw_value = os.getenv('FH_INDEX_REBUILD_VISIBILITY_TIMEOUT', '2.0')
     try:
@@ -1292,65 +1883,118 @@ def _run_partition_llm_semantics_pass(
     timing.start_phase(phase_id, layer='advanced_visible', blocking=True)
     try:
         if enable_partition_llm_semantics and llm_agent_for_partition and partitions:
-            partitions_to_enhance = partitions[:use_limit]
+            partitions_to_enhance = partitions if use_limit <= 0 else partitions[:use_limit]
             enhanced_count = 0
             llm_timeout_seconds = _get_llm_timeout_seconds() if timeout_degrade_stage else None
+            total_partitions = len(partitions_to_enhance)
+            partition_llm_workers = _get_partition_llm_parallel_workers(total_partitions)
+            use_parallel = partition_llm_workers > 1 and total_partitions > 1
+            print(
+                f"[workset5] parallel_stage=partition_llm_semantics workers={partition_llm_workers} "
+                f"partitions={total_partitions} mode={'parallel' if use_parallel else 'serial'}",
+                flush=True,
+            )
 
-            for idx, partition_to_enhance in enumerate(partitions_to_enhance):
-                partition_id_to_enhance = partition_to_enhance.get('partition_id', 'unknown')
-                partition_name_before = partition_to_enhance.get('name', 'unknown')
+            partition_results_by_index: Dict[int, Dict[str, Any]] = {}
+            progress_done = 0
 
-                print(f"[app.py]   [{idx+1}/{len(partitions_to_enhance)}] 处理分区: {partition_id_to_enhance}", flush=True)
-                print(f"[app.py]     分区名称（增强前）: {partition_name_before}", flush=True)
+            if use_parallel:
+                with ThreadPoolExecutor(max_workers=partition_llm_workers, thread_name_prefix='fh-partition-llm') as executor:
+                    future_to_context = {}
+                    for idx, partition_to_enhance in enumerate(partitions_to_enhance):
+                        partition_id_to_enhance = partition_to_enhance.get('partition_id', 'unknown')
+                        partition_name_before = partition_to_enhance.get('name', 'unknown')
+                        print(f"[app.py]   [{idx+1}/{total_partitions}] 提交分区LLM任务: {partition_id_to_enhance}", flush=True)
+                        print(f"[app.py]     分区名称（增强前）: {partition_name_before}", flush=True)
+                        future = executor.submit(
+                            _run_partition_llm_enhance_task,
+                            partition_to_enhance.copy(),
+                            analyzer_report,
+                            project_path,
+                            llm_timeout_seconds,
+                            llm_agent_for_partition,
+                            use_thread_local_agent=True,
+                        )
+                        future_to_context[future] = (idx, partition_id_to_enhance)
 
-                try:
-                    llm_started_at = time.perf_counter() if llm_timeout_seconds is not None else None
-                    enhanced_partition = llm_agent_for_partition.enhance_partition_with_llm(
+                    for future in as_completed(future_to_context):
+                        idx, partition_id_to_enhance = future_to_context[future]
+                        try:
+                            partition_results_by_index[idx] = future.result()
+                        except Exception as error:
+                            partition_results_by_index[idx] = {
+                                'ok': False,
+                                'error': str(error),
+                                'is_timeout': isinstance(error, TimeoutError) or 'timeout' in str(error).lower(),
+                                'enhanced_partition': partitions_to_enhance[idx],
+                            }
+                        progress_done += 1
+                        progress_pct = 82 + int((progress_done / total_partitions) * 3)
+                        update_analysis_status(progress=progress_pct, status=f'步骤6.5.6/7: LLM分析分区 {progress_done}/{total_partitions}...')
+            else:
+                for idx, partition_to_enhance in enumerate(partitions_to_enhance):
+                    partition_id_to_enhance = partition_to_enhance.get('partition_id', 'unknown')
+                    partition_name_before = partition_to_enhance.get('name', 'unknown')
+
+                    print(f"[app.py]   [{idx+1}/{total_partitions}] 处理分区: {partition_id_to_enhance}", flush=True)
+                    print(f"[app.py]     分区名称（增强前）: {partition_name_before}", flush=True)
+                    partition_results_by_index[idx] = _run_partition_llm_enhance_task(
                         partition_to_enhance.copy(),
                         analyzer_report,
                         project_path,
+                        llm_timeout_seconds,
+                        llm_agent_for_partition,
+                        use_thread_local_agent=False,
                     )
-                    if llm_timeout_seconds is not None and llm_started_at is not None:
-                        if (time.perf_counter() - llm_started_at) > llm_timeout_seconds:
-                            raise TimeoutError(f'partition_llm_timeout>{llm_timeout_seconds}s')
+                    progress_done += 1
+                    progress_pct = 82 + int((progress_done / total_partitions) * 3)
+                    update_analysis_status(progress=progress_pct, status=f'步骤6.5.6/7: LLM分析分区 {progress_done}/{total_partitions}...')
 
+            for idx, partition_to_enhance in enumerate(partitions_to_enhance):
+                partition_id_to_enhance = partition_to_enhance.get('partition_id', 'unknown')
+                result = partition_results_by_index.get(idx) or {
+                    'ok': False,
+                    'error': 'partition_result_missing',
+                    'is_timeout': False,
+                    'enhanced_partition': partition_to_enhance,
+                }
+
+                if result.get('ok'):
+                    enhanced_partition = result.get('enhanced_partition') or {}
                     partition_to_enhance.update(enhanced_partition)
                     partition_name_after = partition_to_enhance.get('name', 'unknown')
                     partition_description = partition_to_enhance.get('description', '')
-
                     print(f"[app.py]     ✓ LLM语义分析完成", flush=True)
                     print(f"[app.py]     分区名称（增强后）: {partition_name_after}", flush=True)
                     desc_preview = partition_description[:80] + '...' if len(partition_description) > 80 else partition_description
                     print(f"[app.py]     分区描述: {desc_preview}", flush=True)
                     enhanced_count += 1
+                    continue
 
-                except Exception as e:
-                    print(f"[app.py]     ⚠️ LLM语义分析失败: {e}，使用原始分区信息", flush=True)
-                    if (
-                        timeout_degrade_stage
-                        and timeout_reason_code
-                        and timeout_user_message_template
-                        and (isinstance(e, TimeoutError) or 'timeout' in str(e).lower())
-                    ):
-                        _record_layer_degradation(
-                            layer_states,
-                            degradation_summary,
-                            skipped_or_deferred_work,
-                            layer='advanced_visible',
-                            stage=timeout_degrade_stage,
-                            reason_code=timeout_reason_code,
-                            status_after_degrade='available_on_demand',
-                            timeout_seconds=llm_timeout_seconds,
-                            user_message=timeout_user_message_template.format(partition_id=partition_id_to_enhance),
-                            retry_mode='on_demand',
-                            deferred_section=timeout_deferred_section,
-                        )
-                    _safe_traceback_print()
+                error_message = result.get('error') or 'unknown_error'
+                is_timeout_error = bool(result.get('is_timeout'))
+                print(f"[app.py]     ⚠️ LLM语义分析失败: {error_message}，使用原始分区信息", flush=True)
+                if (
+                    timeout_degrade_stage
+                    and timeout_reason_code
+                    and timeout_user_message_template
+                    and is_timeout_error
+                ):
+                    _record_layer_degradation(
+                        layer_states,
+                        degradation_summary,
+                        skipped_or_deferred_work,
+                        layer='advanced_visible',
+                        stage=timeout_degrade_stage,
+                        reason_code=timeout_reason_code,
+                        status_after_degrade='available_on_demand',
+                        timeout_seconds=llm_timeout_seconds,
+                        user_message=timeout_user_message_template.format(partition_id=partition_id_to_enhance),
+                        retry_mode='on_demand',
+                        deferred_section=timeout_deferred_section,
+                    )
 
-                progress_pct = 82 + int((idx + 1) / len(partitions_to_enhance) * 3)
-                update_analysis_status(progress=progress_pct, status=f'步骤6.5.6/7: LLM分析分区 {idx+1}/{len(partitions_to_enhance)}...')
-
-            print(f"\n[app.py] ✅ LLM语义分析完成: 成功增强 {enhanced_count}/{len(partitions_to_enhance)} 个分区", flush=True)
+            print(f"\n[app.py] ✅ LLM语义分析完成: 成功增强 {enhanced_count}/{total_partitions} 个分区", flush=True)
         else:
             print(disabled_message, flush=True)
     finally:
@@ -1419,7 +2063,7 @@ def _build_function_hierarchy_snapshot(
         for key, value in analysis.items():
             if key in {'entry_points', 'fqns', 'inputs', 'outputs', 'dataflow', 'controlflow'} and not include_expand:
                 continue
-            if key in {'path_analyses', 'path_analysis_info'} and not include_advanced:
+            if key in {'path_analyses'} and not include_advanced:
                 continue
             entry[key] = copy.deepcopy(value)
         snapshot_partition_analyses[partition_id] = entry
@@ -1484,6 +2128,7 @@ def _json_signature(payload: Dict[str, Any]) -> str:
 
 def _build_layer_cache_signatures(*, code_state_fingerprint: str, execution_profile: Dict[str, Any], max_paths_to_analyze: int, path_analysis_partition_limit: int, filter_single_node_paths: bool) -> Dict[str, str]:
     base_payload = {
+        'pipeline_version': FUNCTION_HIERARCHY_PIPELINE_VERSION,
         'code_state_fingerprint': code_state_fingerprint,
         'default_visible': execution_profile['layers']['default_visible'],
         'expand_visible': execution_profile['layers']['expand_visible'],
@@ -1905,6 +2550,19 @@ def analyze_project(project_path, *, return_artifacts: bool = False):
         data_accessor.save_main_analysis(normalized_project_path, graph_data)
         data_accessor.save_report(normalized_project_path, report)
         print(f"[app.py] 💾 主分析结果已保存到缓存: {normalized_project_path}", flush=True)
+
+        try:
+            _project_library_storage.save_graph_data(normalized_project_path, graph_data)
+            _project_library_storage.save_project_profile(
+                normalized_project_path,
+                {
+                    'project_name': os.path.basename(normalized_project_path) or 'unknown_project',
+                    'analysis_timestamp': str((graph_data.get('metadata') or {}).get('analysis_timestamp') or datetime.utcnow().isoformat() + 'Z'),
+                    'has_graph': True,
+                },
+            )
+        except Exception as storage_exc:
+            print(f"[app.py] ⚠️ 主图谱持久化失败: {storage_exc}", flush=True)
         
         # 生成图形数据并完成分析
         update_analysis_status(
@@ -2018,11 +2676,12 @@ def analyze_hierarchy(project_path, use_llm=False):
             print(f"\n[app.py] 步骤3: 🤖 调用LLM分析项目结构（使用图知识库）...", flush=True)
             _safe_flush()
             
-            api_key = os.getenv('DEEPSEEK_API_KEY')
-            base_url = os.getenv('DEEPSEEK_BASE_URL', 'https://api.deepseek.com/v1')
-            
+            settings = _get_deepseek_runtime_settings()
+            api_key = settings['api_key']
+            base_url = settings['base_url']
+
             if not api_key:
-                raise ValueError("DEEPSEEK_API_KEY 环境变量未设置，请在 .env 文件中配置")
+                raise ValueError("DeepSeek 未配置 API Key，请检查 config/config.py 或环境变量 DEEPSEEK_API_KEY")
             
             print(f"[app.py]   - API密钥: {api_key[:10]}...", flush=True)
             print(f"[app.py]   - 初始化LLM Agent...", flush=True)
@@ -2848,11 +3507,26 @@ def api_workbench_session_start():
         return jsonify({'error': f'project_path 不存在或不是目录: {resolved_project_path}'}), 400
 
     project_path = resolved_project_path
+    experience_output_root: Optional[str] = None
+    raw_experience_output_root = str(data.get('experience_output_root') or '').strip()
+    if raw_experience_output_root:
+        if not os.path.isabs(raw_experience_output_root):
+            return jsonify({'error': 'experience_output_root 必须是绝对路径'}), 400
+        experience_output_root = os.path.normpath(os.path.abspath(raw_experience_output_root))
+        try:
+            os.makedirs(experience_output_root, exist_ok=True)
+        except Exception as exc:
+            return jsonify({'error': f'experience_output_root 创建失败: {exc}'}), 400
+
     session_payload = _create_workbench_session(project_path)
+    session_payload = _update_workbench_session(
+        session_payload['sessionId'],
+        experienceOutputRoot=experience_output_root,
+    ) or session_payload
 
     thread = threading.Thread(
         target=_run_workbench_session,
-        args=(session_payload['sessionId'], project_path),
+        args=(session_payload['sessionId'], project_path, experience_output_root),
         daemon=True,
     )
     thread.start()
@@ -2863,6 +3537,7 @@ def api_workbench_session_start():
         'status': session_payload['status'],
         'phase': session_payload['phase'],
         'message': '统一分析会话已开始',
+        'experienceOutputRoot': experience_output_root,
     })
 
 
@@ -2873,6 +3548,7 @@ def api_workbench_session_status(session_id):
         return jsonify({'error': '未找到统一分析会话'}), 404
 
     progress, message = _map_workbench_progress(payload)
+    stage_label, stage_detail = _derive_workbench_stage_meta(payload.get('phase'), message)
     response_payload = {
         'sessionId': payload.get('sessionId'),
         'projectPath': payload.get('projectPath'),
@@ -2880,6 +3556,8 @@ def api_workbench_session_status(session_id):
         'phase': payload.get('phase'),
         'progress': progress,
         'message': message,
+        'stageLabel': payload.get('stageLabel') or stage_label,
+        'stageDetail': payload.get('stageDetail') or stage_detail,
         'error': payload.get('error'),
         'bootstrapReady': payload.get('bootstrapReady', False),
         'startedAt': payload.get('startedAt'),
@@ -2913,6 +3591,195 @@ def api_workbench_session_bootstrap(session_id):
     return jsonify(bootstrap)
 
 
+def _find_latest_workbench_session_for_project(project_path: str) -> Optional[Dict[str, Any]]:
+    normalized = _normalize_project_lookup_path(project_path)
+    latest_payload: Optional[Dict[str, Any]] = None
+    latest_updated = ''
+    for session_id in data_accessor.list_workbench_session_ids():
+        payload = data_accessor.get_workbench_session(session_id)
+        if not isinstance(payload, dict):
+            continue
+        payload_project_path = _normalize_project_lookup_path(payload.get('projectPath'))
+        if payload_project_path != normalized:
+            continue
+        updated_at = str(payload.get('updatedAt') or payload.get('startedAt') or '')
+        if not latest_payload or updated_at >= latest_updated:
+            latest_payload = payload
+            latest_updated = updated_at
+    return latest_payload
+
+
+def _build_workbench_project_status(project_path: str) -> Dict[str, Any]:
+    normalized = _normalize_project_lookup_path(project_path)
+    if not normalized:
+        return {
+            'projectPath': '',
+            'status': 'not_started',
+            'phase': 'missing_project',
+            'progress': 0,
+            'message': '未提供项目路径',
+            'qualityHint': '暂无完整经验库，问答/代码生成效果较弱',
+            'experienceReady': False,
+            'bootstrapReady': False,
+            'activeSessionId': None,
+        }
+
+    profile = _project_library_storage.load_project_profile(normalized) or {}
+    display_name = str(profile.get('display_name') or '').strip() or _build_project_display_name(normalized)
+
+    hierarchy_cached = _resolve_function_hierarchy_cached(normalized)
+    if hierarchy_cached:
+        return {
+            'projectPath': normalized,
+            'displayName': display_name,
+            'status': 'completed',
+            'phase': 'ready',
+            'progress': 100,
+            'message': '经验库已就绪',
+            'qualityHint': '经验库已就绪，可使用高阶问答与代码生成功能',
+            'experienceReady': True,
+            'bootstrapReady': True,
+            'activeSessionId': None,
+            'updatedAt': profile.get('updated_at') or profile.get('analysis_timestamp'),
+        }
+
+    latest_session = _find_latest_workbench_session_for_project(normalized)
+    if isinstance(latest_session, dict):
+        progress, mapped_message = _map_workbench_progress(latest_session)
+        status = str(latest_session.get('status') or 'running')
+        phase = str(latest_session.get('phase') or 'running')
+        if status == 'completed':
+            quality_hint = '经验库已就绪，可使用高阶问答与代码生成功能'
+        elif status == 'failed':
+            quality_hint = '经验库构建失败，问答/代码生成将退化为弱上下文模式'
+        else:
+            quality_hint = '经验库构建中，完成后可解锁完整能力'
+        return {
+            'projectPath': normalized,
+            'displayName': display_name,
+            'status': status,
+            'phase': phase,
+            'progress': max(0, min(100, int(progress or latest_session.get('progress') or 0))),
+            'message': mapped_message or str(latest_session.get('message') or '经验库构建中'),
+            'qualityHint': quality_hint,
+            'experienceReady': status == 'completed',
+            'bootstrapReady': bool(latest_session.get('bootstrapReady')),
+            'activeSessionId': latest_session.get('sessionId'),
+            'updatedAt': latest_session.get('updatedAt'),
+        }
+
+    graph_data = _resolve_graph_data_for_project(normalized, allow_global_fallback=False)
+    if graph_data:
+        return {
+            'projectPath': normalized,
+            'displayName': display_name,
+            'status': 'partial',
+            'phase': 'graph_ready_hierarchy_missing',
+            'progress': 45,
+            'message': '主图谱可用，功能层级/经验库尚未完成',
+            'qualityHint': '暂无完整经验库，问答/代码生成效果较弱',
+            'experienceReady': False,
+            'bootstrapReady': True,
+            'activeSessionId': None,
+            'updatedAt': profile.get('updated_at') or profile.get('analysis_timestamp'),
+        }
+
+    return {
+        'projectPath': normalized,
+        'displayName': display_name,
+        'status': 'not_started',
+        'phase': 'not_started',
+        'progress': 0,
+        'message': '尚未开始经验库构建',
+        'qualityHint': '暂无完整经验库，问答/代码生成效果较弱',
+        'experienceReady': False,
+        'bootstrapReady': False,
+        'activeSessionId': None,
+        'updatedAt': profile.get('updated_at') or profile.get('analysis_timestamp'),
+    }
+
+
+def api_workbench_project_status():
+    project_path = request.args.get('project_path') or _infer_repo_project_path()
+    if not project_path:
+        return jsonify(_build_workbench_project_status(''))
+    payload = _build_workbench_project_status(project_path)
+    return jsonify(payload)
+
+
+def api_fixed_scenario_benchmark_start():
+    """触发固定场景基准回归（异步会话）。"""
+    data = request.json or {}
+    raw_project_path = str(data.get('project_path') or str(PROJECT_ROOT)).strip()
+    if not raw_project_path:
+        return jsonify({'error': 'project_path 不能为空'}), 400
+
+    project_path = os.path.normpath(raw_project_path)
+    if not os.path.isabs(project_path):
+        project_path = os.path.abspath(project_path)
+    if not os.path.isdir(project_path):
+        return jsonify({'error': f'project_path 不存在或不是目录: {project_path}'}), 400
+
+    report_dir = _normalize_benchmark_report_dir(data.get('report_dir'))
+    try:
+        os.makedirs(report_dir, exist_ok=True)
+    except Exception as exc:
+        return jsonify({'error': f'report_dir 无法创建: {exc}'}), 400
+
+    session_payload = _create_benchmark_session(project_path, report_dir)
+    thread = threading.Thread(
+        target=_run_fixed_scenario_benchmark_session,
+        args=(session_payload['sessionId'], project_path, report_dir),
+        daemon=True,
+    )
+    thread.start()
+
+    return jsonify(
+        {
+            'sessionId': session_payload['sessionId'],
+            'status': session_payload['status'],
+            'phase': session_payload['phase'],
+            'projectPath': project_path,
+            'reportDir': report_dir,
+            'message': '固定场景基准会话已开始',
+        }
+    )
+
+
+def api_fixed_scenario_benchmark_status(session_id):
+    payload = _get_benchmark_session_or_none(session_id)
+    if not payload:
+        return jsonify({'error': '未找到基准会话'}), 404
+    return jsonify(
+        {
+            'sessionId': payload.get('sessionId'),
+            'status': payload.get('status'),
+            'phase': payload.get('phase'),
+            'progress': payload.get('progress'),
+            'message': payload.get('message'),
+            'error': payload.get('error'),
+            'projectPath': payload.get('projectPath'),
+            'reportDir': payload.get('reportDir'),
+            'startedAt': payload.get('startedAt'),
+            'updatedAt': payload.get('updatedAt'),
+            'completedAt': payload.get('completedAt'),
+        }
+    )
+
+
+def api_fixed_scenario_benchmark_result(session_id):
+    payload = _get_benchmark_session_or_none(session_id)
+    if not payload:
+        return jsonify({'error': '未找到基准会话'}), 404
+    status = str(payload.get('status') or '').strip()
+    if status == 'failed':
+        return jsonify({'error': payload.get('error') or '固定场景基准执行失败'}), 400
+    result = payload.get('result')
+    if status != 'completed' or not isinstance(result, dict):
+        return jsonify({'error': '基准结果尚未就绪'}), 409
+    return jsonify(result)
+
+
 def api_analyze_hierarchy():
     """开始四层嵌套可视化分析API"""
     data = request.json or {}
@@ -2942,7 +3809,7 @@ def api_analyze_hierarchy():
     return jsonify({'message': '四层分析已开始'})
 
 
-def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional[Dict[str, Any]] = None, precomputed_analyzer: Optional[CodeAnalyzer] = None):
+def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional[Dict[str, Any]] = None, precomputed_analyzer: Optional[CodeAnalyzer] = None, experience_output_root: Optional[str] = None):
     """后台分析项目功能层级（使用社区检测）"""
     # Ensure UTF-8 output stream without replacing/rewrapping stdout
     _ensure_utf8_output_stream()
@@ -2957,11 +3824,12 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
     
     try:
         # ===== 配置：功能层级与路径级别分析的可调参数（后续一键放开只需修改这里） =====
-        USE_LLM_PARTITIONS_LIMIT = int(os.getenv('FH_LLM_PARTITION_LIMIT', '7'))  # 功能分区LLM增强最多处理的分区数（7个分区用于视频演示）
-        MAX_PATHS_TO_ANALYZE = int(os.getenv('FH_MAX_PATHS_PER_PARTITION', '5'))  # 每个分区路径级别分析的最大路径数（每分区5条路径）
-        PATH_ANALYSIS_PARTITION_LIMIT = _get_path_analysis_partition_limit(min(USE_LLM_PARTITIONS_LIMIT, 3))
+        USE_LLM_PARTITIONS_LIMIT = int(os.getenv('FH_LLM_PARTITION_LIMIT', '8'))  # 保持节制，但覆盖更多高价值分区
+        MAX_PATHS_TO_ANALYZE = _get_max_paths_per_partition(10)  # 每个分区保留更丰富的代表路径，避免结果过薄
+        PATH_ANALYSIS_PARTITION_LIMIT = _get_path_analysis_partition_limit(16)  # 默认深分析更多分区，避免大部分分区退化为骨架
         PATH_ANALYSIS_TIMEOUT_SECONDS = _get_phase5_timeout_seconds()
         FILTER_SINGLE_NODE_PATHS = os.getenv('FH_FILTER_SINGLE_NODE_PATHS', '1') != '0'  # 是否过滤只有单个方法的路径
+        ENABLE_STRUCTURAL_PATHS_ALL = os.getenv('FH_ENABLE_STRUCTURAL_PATHS_ALL', '1') != '0'  # 默认所有分区都做结构路径找全
         execution_profile = _resolve_function_hierarchy_execution_profile()
         pipeline_structure = _build_pipeline_structure(execution_profile)
         log_print(f"[workset1] execution_profile={json.dumps(execution_profile, ensure_ascii=False)}")
@@ -3394,14 +4262,12 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
         llm_agent_for_partition = None
         if ENABLE_PARTITION_LLM_SEMANTICS:
             try:
-                api_key = os.getenv('DEEPSEEK_API_KEY')
-                base_url = os.getenv('DEEPSEEK_BASE_URL', 'https://api.deepseek.com/v1')
-                if api_key:
-                    llm_agent_for_partition = CodeUnderstandingAgent(api_key=api_key, base_url=base_url)
+                llm_agent_for_partition = _create_code_understanding_agent()
+                if llm_agent_for_partition:
                     llm_agent_for_partition.project_path = project_path
                     print(f"[app.py]   ✓ 分区级LLM agent已初始化", flush=True)
                 else:
-                    print(f"[app.py]   ⚠️ DEEPSEEK_API_KEY 环境变量未设置，将跳过分区级LLM增强", flush=True)
+                    print(f"[app.py]   ⚠️ DeepSeek 未配置，将跳过分区级LLM增强", flush=True)
             except Exception as e:
                 print(f"[app.py]   ⚠️ 分区级LLM agent初始化失败: {e}，将跳过LLM增强", flush=True)
                 import traceback
@@ -3458,7 +4324,6 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
         _safe_flush()
         
         timing.start_phase('call_graph_generation', layer='expand_visible', blocking=True)
-        call_graph_generator = FunctionCallGraphGenerator(call_graph)
         partition_analyses = {}
         
         # 检查演示分区是否在partitions列表中
@@ -3475,42 +4340,31 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
             print(f"[app.py]      - demo_partition_id: {demo_partition_id}", flush=True)
             print(f"[app.py]      - partitions列表中的分区ID: {[p.get('partition_id') for p in partitions[:5]]}", flush=True)
         
+        call_graph_worker_count = _get_parallel_worker_count(len(partitions), limit=8)
+        with ThreadPoolExecutor(max_workers=call_graph_worker_count, thread_name_prefix='fh-call-graph') as executor:
+            future_to_partition = {
+                executor.submit(_generate_partition_call_graph_item, partition, call_graph): partition for partition in partitions
+            }
+            call_graph_results_by_partition: Dict[str, Dict[str, Any]] = {}
+            for future in as_completed(future_to_partition):
+                partition = future_to_partition[future]
+                partition_id = partition.get('partition_id', 'unknown')
+                is_demo = partition.get('is_demo', False)
+                demo_marker = ' [演示分区]' if is_demo else ''
+                try:
+                    item = future.result()
+                    call_graph_results_by_partition[partition_id] = item.get('call_graph') or {}
+                    print(f"[app.py]   ✓ 分区 {partition_id}{demo_marker} 调用图生成成功", flush=True)
+                except Exception as e:
+                    print(f"[app.py]   ⚠️ 分区 {partition_id}{demo_marker} 调用图生成失败: {e}", flush=True)
+                    import traceback
+                    _safe_traceback_print()
+
         for partition in partitions:
-            partition_id = partition.get("partition_id", "unknown")
-            is_demo = partition.get("is_demo", False)
-            demo_marker = " [演示分区]" if is_demo else ""
-            
-            # 如果是演示分区，输出详细信息
-            if is_demo:
-                print(f"[app.py]   🔍 [步骤3] 处理演示分区 {partition_id}:", flush=True)
-                print(f"[app.py]     - is_demo: {is_demo}", flush=True)
-                print(f"[app.py]     - demo_partition_created: {demo_partition_created}", flush=True)
-                print(f"[app.py]     - demo_partition_id: {demo_partition_id}", flush=True)
-                print(f"[app.py]     - partition_id匹配: {partition_id == demo_partition_id}", flush=True)
-                print(f"[app.py]     - methods数量: {len(partition.get('methods', []))}", flush=True)
-            
-            try:
-                call_graph_result = call_graph_generator.generate_partition_call_graph(partition)
-                # 确保 partition_analyses 中存在该分区
-                if partition_id not in partition_analyses:
-                    partition_analyses[partition_id] = {}
-                    if is_demo:
-                        print(f"[app.py]     ⚠️ 演示分区 {partition_id} 不在partition_analyses中，已创建", flush=True)
-                partition_analyses[partition_id]['call_graph'] = call_graph_result
-                print(f"[app.py]   ✓ 分区 {partition_id}{demo_marker} 调用图生成成功", flush=True)
-                if is_demo:
-                    print(f"[app.py]     ✓ [步骤3] 演示分区调用图已保存", flush=True)
-                    print(f"[app.py]       - partition_analyses[{partition_id}]键存在: {partition_id in partition_analyses}", flush=True)
-                    print(f"[app.py]       - call_graph键存在: {'call_graph' in partition_analyses[partition_id]}", flush=True)
-                    nodes_count = len(call_graph_result.get('nodes', []))
-                    edges_count = len(call_graph_result.get('edges', []))
-                    print(f"[app.py]       - 调用图节点数: {nodes_count}, 边数: {edges_count}", flush=True)
-            except Exception as e:
-                print(f"[app.py]   ⚠️ 分区 {partition_id}{demo_marker} 调用图生成失败: {e}", flush=True)
-                if is_demo:
-                    print(f"[app.py]     ❌ [步骤3] 演示分区调用图生成失败！", flush=True)
-                import traceback
-                _safe_traceback_print()
+            partition_id = partition.get('partition_id', 'unknown')
+            if partition_id not in partition_analyses:
+                partition_analyses[partition_id] = {}
+            partition_analyses[partition_id]['call_graph'] = call_graph_results_by_partition.get(partition_id, {})
         
         print(f"[app.py] ✅ 调用图生成完成，共 {len(partition_analyses)} 个分区", flush=True)
         timing.end_phase('call_graph_generation')
@@ -3562,6 +4416,41 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
         entry_point_generator = EntryPointIdentifierGenerator(call_graph, analyzer.report, None)
         entry_points_map = entry_point_generator.identify_all_partitions_entry_points(partitions, score_threshold=0.3)
 
+        regular_partitions = [partition for partition in partitions if not (partition.get('is_demo', False) and demo_partition_created and partition.get('partition_id') == demo_partition_id)]
+        structural_path_partition_limit = _get_structural_path_partition_limit(PATH_ANALYSIS_PARTITION_LIMIT, len(regular_partitions))
+        structural_path_partition_ids = {
+            partition.get('partition_id', 'unknown')
+            for partition in sorted(
+                regular_partitions,
+                key=lambda item: len(item.get('methods', [])),
+                reverse=True,
+            )[:structural_path_partition_limit]
+        }
+        hypergraph_results_by_partition: Dict[str, Dict[str, Any]] = {}
+        hypergraph_worker_count = _get_parallel_worker_count(len(regular_partitions), limit=8)
+        if regular_partitions:
+            with ThreadPoolExecutor(max_workers=hypergraph_worker_count, thread_name_prefix='fh-hypergraph') as executor:
+                future_to_partition = {
+                    executor.submit(
+                        _generate_partition_hypergraph_item,
+                        partition,
+                        call_graph,
+                        analyzer.report,
+                        entry_points_map.get(partition.get('partition_id', 'unknown'), []),
+                        ENABLE_STRUCTURAL_PATHS_ALL or partition.get('partition_id', 'unknown') in structural_path_partition_ids,
+                    ): partition for partition in regular_partitions
+                }
+                for future in as_completed(future_to_partition):
+                    partition = future_to_partition[future]
+                    partition_id = partition.get('partition_id', 'unknown')
+                    try:
+                        hypergraph_results_by_partition[partition_id] = future.result()
+                    except Exception as e:
+                        print(f"[app.py]   ⚠️ 分区 {partition_id} 超图生成失败: {e}", flush=True)
+                        import traceback
+                        _safe_traceback_print()
+                        hypergraph_results_by_partition[partition_id] = {'partition_id': partition_id, 'paths_map': {}, 'hypergraph': {}, 'hypergraph_viz': {'edges': [], 'statistics': {}}, 'function_node_count': 0, 'total_paths': 0, 'leaf_node_count': 0, 'total_nodes': 0, 'method_nodes': 0, 'function_nodes': 0, 'hyperedge_count': 0, 'total_edges': 0, 'direct_call_edges': 0}
+
         for idx, partition in enumerate(partitions, 1):
             partition_id = partition.get("partition_id", "unknown")
             partition_name = partition.get("name", "unknown")
@@ -3582,6 +4471,7 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
                     paths_map = partition_paths_map.get(partition_id, {})
                     total_paths = sum(len(paths) for paths in paths_map.values())
                     leaf_node_count = len(paths_map)
+                    partition_analyses[partition_id]['paths_map'] = copy.deepcopy(paths_map)
                     
                     print(f"[app.py]     ✓ 演示分区超图生成成功:", flush=True)
                     print(f"[app.py]       - 超边数: {len(hypergraph.hyperedges)}", flush=True)
@@ -3625,66 +4515,32 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
             print(f"[app.py]   [{idx}/{len(partitions)}] 处理分区 {partition_id} ({partition_name}): {len(partition_methods)} 个方法", flush=True)
             
             try:
-                # 步骤1：生成分区级别的超图
-                hypergraph = hypergraph_generator.generate_partition_hypergraph(partition)
-                
-                # 步骤2：功能节点增强（在分区内部进行路径追踪）
-                paths_map = {}  # 保存路径信息
-                try:
-                    entry_points_for_partition = entry_points_map.get(partition_id, []) if entry_points_map else []
-                    entry_point_sigs = [ep.method_sig for ep in entry_points_for_partition] if entry_points_for_partition else None
-                    enhanced_hypergraph, paths_map = enhance_hypergraph_with_function_nodes(
-                        hypergraph=hypergraph,              # 分区级别的超图
-                        call_graph=call_graph,              # 完整的调用图
-                        partition_methods=partition_methods,  # 关键：分区边界，确保路径在分区内
-                        analyzer_report=analyzer.report,
-                        max_path_length=10,
-                        use_llm=False,  # 暂时不使用LLM，后续可以启用
-                        llm_agent=None,
-                        entry_points=entry_point_sigs
-                    )
-                    hypergraph = enhanced_hypergraph
-                    function_node_count = len([n for n in hypergraph.nodes.values() if n.get('type') == 'function'])
-                    total_paths = sum(len(paths) for paths in paths_map.values())
-                    leaf_node_count = len(paths_map)
-                    
-                    print(f"[app.py]     ✓ 分区 {partition_id} 功能节点增强完成:", flush=True)
-                    print(f"[app.py]       - 功能节点数: {function_node_count}", flush=True)
-                    print(f"[app.py]       - 叶子节点数: {leaf_node_count}", flush=True)
-                    print(f"[app.py]       - 总路径数: {total_paths}", flush=True)
-                    
-                    if total_paths == 0:
-                        print(f"[app.py]       ⚠️  警告: 该分区没有生成任何路径", flush=True)
-                        print(f"[app.py]         可能原因: 分区内方法之间没有调用关系，或所有方法都是入口点", flush=True)
-                    
-                    # 保存paths_map供后续使用
-                    partition_paths_map[partition_id] = paths_map
-                except Exception as e:
-                    print(f"[app.py]     ⚠️ 分区 {partition_id} 功能节点增强失败: {e}", flush=True)
-                    import traceback
-                    _safe_traceback_print()
-                    partition_paths_map[partition_id] = {}
-                    print(f"[app.py]       - 已设置空路径映射，该分区将跳过路径级别分析", flush=True)
-                
+                hypergraph_result = hypergraph_results_by_partition.get(partition_id) or {}
+                partition_paths_map[partition_id] = hypergraph_result.get('paths_map') or {}
+                print(f"[app.py]     ✓ 分区 {partition_id} 功能节点增强完成:", flush=True)
+                print(f"[app.py]       - 功能节点数: {hypergraph_result.get('function_node_count', 0)}", flush=True)
+                print(f"[app.py]       - 叶子节点数: {hypergraph_result.get('leaf_node_count', 0)}", flush=True)
+                print(f"[app.py]       - 总路径数: {hypergraph_result.get('total_paths', 0)}", flush=True)
+                if hypergraph_result.get('total_paths', 0) == 0:
+                    print(f"[app.py]       ⚠️  警告: 该分区没有生成任何路径", flush=True)
+                    print(f"[app.py]         可能原因: 分区内方法之间没有调用关系，或所有方法都是入口点", flush=True)
+
                 if partition_id not in partition_analyses:
                     partition_analyses[partition_id] = {}
-                # 保存超图的完整信息
-                hypergraph_dict = hypergraph.to_dict()
-                partition_analyses[partition_id]['hypergraph'] = hypergraph_dict
-                # 同时保存可视化数据
-                hypergraph_viz = hypergraph.to_visualization_data()
-                partition_analyses[partition_id]['hypergraph_viz'] = hypergraph_viz
+                partition_analyses[partition_id]['hypergraph'] = hypergraph_result.get('hypergraph') or {}
+                partition_analyses[partition_id]['hypergraph_viz'] = hypergraph_result.get('hypergraph_viz') or {'edges': [], 'statistics': {}}
+                partition_analyses[partition_id]['paths_map'] = copy.deepcopy(partition_paths_map.get(partition_id) or {})
                 
                 # 详细日志：超图统计信息
-                method_nodes = len([n for n in hypergraph.nodes.values() if n.get('type') == 'method'])
-                function_nodes = len([n for n in hypergraph.nodes.values() if n.get('type') == 'function'])
-                total_nodes = len(hypergraph.nodes)
-                total_edges = len(hypergraph_viz.get('edges', []))
-                direct_call_edges = hypergraph_viz.get('statistics', {}).get('direct_call_edges', 0)
+                method_nodes = hypergraph_result.get('method_nodes', 0)
+                function_nodes = hypergraph_result.get('function_nodes', 0)
+                total_nodes = hypergraph_result.get('total_nodes', 0)
+                total_edges = hypergraph_result.get('total_edges', 0)
+                direct_call_edges = hypergraph_result.get('direct_call_edges', 0)
                 
                 print(f"[app.py]     ✓ 分区 {partition_id} 超图统计:", flush=True)
                 print(f"[app.py]       - 总节点数: {total_nodes} (方法节点: {method_nodes}, 功能节点: {function_nodes})", flush=True)
-                print(f"[app.py]       - 超边数: {len(hypergraph.hyperedges)}", flush=True)
+                print(f"[app.py]       - 超边数: {hypergraph_result.get('hyperedge_count', 0)}", flush=True)
                 print(f"[app.py]       - 可视化边数: {total_edges} (其中直接调用边: {direct_call_edges})", flush=True)
                 if total_edges == 0:
                     print(f"[app.py]       ⚠️ 警告：超图中没有边，可能无法显示连线", flush=True)
@@ -3970,6 +4826,23 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
             partition_analyses[partition_id]['fqns'] = partition_fqns
             partition_analyses[partition_id]['inputs'] = partition_inputs
             partition_analyses[partition_id]['outputs'] = partition_outputs
+            partition_analyses[partition_id]['fqmn_info_map'] = _build_fqmn_info_map(partition_fqns)
+
+            inputs_by_method: Dict[str, List[Dict[str, Any]]] = {}
+            for item in partition_inputs:
+                method_sig = item.get('method_signature')
+                if not method_sig:
+                    continue
+                inputs_by_method.setdefault(method_sig, []).append(item)
+            partition_analyses[partition_id]['inputs_by_method'] = inputs_by_method
+
+            outputs_by_method: Dict[str, List[Dict[str, Any]]] = {}
+            for item in partition_outputs:
+                method_sig = item.get('method_signature')
+                if not method_sig:
+                    continue
+                outputs_by_method.setdefault(method_sig, []).append(item)
+            partition_analyses[partition_id]['outputs_by_method'] = outputs_by_method
             
             log_print(f"[app.py]   ✓ 分区 {partition_id} FQMN/IO汇总完成:")
             log_print(f"[app.py]     - FQMN数量: {len(partition_fqns)}")
@@ -4019,159 +4892,6 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
         # 注意：所有演示代码生成逻辑已移动到 demo_partition_manager.py
         # 如需查看详细实现，请参考 demo_partition_manager.py 文件
         
-        # ===== 步骤6.5.5：分析所有分区的符合要求的路径数量 =====
-        # [已注释] 注释掉FNQ检查和分区功能路径检查的详细日志，便于查找入口点/调用图/超图不存在的日志
-        # print(f"\n[app.py] {'='*60}", flush=True)
-        # print(f"[app.py] 📊 分析所有分区的符合要求的路径数量", flush=True)
-        # print(f"[app.py]   要求: 四段内部、长度≥3的路径", flush=True)
-        # print(f"[app.py] {'='*60}\n", flush=True)
-        
-        partition_path_stats = []  # 存储每个分区的路径统计信息
-        
-        for idx, partition in enumerate(partitions, 1):
-            partition_id = partition.get("partition_id", "unknown")
-            partition_name = partition.get("name", "unknown")
-            partition_methods = set(partition.get("methods", []))
-            paths_map = partition_paths_map.get(partition_id, {})
-            
-            # print(f"[app.py]   [{idx}/{len(partitions)}] 分析分区 {partition_id} ({partition_name})...", flush=True)
-            
-            if not paths_map:
-                # print(f"[app.py]     ⚠️  该分区没有路径信息（paths_map为空）", flush=True)
-                # print(f"[app.py]       可能原因:", flush=True)
-                # print(f"[app.py]         - 路径生成失败（见步骤4的日志）", flush=True)
-                # print(f"[app.py]         - 分区内方法数量: {len(partition_methods)}", flush=True)
-                partition_path_stats.append({
-                    'partition_id': partition_id,
-                    'partition_name': partition_name,
-                    'valid_path_count': 0,
-                    'total_path_count': 0,
-                    'reason': '没有路径信息'
-                })
-                continue
-            
-            # 获取FQMN信息映射
-            fqns_list = partition_analyses.get(partition_id, {}).get('fqns', [])
-            fqmn_info_map = _build_fqmn_info_map(fqns_list)
-            
-            # 统计符合要求的路径
-            valid_path_count = 0
-            total_path_count = 0
-            filtered_by_length = 0
-            filtered_by_fqmn_segment = 0
-            filtered_by_fqmn_external = 0
-            filtered_by_fqmn_not_internal = 0
-            filtered_by_no_fqmn = 0
-            internal_segment4_path_count = 0
-            
-            for leaf_node, paths in paths_map.items():
-                for path in paths:
-                    total_path_count += 1
-                    
-                    # 过滤1：路径长度 < 1 (User requested removal of <3 restriction)
-                    if not path or len(path) < 1:
-                        filtered_by_length += 1
-                        continue
-                    
-                    # 过滤2：检查路径中每个节点的FQMN
-                    is_valid_path = True
-                    for method_sig in path:
-                        if method_sig not in fqmn_info_map:
-                            filtered_by_no_fqmn += 1
-                            is_valid_path = False
-                            break
-                        
-                        fqmn_info = fqmn_info_map[method_sig]
-                        origin = fqmn_info.get('origin')
-                        segment_count = fqmn_info.get('segment_count', 0)
-                        
-                        # 过滤二段、三段异常的FQMN (User requested removal of strict filters)
-                        # if segment_count != 4:
-                        #     filtered_by_fqmn_segment += 1
-                        #     is_valid_path = False
-                        #     break
-                        
-                        # 过滤四段外部的FQMN (User requested removal of strict filters)
-                        # if origin == 'external':
-                        #     filtered_by_fqmn_external += 1
-                        #     is_valid_path = False
-                        #     break
-                        
-                        # 只保留四段内部的（origin == 'internal'） (User requested removal of strict filters)
-                        # if origin != 'internal':
-                        #     filtered_by_fqmn_not_internal += 1
-                        #     is_valid_path = False
-                        #     break
-                    
-                    if is_valid_path:
-                        valid_path_count += 1
-            
-            partition_path_stats.append({
-                'partition_id': partition_id,
-                'partition_name': partition_name,
-                'valid_path_count': valid_path_count,
-                'total_path_count': total_path_count,
-                'filtered_by_length': filtered_by_length,
-                'filtered_by_fqmn_segment': filtered_by_fqmn_segment,
-                'filtered_by_fqmn_external': filtered_by_fqmn_external,
-                'filtered_by_fqmn_not_internal': filtered_by_fqmn_not_internal,
-                'filtered_by_no_fqmn': filtered_by_no_fqmn
-            })
-            
-            # print(f"[app.py]   分区 {partition_id} ({partition_name}):", flush=True)
-            # print(f"[app.py]      - 总路径数: {total_path_count}", flush=True)
-            # print(f"[app.py]      - 符合要求的路径数: {valid_path_count}", flush=True)
-            # if total_path_count > 0:
-            #     print(f"[app.py]      - 过滤统计: 长度<3({filtered_by_length}), 段数异常({filtered_by_fqmn_segment}), 四段外部({filtered_by_fqmn_external}), 非内部({filtered_by_fqmn_not_internal}), 无FQMN({filtered_by_no_fqmn})", flush=True)
-            # print(f"[app.py]      {'✅' if 10 <= valid_path_count <= 20 else '⚠️' if valid_path_count > 0 else '❌'}", flush=True)
-        
-        # 按符合要求的路径数量排序
-        partition_path_stats.sort(key=lambda x: x['valid_path_count'], reverse=True)
-        
-        # print(f"\n[app.py] {'='*60}", flush=True)
-        # print(f"[app.py] 📊 分区路径统计汇总（按符合要求的路径数排序）", flush=True)
-        # print(f"[app.py] {'='*60}", flush=True)
-        # for stat in partition_path_stats:
-        #     status = "✅ 符合要求(10-20条)" if 10 <= stat['valid_path_count'] <= 20 else "⚠️ 路径数不在范围内" if stat['valid_path_count'] > 0 else "❌ 无符合要求的路径"
-        #     print(f"[app.py]   {stat['partition_id']} ({stat['partition_name']}): {stat['valid_path_count']} 条符合要求的路径 - {status}", flush=True)
-        
-        # 查找符合要求的分区（10-20条路径）
-        suitable_partitions = [stat for stat in partition_path_stats if 10 <= stat['valid_path_count'] <= 20]
-        
-        # print(f"\n[app.py] {'='*60}", flush=True)
-        # if suitable_partitions:
-        #     print(f"[app.py] ✅ 找到 {len(suitable_partitions)} 个符合要求的分区（10-20条路径）", flush=True)
-        #     for stat in suitable_partitions:
-        #         print(f"[app.py]   - {stat['partition_id']} ({stat['partition_name']}): {stat['valid_path_count']} 条", flush=True)
-        # else:
-        #     print(f"[app.py] ⚠️ 没有找到符合要求的分区（10-20条路径）", flush=True)
-        #     print(f"[app.py]   所有分区的符合要求的路径数:", flush=True)
-        #     for stat in partition_path_stats:
-        #         print(f"[app.py]     - {stat['partition_id']} ({stat['partition_name']}): {stat['valid_path_count']} 条", flush=True)
-        #     print(f"[app.py]   建议: 需要创建一个演示用的功能分区，包含20条符合要求的功能路径", flush=True)
-        # print(f"[app.py] {'='*60}\n", flush=True)
-        
-        _run_partition_llm_semantics_pass(
-            timing=timing,
-            phase_id='partition_llm_semantics_pass_1',
-            update_status_text='步骤6.5.6/7: 对所有分区进行LLM语义分析...',
-            pass_title='步骤6.5.6: 对所有分区进行LLM语义分析',
-            use_limit=USE_LLM_PARTITIONS_LIMIT,
-            enable_partition_llm_semantics=ENABLE_PARTITION_LLM_SEMANTICS,
-            llm_agent_for_partition=llm_agent_for_partition,
-            partitions=partitions,
-            analyzer_report=analyzer.report,
-            project_path=project_path,
-            layer_states=layer_states,
-            degradation_summary=degradation_summary,
-            skipped_or_deferred_work=skipped_or_deferred_work,
-            timeout_degrade_stage='partition_llm_semantics_pass_1',
-            timeout_reason_code='partition_llm_timeout',
-            timeout_user_message_template='分区 {partition_id} 的 LLM 语义分析超时，已跳过并保留基础结果',
-            timeout_deferred_section='partition_llm_semantics',
-            disabled_message='[app.py]   ⚠️ LLM agent不可用或无分区，跳过LLM语义分析',
-        )
-        
         # ===== 步骤6.6：为每个路径生成CFG、DFG和数据流图 =====
         update_analysis_status(progress=85, status='步骤6.6/7: 生成路径级别的CFG/DFG/数据流图...')
         # [已注释] 注释掉路径级别分析的详细日志
@@ -4182,10 +4902,8 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
         llm_agent = None
         if ENABLE_PATH_LLM_ANALYSIS:
             try:
-                api_key = os.getenv('DEEPSEEK_API_KEY')
-                base_url = os.getenv('DEEPSEEK_BASE_URL', 'https://api.deepseek.com/v1')
-                if api_key:
-                    llm_agent = CodeUnderstandingAgent(api_key=api_key, base_url=base_url)
+                llm_agent = _create_code_understanding_agent()
+                if llm_agent:
                     llm_agent.project_path = project_path
                     # print(f"[app.py] ✓ LLM agent已初始化，将用于路径分析", flush=True)
                 else:
@@ -4199,6 +4917,26 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
         # 选择合适的分区进行路径级别分析
         selected_partition = None
         selected_partition_stat = None
+
+        cfg_dfg_llm_explain_max_paths = _get_cfg_dfg_llm_explain_max_paths_per_partition()
+
+        path_llm_task_count = 0
+        if ENABLE_CFG_DFG_LLM_EXPLAIN and llm_agent and cfg_dfg_llm_explain_max_paths > 0:
+            path_llm_task_count += 1
+        if ENABLE_PATH_LLM_ANALYSIS and llm_agent:
+            path_llm_task_count += 2
+        path_llm_worker_count = _get_path_llm_parallel_workers(path_llm_task_count)
+        path_llm_parallel_enabled = (
+            _is_path_llm_task_parallel_enabled()
+            and path_llm_worker_count > 1
+            and path_llm_task_count > 1
+        )
+        path_llm_executor: Optional[ThreadPoolExecutor] = None
+        if path_llm_parallel_enabled:
+            path_llm_executor = ThreadPoolExecutor(
+                max_workers=path_llm_worker_count,
+                thread_name_prefix='fh-path-llm-global',
+            )
         
         # 优先检查是否有演示分区
         demo_partition = None
@@ -4283,83 +5021,7 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
                 print(f"[app.py] ✅ 演示分区检查完成（已在步骤2.7创建）", flush=True)
                 _safe_flush()
             else:
-                # 先快速检查是否有符合要求的分区（真正检查符合要求的路径数量）
-                has_valid_partition = False
-                demo_paths_list = []  # 保存演示路径列表，供后续使用
-                
-                print(f"[app.py]   检查 {len(partitions)} 个分区是否有符合要求的路径...", flush=True)
-            
-                for partition in partitions:
-                    partition_id = partition.get("partition_id", "unknown")
-                    paths_map = partition_paths_map.get(partition_id, {})
-                    
-                    if not paths_map:
-                        print(f"[app.py]     分区 {partition_id}: 无路径信息", flush=True)
-                        continue
-                    
-                    # 快速检查是否有符合要求的路径
-                    total_paths = sum(len(paths) for paths in paths_map.values())
-                    if total_paths == 0:
-                        print(f"[app.py]     分区 {partition_id}: 路径数为0", flush=True)
-                        continue
-                    
-                    # 获取FQMN信息映射
-                    fqns_list = partition_analyses.get(partition_id, {}).get('fqns', [])
-                    if not fqns_list:
-                        print(f"[app.py]     分区 {partition_id}: 无FQMN信息", flush=True)
-                        continue
-                    
-                    fqmn_info_map = {}
-                    for fqn_info in fqns_list:
-                        method_sig = fqn_info.get('method_signature')
-                        if method_sig:
-                            fqmn_info_map[method_sig] = {
-                                'fqn': fqn_info.get('fqn'),
-                                'origin': fqn_info.get('origin'),
-                                'segment_count': fqn_info.get('segment_count', 0)  # 修复：应该是fqn_info而不是fqmn_info
-                            }
-                    
-                    # 真正检查符合要求的路径数量
-                    valid_path_count = 0
-                    for leaf_node, paths in paths_map.items():
-                        for path in paths:
-                            # 过滤1：路径长度 (User disabled: was < 3)
-                            if not path or len(path) < 1:
-                                continue
-                            
-                            # 过滤2：检查路径中每个节点的FQMN (User disabled all strict checks)
-                            is_valid_path = True
-                            # for method_sig in path:
-                            #     if method_sig not in fqmn_info_map:
-                            #         is_valid_path = False
-                            #         break
-                            #     
-                            #     fqmn_info = fqmn_info_map[method_sig]
-                            #     origin = fqmn_info.get('origin')
-                            #     segment_count = fqmn_info.get('segment_count', 0)
-                            #     
-                            #     # 必须满足：四段内部
-                            #     if segment_count != 4 or origin != 'internal':
-                            #         is_valid_path = False
-                            #         break
-                            
-                            if is_valid_path:
-                                valid_path_count += 1
-                    
-                    print(f"[app.py]     分区 {partition_id}: 总路径数={total_paths}, 符合要求的路径数={valid_path_count}", flush=True)
-                    
-                    # 如果有符合要求的路径（至少1条），就认为有有效分区
-                    if valid_path_count > 0:
-                        has_valid_partition = True
-                        print(f"[app.py]   ✅ 找到有符合要求路径的分区: {partition_id} ({valid_path_count}条)", flush=True)
-                        break
-                
-                if not has_valid_partition:
-                    print(f"[app.py]   ❌ 所有分区都没有符合要求的路径（四段内部、长度≥3）", flush=True)
-                    print(f"[app.py] ⚠️ 开始创建演示分区...", flush=True)
-                    _safe_flush()
-                    # 注意：演示分区创建逻辑已移动到 demo_partition_manager.py
-                    # 如需查看详细实现，请参考 demo_partition_manager.py 文件
+                print(f"[app.py]   ℹ️ 常规分区沿用当前已有路径，跳过额外的有效路径预扫描", flush=True)
         
         # ===== 步骤6.5.4.5：为各分区补充生成符合要求的路径（长度≥3） =====
         print(f"\n[app.py] {'='*60}", flush=True)
@@ -4381,22 +5043,11 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
             if not fqns_list:
                 continue
             
-            fqmn_info_map = {}
-            valid_methods = []  # 存储符合要求的方法（四段内部）
+            valid_methods = []
             
             for fqn_info in fqns_list:
                 method_sig = fqn_info.get('method_signature')
                 if method_sig:
-                    origin = fqn_info.get('origin')
-                    segment_count = fqn_info.get('segment_count', 0)
-                    
-                    # 只保留四段内部的方法 (User disabled: allow all methods)
-                    # if segment_count == 4 and origin == 'internal':
-                    fqmn_info_map[method_sig] = {
-                        'fqn': fqn_info.get('fqn'),
-                            'origin': origin,
-                            'segment_count': segment_count
-                        }
                     if method_sig in partition_methods:
                         valid_methods.append(method_sig)
             
@@ -4409,6 +5060,11 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
                 partition_paths_map[partition_id] = {}
             
             paths_map = partition_paths_map[partition_id]
+            seen_path_tuples = {
+                tuple(existing_path)
+                for existing_paths in paths_map.values()
+                for existing_path in existing_paths
+            }
             
             # 生成10条路径（长度3-4）
             generated_paths = []
@@ -4429,17 +5085,9 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
                 
                 # 去重：检查是否已存在相同路径
                 path_tuple = tuple(path)
-                is_duplicate = False
-                for existing_paths in paths_map.values():
-                    for existing_path in existing_paths:
-                        if tuple(existing_path) == path_tuple:
-                            is_duplicate = True
-                            break
-                    if is_duplicate:
-                        break
-                
-                if not is_duplicate:
+                if path_tuple not in seen_path_tuples:
                     generated_paths.append(path)
+                    seen_path_tuples.add(path_tuple)
             
             # 将生成的路径添加到paths_map中
             if generated_paths:
@@ -4554,7 +5202,7 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
             update_status_text='步骤6.5.6/7: 对所有分区进行LLM语义分析...',
             pass_title='步骤6.5.6: 对所有分区进行LLM语义分析',
             use_limit=USE_LLM_PARTITIONS_LIMIT,
-            enable_partition_llm_semantics=ENABLE_PARTITION_LLM_SEMANTICS,
+            enable_partition_llm_semantics=ENABLE_PARTITION_LLM_SEMANTICS and ENABLE_ADVANCED_VISIBLE_LAYER,
             llm_agent_for_partition=llm_agent_for_partition,
             partitions=partitions,
             analyzer_report=analyzer.report,
@@ -4562,12 +5210,14 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
             layer_states=layer_states,
             degradation_summary=degradation_summary,
             skipped_or_deferred_work=skipped_or_deferred_work,
-            timeout_degrade_stage=None,
-            timeout_reason_code=None,
-            timeout_user_message_template=None,
-            timeout_deferred_section=None,
+            timeout_degrade_stage='partition_llm_semantics_pass_2',
+            timeout_reason_code='partition_llm_timeout',
+            timeout_user_message_template='分区 {partition_id} 的 LLM 语义分析超时，已跳过并保留基础结果',
+            timeout_deferred_section='partition_llm_semantics',
             disabled_message='[app.py]   ℹ️ Workset1: 第二轮分区级LLM语义分析已关闭或不可用',
         )
+
+        partitions = deduplicate_and_resolve_name_conflicts(partitions)
         
         # ===== 步骤6.6：为每个路径生成CFG、DFG和数据流图 =====
         update_analysis_status(progress=85, status='步骤6.6/7: 生成路径级别的CFG/DFG/数据流图...')
@@ -4579,10 +5229,8 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
         llm_agent = None
         if ENABLE_PATH_LLM_ANALYSIS:
             try:
-                api_key = os.getenv('DEEPSEEK_API_KEY')
-                base_url = os.getenv('DEEPSEEK_BASE_URL', 'https://api.deepseek.com/v1')
-                if api_key:
-                    llm_agent = CodeUnderstandingAgent(api_key=api_key, base_url=base_url)
+                llm_agent = _create_code_understanding_agent()
+                if llm_agent:
                     llm_agent.project_path = project_path
                     # print(f"[app.py] ✓ LLM agent已初始化，将用于路径分析", flush=True)
                 else:
@@ -4641,8 +5289,8 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
                         # MAX_PATHS_TO_ANALYZE已在函数开头配置，这里直接使用
                         
                         # 获取FQMN信息映射（用于过滤路径）
-                        fqns_list = partition_analyses[partition_id].get('fqns', [])
-                        fqmn_info_map = _build_fqmn_info_map(fqns_list)
+                        partition_analysis = partition_analyses[partition_id]
+                        fqmn_info_map = partition_analysis.get('fqmn_info_map') or _build_fqmn_info_map(partition_analysis.get('fqns', []))
                         
                         timing.start_phase('path_filtering_total', layer='expand_visible', blocking=True)
 
@@ -4701,8 +5349,10 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
                         timing.end_phase('path_filtering_total')
                         
                         # 获取输入输出信息
-                        inputs = partition_analyses[partition_id].get('inputs', [])
-                        outputs = partition_analyses[partition_id].get('outputs', [])
+                        inputs = partition_analysis.get('inputs', [])
+                        outputs = partition_analysis.get('outputs', [])
+                        inputs_by_method = partition_analysis.get('inputs_by_method') or {}
+                        outputs_by_method = partition_analysis.get('outputs_by_method') or {}
                         
                         print(f"\n[app.py] {'='*60}", flush=True)
                         print(f"[app.py] 🛤️  开始路径级别分析", flush=True)
@@ -4724,6 +5374,11 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
                         partition_analysis_started_at = time.perf_counter()
                         timed_out = False
                         timeout_deferred_paths = []
+                        print(
+                            f"[workset5] parallel_stage=path_llm_tasks workers={path_llm_worker_count} "
+                            f"tasks_per_path={path_llm_task_count} mode={'parallel' if path_llm_parallel_enabled else 'serial'}",
+                            flush=True,
+                        )
 
                         # 遍历限制后的路径列表
                         for path_info in selected_paths:
@@ -4809,82 +5464,173 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
                                         dataflow_analyzer=analyzer.data_flow_analyzer if hasattr(analyzer, 'data_flow_analyzer') else None
                                     )
 
-                                # ===== LLM 解释 CFG/DFG（默认开启）=====
+                                # ===== 路径LLM任务（可控并行，保持结果结构不变） =====
                                 cfg_dfg_explain_md = None
-                                if ENABLE_CFG_DFG_LLM_EXPLAIN and llm_agent:
-                                    try:
-                                        explain = llm_agent.explain_path_cfg_dfg(
-                                            path=path,
-                                            cfg_dot=(path_cfg or {}).get('dot', ''),
-                                            dfg_dot=(path_dfg or {}).get('dot', ''),
-                                            analyzer_report=analyzer.report,
-                                            inputs=inputs,
-                                            outputs=outputs
-                                        )
-                                        cfg_dfg_explain_md = (explain or {}).get('markdown')
-                                    except Exception as e:
-                                        log_print(f"[app.py]      ⚠️ LLM解释CFG/DFG失败: {e}")
-                                        cfg_dfg_explain_md = None
-                                
-                                # 生成路径级别的数据流图（使用LLM生成mermaid）
-                                # if current_path_index == 1:
-                                #     print(f"[app.py]      → 生成数据流图(mermaid)...", flush=True)
-                                    path_dataflow_mermaid = generate_path_level_dataflow_mermaid(
-                                        path=path,
-                                        call_graph=call_graph,
-                                        analyzer_report=analyzer.report,
-                                        partition_methods=partition_methods,
-                                        inputs=inputs,
-                                        outputs=outputs,
-                                        llm_agent=llm_agent
-                                    )
-                                
-                                # ===== LLM生成路径名称和描述（已关闭） =====
-                                # TODO: 一键开启 - 将 ENABLE_PATH_LLM_ANALYSIS 改为 True
+                                path_dataflow_mermaid = None
                                 path_name = f"路径 {path_index + 1}"
                                 path_description = f"包含 {len(path)} 个方法的调用链"
-                                if ENABLE_PATH_LLM_ANALYSIS and llm_agent:
-                                    try:
-                                        # if current_path_index == 1:
-                                        #     print(f"[app.py]      → 生成路径名称和描述(LLM)...", flush=True)
-                                        path_info = llm_agent.generate_path_name_and_description(
-                                            path=path,
-                                            analyzer_report=analyzer.report,
-                                            project_path=project_path
-                                        )
-                                        path_name = path_info.get('name', path_name)
-                                        path_description = path_info.get('description', path_description)
-                                    except Exception as e:
-                                        print(f"[app.py]      ⚠️ LLM生成路径名称和描述失败: {e}，使用默认名称", flush=True)
-                                # else:
-                                #     if current_path_index == 1:
-                                #         print(f"[app.py]      ℹ️  跳过LLM生成路径名称和描述（已关闭）", flush=True)
-                                
-                                # ===== 生成路径输入输出图 =====
-                                # 优先使用LLM生成，如果LLM不可用则使用启发式规则
                                 path_io_graph = None
                                 path_call_chain_analysis = None
-                                
-                                if ENABLE_PATH_LLM_ANALYSIS and llm_agent:
-                                    # 使用LLM生成（更准确）
-                                    try:
-                                        path_io_graph = llm_agent.generate_path_input_output_graph(
-                                            path=path,
-                                            analyzer_report=analyzer.report,
-                                            inputs=inputs,
-                                            outputs=outputs
+
+                                use_thread_local_agent = path_llm_parallel_enabled
+                                llm_task_results: Dict[str, Dict[str, Any]] = {}
+                                cfg_dfg_llm_enabled_for_path = (
+                                    ENABLE_CFG_DFG_LLM_EXPLAIN
+                                    and llm_agent
+                                    and current_path_index <= cfg_dfg_llm_explain_max_paths
+                                )
+
+                                def _collect_path_llm_result(task_name: str, task_result: Dict[str, Any]) -> None:
+                                    llm_task_results[task_name] = task_result
+
+                                if path_llm_parallel_enabled and path_llm_executor is not None:
+                                        future_to_task = {}
+
+                                        if cfg_dfg_llm_enabled_for_path:
+                                            future_to_task[
+                                                path_llm_executor.submit(
+                                                    _run_path_cfg_dfg_explain_task,
+                                                    path=path,
+                                                    path_cfg=path_cfg,
+                                                    path_dfg=path_dfg,
+                                                    analyzer_report=analyzer.report,
+                                                    inputs=inputs,
+                                                    outputs=outputs,
+                                                    llm_agent=llm_agent,
+                                                    use_thread_local_agent=use_thread_local_agent,
+                                                )
+                                            ] = 'cfg_dfg_explain'
+
+                                        if ENABLE_PATH_CFG_DFG_IO:
+                                            future_to_task[
+                                                path_llm_executor.submit(
+                                                    _run_path_dataflow_mermaid_task,
+                                                    path=path,
+                                                    call_graph=call_graph,
+                                                    analyzer_report=analyzer.report,
+                                                    partition_methods=partition_methods,
+                                                    inputs=inputs,
+                                                    outputs=outputs,
+                                                    llm_agent=llm_agent,
+                                                    path_dfg=path_dfg,
+                                                    use_thread_local_agent=use_thread_local_agent,
+                                                )
+                                            ] = 'dataflow_mermaid'
+
+                                        if ENABLE_PATH_LLM_ANALYSIS and llm_agent:
+                                            future_to_task[
+                                                path_llm_executor.submit(
+                                                    _run_path_name_description_task,
+                                                    path=path,
+                                                    analyzer_report=analyzer.report,
+                                                    project_path=project_path,
+                                                    llm_agent=llm_agent,
+                                                    use_thread_local_agent=use_thread_local_agent,
+                                                )
+                                            ] = 'path_name_desc'
+                                            future_to_task[
+                                                path_llm_executor.submit(
+                                                    _run_path_io_chain_task,
+                                                    path=path,
+                                                    analyzer_report=analyzer.report,
+                                                    inputs=inputs,
+                                                    outputs=outputs,
+                                                    call_graph=call_graph,
+                                                    llm_agent=llm_agent,
+                                                    use_thread_local_agent=use_thread_local_agent,
+                                                )
+                                            ] = 'path_io_chain'
+
+                                        for future in as_completed(future_to_task):
+                                            task_name = future_to_task[future]
+                                            try:
+                                                _collect_path_llm_result(task_name, future.result())
+                                            except Exception as error:
+                                                _collect_path_llm_result(task_name, {'ok': False, 'error': str(error)})
+                                else:
+                                    if cfg_dfg_llm_enabled_for_path:
+                                        _collect_path_llm_result(
+                                            'cfg_dfg_explain',
+                                            _run_path_cfg_dfg_explain_task(
+                                                path=path,
+                                                path_cfg=path_cfg,
+                                                path_dfg=path_dfg,
+                                                analyzer_report=analyzer.report,
+                                                inputs=inputs,
+                                                outputs=outputs,
+                                                llm_agent=llm_agent,
+                                                use_thread_local_agent=False,
+                                            ),
                                         )
-                                        
-                                        # 分析路径调用链类型
-                                        path_call_chain_analysis = llm_agent.analyze_path_call_chain_type(
-                                            path=path,
-                                            call_graph=call_graph,
-                                            analyzer_report=analyzer.report
+                                    if ENABLE_PATH_CFG_DFG_IO:
+                                        _collect_path_llm_result(
+                                            'dataflow_mermaid',
+                                            _run_path_dataflow_mermaid_task(
+                                                path=path,
+                                                call_graph=call_graph,
+                                                analyzer_report=analyzer.report,
+                                                partition_methods=partition_methods,
+                                                inputs=inputs,
+                                                outputs=outputs,
+                                                llm_agent=llm_agent,
+                                                path_dfg=path_dfg,
+                                                use_thread_local_agent=False,
+                                            ),
                                         )
-                                    except Exception as e:
-                                        log_print(f"[app.py]      ⚠️ LLM生成输入输出图异常: {e}")
-                                        import traceback
-                                        _safe_traceback_print()
+                                    if ENABLE_PATH_LLM_ANALYSIS and llm_agent:
+                                        _collect_path_llm_result(
+                                            'path_name_desc',
+                                            _run_path_name_description_task(
+                                                path=path,
+                                                analyzer_report=analyzer.report,
+                                                project_path=project_path,
+                                                llm_agent=llm_agent,
+                                                use_thread_local_agent=False,
+                                            ),
+                                        )
+                                        _collect_path_llm_result(
+                                            'path_io_chain',
+                                            _run_path_io_chain_task(
+                                                path=path,
+                                                analyzer_report=analyzer.report,
+                                                inputs=inputs,
+                                                outputs=outputs,
+                                                call_graph=call_graph,
+                                                llm_agent=llm_agent,
+                                                use_thread_local_agent=False,
+                                            ),
+                                        )
+
+                                cfg_result = llm_task_results.get('cfg_dfg_explain')
+                                if cfg_result:
+                                    if cfg_result.get('ok'):
+                                        cfg_dfg_explain_md = cfg_result.get('markdown')
+                                    else:
+                                        log_print(f"[app.py]      ⚠️ LLM解释CFG/DFG失败: {cfg_result.get('error')}")
+
+                                dataflow_result = llm_task_results.get('dataflow_mermaid')
+                                if dataflow_result:
+                                    if dataflow_result.get('ok'):
+                                        path_dataflow_mermaid = dataflow_result.get('dataflow_mermaid')
+                                    else:
+                                        log_print(f"[app.py]      ⚠️ 生成数据流图(mermaid)失败: {dataflow_result.get('error')}")
+
+                                name_desc_result = llm_task_results.get('path_name_desc')
+                                if name_desc_result:
+                                    if name_desc_result.get('ok') and isinstance(name_desc_result.get('path_info'), dict):
+                                        path_info = name_desc_result['path_info']
+                                        path_name = path_info.get('name', path_name)
+                                        path_description = path_info.get('description', path_description)
+                                    else:
+                                        print(f"[app.py]      ⚠️ LLM生成路径名称和描述失败: {name_desc_result.get('error')}，使用默认名称", flush=True)
+
+                                io_chain_result = llm_task_results.get('path_io_chain')
+                                if io_chain_result:
+                                    if io_chain_result.get('ok'):
+                                        path_io_graph = io_chain_result.get('io_graph')
+                                        path_call_chain_analysis = io_chain_result.get('call_chain_analysis')
+                                    else:
+                                        log_print(f"[app.py]      ⚠️ LLM生成输入输出图异常: {io_chain_result.get('error')}")
                                         path_io_graph = None
                                         path_call_chain_analysis = None
                                 
@@ -4898,20 +5644,16 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
                                             method_outputs = []
                                             
                                             # 从inputs和outputs中查找该方法的输入输出
-                                            if inputs:
-                                                for inp in inputs:
-                                                    if inp.get('method_signature') == method_sig:
-                                                        method_inputs.append({
-                                                            'name': inp.get('parameter_name', 'unknown'),
-                                                            'type': inp.get('parameter_type', 'unknown')
-                                                        })
-                                            
-                                            if outputs:
-                                                for out in outputs:
-                                                    if out.get('method_signature') == method_sig:
-                                                        method_outputs.append({
-                                                            'type': out.get('return_type', 'unknown')
-                                                        })
+                                            for inp in inputs_by_method.get(method_sig, []):
+                                                method_inputs.append({
+                                                    'name': inp.get('parameter_name', 'unknown'),
+                                                    'type': inp.get('parameter_type', 'unknown')
+                                                })
+
+                                            for out in outputs_by_method.get(method_sig, []):
+                                                method_outputs.append({
+                                                    'type': out.get('return_type', 'unknown')
+                                                })
                                             
                                             # 如果找不到，尝试从analyzer.report中提取
                                             if not method_inputs or not method_outputs:
@@ -5039,7 +5781,7 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
                                 _safe_traceback_print()
                             finally:
                                 timing.end_phase('path_cfg_dfg_io_total')
-                        
+
                         # [已注释] 注释掉详细的日志
                         # 保存路径分析结果（限制后的结果）
                         # print(f"[app.py]   保存path_analyses到partition_analyses[{partition_id}]", flush=True)
@@ -5057,12 +5799,37 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
                         #             print(f"[app.py]     - 示例路径(leaf={pa['leaf_node']}, path_index={pa['path_index']}): io_graph有nodes={len(io_graph.get('nodes', []))}, edges={len(io_graph.get('edges', []))}", flush=True)
                         #             break
                         partition_analyses[partition_id]['path_analyses'] = path_analyses
-                        # 保存过滤后的paths_map（用于前端显示和超图路径着色）
+                        # 保存过滤后的 paths_map（用于前端显示和超图路径着色）
+                        # 修复：当开启单节点过滤且分区只剩单节点路径时，不再把分区路径直接清空为 0。
                         filtered_paths_map = {}
+                        single_node_fallbacks: List[Tuple[str, List[str]]] = []
                         for leaf_node, paths in paths_map.items():
-                            valid_paths = [p for p in paths if (not FILTER_SINGLE_NODE_PATHS or (p and len(p) > 1))]
+                            normalized_paths = [p for p in (paths or []) if isinstance(p, list) and p]
+                            if not normalized_paths:
+                                continue
+
+                            valid_paths = [
+                                p
+                                for p in normalized_paths
+                                if (not FILTER_SINGLE_NODE_PATHS or len(p) > 1)
+                            ]
                             if valid_paths:
                                 filtered_paths_map[leaf_node] = valid_paths
+                                continue
+
+                            if FILTER_SINGLE_NODE_PATHS:
+                                fallback_path = next((p for p in normalized_paths if len(p) == 1), None)
+                                if fallback_path:
+                                    single_node_fallbacks.append((str(leaf_node), list(fallback_path)))
+
+                        # 若过滤后为空且确有单节点路径，保留少量兜底路径，避免 UI/经验库出现“0 路径”假象。
+                        preserved_single_node_fallback_count = 0
+                        if not filtered_paths_map and single_node_fallbacks:
+                            fallback_limit = max(1, min(MAX_PATHS_TO_ANALYZE, 4))
+                            for leaf_node, fallback_path in single_node_fallbacks[:fallback_limit]:
+                                filtered_paths_map.setdefault(leaf_node, []).append(fallback_path)
+                                preserved_single_node_fallback_count += 1
+
                         partition_analyses[partition_id]['paths_map'] = filtered_paths_map
                         # 保存路径限制信息
                         partition_analyses[partition_id]['path_analysis_info'] = {
@@ -5078,6 +5845,8 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
                             'timed_out_stages': ['path_cfg_dfg_io_total'] if timed_out else [],
                             'user_message': '部分路径因超时被延后，可点击或通过 RAG 问题触发后续补跑' if timed_out else None,
                             'selection_policy': 'representative_top_n',
+                            'single_node_fallback_enabled': bool(FILTER_SINGLE_NODE_PATHS),
+                            'preserved_single_node_fallback_count': preserved_single_node_fallback_count,
                             'representative_path_summaries': [
                                 _summarize_path_candidate(item, status='ready', reason='selected_for_analysis')
                                 for item in selected_paths[:MAX_PATHS_TO_ANALYZE]
@@ -5133,6 +5902,48 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
                     )
                     _publish_partial_result(90, 'Workset3: 高级路径分析结果已补齐', include_expand=True, include_advanced=True)
         
+        if path_llm_executor is not None:
+            path_llm_executor.shutdown(wait=True)
+
+        # 回填：为未产出 deep path_analyses 的分区补齐结构路径/轻量路径，避免结果层出现“该分区无功能路径”。
+        try:
+            partition_methods_lookup = {
+                str(item.get('partition_id') or ''): list(item.get('methods') or [])
+                for item in (partitions or [])
+                if isinstance(item, dict) and item.get('partition_id')
+            }
+            backfilled_partitions = 0
+            backfilled_paths = 0
+            for partition_id, analysis in (partition_analyses or {}).items():
+                if not isinstance(analysis, dict):
+                    continue
+                existing_path_analyses = analysis.get('path_analyses') or []
+                if isinstance(existing_path_analyses, list) and existing_path_analyses:
+                    continue
+
+                fallback_paths, fallback_info = _get_partition_path_payload(
+                    analysis,
+                    partition_methods=partition_methods_lookup.get(str(partition_id), []),
+                )
+                if fallback_paths:
+                    analysis['path_analyses'] = fallback_paths
+                    backfilled_partitions += 1
+                    backfilled_paths += len(fallback_paths)
+                if isinstance(fallback_info, dict) and fallback_info:
+                    existing_info = analysis.get('path_analysis_info') or {}
+                    merged_info = dict(existing_info)
+                    merged_info.update({
+                        key: value
+                        for key, value in fallback_info.items()
+                        if key not in merged_info or merged_info.get(key) in (None, '', 0, [])
+                    })
+                    analysis['path_analysis_info'] = merged_info
+
+            if backfilled_partitions > 0:
+                log_print(f"[app.py] ✅ 路径回填完成: {backfilled_partitions} 个分区, 共 {backfilled_paths} 条路径")
+        except Exception as backfill_error:
+            log_print(f"[app.py] ⚠️ 路径回填失败: {backfill_error}")
+
         # print(f"[app.py] ✅ 路径级别分析完成", flush=True)
         _safe_flush()
         
@@ -5399,13 +6210,35 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
             data_accessor.save_community_shadow(normalized_project_path, community_shadow)
         print(f"[app.py] 💾 功能层级分析结果已保存到缓存: {normalized_project_path}", flush=True)
 
+        try:
+            _project_library_storage.save_function_hierarchy(normalized_project_path, result_data)
+            persisted_path_count = 0
+            for partition_payload in (partition_analyses or {}).values():
+                if isinstance(partition_payload, dict):
+                    persisted_path_count += len(partition_payload.get('path_analyses') or [])
+            _project_library_storage.save_project_profile(
+                normalized_project_path,
+                {
+                    'project_name': os.path.basename(normalized_project_path) or 'unknown_project',
+                    'display_name': _build_project_display_name(normalized_project_path, partition_analyses),
+                    'analysis_timestamp': datetime.utcnow().isoformat() + 'Z',
+                    'has_graph': True,
+                    'has_hierarchy': True,
+                    'path_count': persisted_path_count,
+                    'experience_output_root': experience_output_root,
+                },
+            )
+        except Exception as storage_exc:
+            print(f"[app.py] ⚠️ 功能层级持久化失败: {storage_exc}", flush=True)
+
         # Phase 1 / Task 1.2: 自动保存经验路径到 JSON（持久化）
         try:
             from data.experience_path_storage import ExperiencePathStorage
 
             accessor = get_data_accessor()
             experience_paths = accessor.get_experience_paths(normalized_project_path)  # type: ignore[attr-defined]
-            storage = ExperiencePathStorage()
+            storage_dir = os.path.join(experience_output_root, 'experience_paths') if experience_output_root else 'output_analysis/experience_paths'
+            storage = ExperiencePathStorage(storage_dir=storage_dir)
             storage.save_experience_paths(normalized_project_path, experience_paths, partition_analyses)
             if process_shadow:
                 ProcessShadowStorage().save(normalized_project_path, process_shadow)
@@ -5653,6 +6486,8 @@ def api_analyze_function_hierarchy():
     """开始功能层级分析API（使用社区检测）"""
     data = request.json or {}
     project_path = data.get('project_path')
+    experience_output_root: Optional[str] = None
+    raw_experience_output_root = str(data.get('experience_output_root') or '').strip()
     
     # 验证路径：如果路径无效或不存在，使用当前项目目录
     if not project_path or not os.path.isdir(project_path):
@@ -5660,6 +6495,15 @@ def api_analyze_function_hierarchy():
         print(f"[api_analyze_function_hierarchy] ⚠️ 路径无效，使用默认路径: {project_path}", flush=True)
     else:
         print(f"[api_analyze_function_hierarchy] ✅ 使用指定路径: {project_path}", flush=True)
+
+    if raw_experience_output_root:
+        if not os.path.isabs(raw_experience_output_root):
+            return jsonify({'error': 'experience_output_root 必须是绝对路径'}), 400
+        experience_output_root = os.path.normpath(os.path.abspath(raw_experience_output_root))
+        try:
+            os.makedirs(experience_output_root, exist_ok=True)
+        except Exception as exc:
+            return jsonify({'error': f'experience_output_root 创建失败: {exc}'}), 400
     
     # 重置状态
     update_analysis_status(
@@ -5678,11 +6522,42 @@ def api_analyze_function_hierarchy():
     print(f"[api_analyze_function_hierarchy] ♻️ 保留既有缓存，交由 Workset4 命中/失效逻辑判断: {normalized_project_path}", flush=True)
     
     # 后台分析（使用新的analyze_function_hierarchy函数）
-    thread = threading.Thread(target=analyze_function_hierarchy, args=(project_path,))
+    thread = threading.Thread(target=analyze_function_hierarchy, args=(project_path,), kwargs={'experience_output_root': experience_output_root})
     thread.daemon = True
     thread.start()
     
     return jsonify({'message': '功能层级分析已开始'})
+
+
+def api_open_file_system_path():
+    data = request.json or {}
+    raw_path = str(data.get('path') or '').strip()
+    if not raw_path:
+        return jsonify({'error': 'path 不能为空'}), 400
+
+    if not os.path.isabs(raw_path):
+        return jsonify({'error': 'path 必须是绝对路径'}), 400
+
+    normalized_path = os.path.normpath(os.path.abspath(raw_path))
+    if not os.path.exists(normalized_path):
+        return jsonify({'error': f'path 不存在: {normalized_path}'}), 400
+
+    try:
+        action = 'open'
+        if sys.platform.startswith('win'):
+            if os.path.isfile(normalized_path):
+                subprocess.Popen(['explorer', f'/select,{normalized_path}'])
+                action = 'select'
+            else:
+                subprocess.Popen(['explorer', normalized_path])
+                action = 'open'
+        elif sys.platform == 'darwin':
+            subprocess.Popen(['open', normalized_path])
+        else:
+            subprocess.Popen(['xdg-open', normalized_path])
+        return jsonify({'ok': True, 'path': normalized_path, 'action': action})
+    except Exception as exc:
+        return jsonify({'error': f'打开路径失败: {exc}'}), 500
 
 
 def api_result():
@@ -5769,6 +6644,17 @@ def _resolve_function_hierarchy_cached(project_path: str) -> Optional[Dict[str, 
             if matched_cached:
                 return matched_cached
 
+    persisted = _project_library_storage.load_function_hierarchy(project_path)
+    if isinstance(persisted, dict):
+        data_accessor.save_function_hierarchy(project_path, persisted)
+        process_shadow = persisted.get('process_shadow') if isinstance(persisted.get('process_shadow'), dict) else None
+        community_shadow = persisted.get('community_shadow') if isinstance(persisted.get('community_shadow'), dict) else None
+        if process_shadow:
+            data_accessor.save_process_shadow(project_path, process_shadow)
+        if community_shadow:
+            data_accessor.save_community_shadow(project_path, community_shadow)
+        return persisted
+
     return None
 
 
@@ -5807,16 +6693,17 @@ def api_get_function_hierarchy_result():
     project_path = os.path.normpath(project_path)
     
     cached = data_accessor.get_function_hierarchy(project_path)
-    if cached:
-        return jsonify(cached)
+    if not cached:
+        for cached_path in data_accessor.list_function_hierarchy_keys():
+            if os.path.normpath(cached_path) == project_path:
+                cached = data_accessor.get_function_hierarchy(cached_path)
+                break
 
-    for cached_path in data_accessor.list_function_hierarchy_keys():
-        if os.path.normpath(cached_path) == project_path:
-            cached = data_accessor.get_function_hierarchy(cached_path)
-            if cached:
-                return jsonify(cached)
+    if not cached:
+        return jsonify({'error': '未找到保存的分析结果'}), 404
 
-    return jsonify({'error': '未找到保存的分析结果'}), 404
+    best_payload = _select_best_phase6_hierarchy_payload(project_path, cached)
+    return jsonify(best_payload or cached)
 
 
 def _build_phase6_read_contract(project_path: str, hierarchy_cached: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -5827,6 +6714,11 @@ def _build_phase6_read_contract(project_path: str, hierarchy_cached: Optional[Di
     process_shadow = hierarchy_cached.get('process_shadow')
     community_shadow = hierarchy_cached.get('community_shadow')
     layer1_functions = (hierarchy_cached.get('hierarchy') or {}).get('layer1_functions') or []
+    partition_meta_map = {
+        item.get('partition_id'): item
+        for item in layer1_functions
+        if isinstance(item, dict) and item.get('partition_id')
+    }
     partition_methods_map = {
         item.get('partition_id'): item.get('methods', [])
         for item in layer1_functions
@@ -5836,19 +6728,41 @@ def _build_phase6_read_contract(project_path: str, hierarchy_cached: Optional[Di
     partition_analyses = hierarchy_cached.get('partition_analyses') or {}
     partition_summaries = []
     for partition_id, analysis in partition_analyses.items():
-        path_analyses = analysis.get('path_analyses') or []
+        partition_meta = partition_meta_map.get(partition_id) or {}
+        path_analyses, path_info = _get_partition_path_payload(analysis, partition_methods=partition_methods_map.get(partition_id, []))
+        deferred_path_count = int(path_info.get('deferred_count') or 0)
+        total_available_path_count = max(
+            len(path_analyses) + deferred_path_count,
+            int(path_info.get('total_candidates') or 0),
+            len(path_analyses),
+        )
+        rich_path_count = sum(
+            1
+            for item in path_analyses
+            if any([
+                item.get('cfg'),
+                item.get('dfg'),
+                item.get('io_graph'),
+                item.get('cfg_dfg_explain_md'),
+                bool((item.get('semantics') or {}).get('description')),
+            ])
+        )
         has_cfg = any(bool(item.get('cfg')) for item in path_analyses)
         has_dfg = any(bool(item.get('dfg')) for item in path_analyses)
         has_io = any(bool(item.get('io_graph')) for item in path_analyses)
         partition_summaries.append(
             {
                 'partition_id': partition_id,
-                'name': analysis.get('name') or partition_id,
-                'description': analysis.get('description') or '',
+                'name': partition_meta.get('name') or analysis.get('name') or partition_id,
+                'description': partition_meta.get('description') or analysis.get('description') or '',
                 'methods': partition_methods_map.get(partition_id, []),
-                'path_count': len(path_analyses),
-                'deferred_path_count': int(((analysis.get('path_analysis_info') or {}).get('deferred_count') or 0)),
-                'selection_policy': (analysis.get('path_analysis_info') or {}).get('selection_policy'),
+                'path_count': total_available_path_count,
+                'selected_path_count': len(path_analyses),
+                'rich_path_count': rich_path_count,
+                'available_path_count': total_available_path_count,
+                'deferred_path_count': deferred_path_count,
+                'selection_policy': path_info.get('selection_policy'),
+                'analysis_status': path_info.get('completion_status') or ('complete' if path_analyses else 'fallback'),
                 'entry_point_count': len((analysis.get('entry_points') or [])),
                 'shadow_entry_point_count': len(((analysis.get('entry_points_shadow') or {}).get('effective_entries') or [])),
                 'process_count': len([
@@ -5898,12 +6812,341 @@ def _build_phase6_read_contract(project_path: str, hierarchy_cached: Optional[Di
     }
 
 
+def _measure_hierarchy_path_richness(payload: Optional[Dict[str, Any]]) -> int:
+    if not isinstance(payload, dict):
+        return -1
+    partition_analyses = payload.get('partition_analyses') or {}
+    richness = 0
+    for analysis in partition_analyses.values():
+        if not isinstance(analysis, dict):
+            continue
+        richness += len(analysis.get('path_analyses') or [])
+        richness += sum(len(paths or []) for paths in (analysis.get('paths_map') or {}).values())
+        path_info = analysis.get('path_analysis_info') or {}
+        richness += int(path_info.get('selected_count') or 0)
+        richness += int(path_info.get('deferred_count') or 0)
+    return richness
+
+
+def _extract_lightweight_partition_paths(analysis: Dict[str, Any], partition_methods: Optional[List[str]] = None, max_paths: int = 4) -> List[Dict[str, Any]]:
+    call_graph = analysis.get('call_graph') or {}
+    edges = call_graph.get('edges') or []
+    methods = {
+        str(node.get('id') or node.get('label') or '').strip()
+        for node in (call_graph.get('nodes') or [])
+        if isinstance(node, dict) and str(node.get('id') or node.get('label') or '').strip()
+    }
+    methods.update(str(item).strip() for item in (partition_methods or []) if str(item).strip())
+    adjacency: Dict[str, List[str]] = {}
+    for edge in edges:
+        if not isinstance(edge, dict):
+            continue
+        source = str(edge.get('source') or edge.get('sourceId') or edge.get('caller') or '').strip()
+        target = str(edge.get('target') or edge.get('targetId') or edge.get('callee') or '').strip()
+        if not source or not target:
+            continue
+        adjacency.setdefault(source, []).append(target)
+        methods.add(source)
+        methods.add(target)
+
+    entry_points = analysis.get('entry_points') or []
+    start_methods = [
+        str(item.get('method_signature') or '').strip()
+        for item in entry_points
+        if isinstance(item, dict) and str(item.get('method_signature') or '').strip()
+    ]
+    if not start_methods:
+        start_methods = sorted(methods)[:max_paths]
+
+    results: List[Dict[str, Any]] = []
+    seen_paths: Set[Tuple[str, ...]] = set()
+    for start_method in start_methods:
+        if len(results) >= max_paths:
+            break
+        path = [start_method]
+        next_methods = adjacency.get(start_method, [])
+        if next_methods:
+            path.append(next_methods[0])
+            tail_methods = adjacency.get(next_methods[0], [])
+            if tail_methods:
+                path.append(tail_methods[0])
+        normalized_path = tuple(item for item in path if item)
+        if not normalized_path or normalized_path in seen_paths:
+            continue
+        seen_paths.add(normalized_path)
+        results.append({
+            'leaf_node': normalized_path[-1],
+            'path_index': len(results),
+            'path': list(normalized_path),
+            'path_name': f'轻量路径 {len(results) + 1}',
+            'path_description': '基于入口点与分区调用图生成的轻量功能路径',
+            'worthiness_score': round(max(0.35, 0.65 - len(results) * 0.05), 2),
+            'worthiness_reasons': ['当前项目尚未产出完整高级路径分析，先展示轻量路径骨架'],
+            'cfg': None,
+            'dfg': None,
+            'io_graph': None,
+            'highlight_config': {
+                'call_chain_type': 'lightweight_fallback',
+                'main_method': normalized_path[0],
+                'intermediate_methods': list(normalized_path[1:-1]),
+                'path_methods': list(normalized_path),
+                'explanation': '该路径来自入口点与分区调用图的轻量推断，可作为后续深分析锚点。',
+            },
+        })
+    return results
+
+
+def _extract_structural_partition_paths(analysis: Dict[str, Any], max_paths: int = 4) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    paths_map = analysis.get('paths_map') or {}
+    if not isinstance(paths_map, dict) or not paths_map:
+        return [], {}
+
+    filter_single_node_paths = os.getenv('FH_FILTER_SINGLE_NODE_PATHS', '1') != '0'
+    fqmn_info_map = _build_fqmn_info_map(analysis.get('fqns', []))
+    valid_candidates: List[Dict[str, Any]] = []
+    fallback_candidates: List[Dict[str, Any]] = []
+
+    for leaf_node, paths in paths_map.items():
+        for path_index, path in enumerate(paths or []):
+            normalized_path = [str(item).strip() for item in (path or []) if str(item).strip()]
+            if not normalized_path:
+                continue
+
+            evaluation = _evaluate_path_candidate(normalized_path, fqmn_info_map, filter_single_node=filter_single_node_paths)
+            candidate = {
+                'leaf_node': str(leaf_node or normalized_path[-1]),
+                'path_index': path_index,
+                'path': normalized_path,
+                'worthiness_score': evaluation.get('score', 0.0),
+                'worthiness_reasons': [
+                    f"internal_segment4={evaluation.get('internal_segment4_count', 0)}",
+                    f"fqmn_known={evaluation.get('fqmn_known_count', 0)}",
+                    f"path_length={len(normalized_path)}",
+                ],
+                'internal_segment4_count': evaluation.get('internal_segment4_count', 0),
+                'invalid_reasons': evaluation.get('invalid_reasons', []),
+            }
+            if evaluation.get('is_valid'):
+                valid_candidates.append(candidate)
+            else:
+                fallback_candidates.append({
+                    **candidate,
+                    'worthiness_score': round(max(0.25, float(len(normalized_path)) * 0.2), 6),
+                    'worthiness_reasons': [
+                        '该路径来自后端保存的结构路径，但尚未通过深分析筛选。',
+                        *(candidate.get('invalid_reasons') or []),
+                    ],
+                })
+
+    selected_candidates: List[Dict[str, Any]] = []
+    deferred_candidates: List[Dict[str, Any]] = []
+    selection_policy = 'structural_paths_map'
+    total_candidates = len(valid_candidates)
+
+    if valid_candidates:
+        selected_candidates, deferred_candidates = _select_representative_paths(valid_candidates, max_paths)
+    elif fallback_candidates:
+        selection_policy = 'structural_paths_map_relaxed'
+        total_candidates = len(fallback_candidates)
+        selected_candidates, deferred_candidates = _select_representative_paths(fallback_candidates, max_paths)
+    else:
+        return [], {}
+
+    results: List[Dict[str, Any]] = []
+    for display_index, candidate in enumerate(selected_candidates, start=1):
+        normalized_path = list(candidate.get('path') or [])
+        results.append({
+            'path_id': f"structural_{candidate.get('leaf_node')}_{candidate.get('path_index', 0)}",
+            'leaf_node': candidate.get('leaf_node') or (normalized_path[-1] if normalized_path else ''),
+            'function_chain': normalized_path,
+            'path_index': candidate.get('path_index', display_index - 1),
+            'path': normalized_path,
+            'worthiness_score': candidate.get('worthiness_score', 0.0),
+            'worthiness_reasons': candidate.get('worthiness_reasons', []),
+            'deep_analysis_status': 'available_on_demand',
+            'path_name': f'结构路径 {display_index}',
+            'path_description': '基于后端结构路径缓存恢复的功能调用链，可继续按需触发深分析。',
+            'cfg': None,
+            'dfg': None,
+            'io_graph': None,
+            'highlight_config': {
+                'call_chain_type': 'structural_fallback',
+                'main_method': normalized_path[0] if normalized_path else '',
+                'intermediate_methods': list(normalized_path[1:-1]),
+                'path_methods': normalized_path,
+                'explanation': '该路径直接来自后端保存的结构路径缓存，尚未补齐 CFG/DFG/IO 深分析。',
+            },
+        })
+
+    path_info = {
+        'selection_policy': selection_policy,
+        'selected_count': len(results),
+        'deferred_count': len(deferred_candidates),
+        'total_candidates': total_candidates,
+        'user_message': '当前展示的是后端结构路径缓存，可继续按需补跑深分析。',
+        'representative_path_summaries': [
+            _summarize_path_candidate(item, status='available_on_demand', reason='selected_from_structural_paths_map')
+            for item in selected_candidates[:max_paths]
+        ],
+        'deferred_path_summaries': [
+            _summarize_path_candidate(item, status='available_on_demand', reason='not_selected_from_structural_paths_map')
+            for item in deferred_candidates[:20]
+        ],
+    }
+    return results, path_info
+
+
+def _get_partition_path_payload(analysis: Dict[str, Any], partition_methods: Optional[List[str]] = None) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    path_analyses = analysis.get('path_analyses') or []
+    path_info = analysis.get('path_analysis_info') or {}
+    if path_analyses:
+        merged_info = dict(path_info)
+        merged_info.setdefault('selection_policy', 'deep_analysis')
+        merged_info.setdefault('selected_count', len(path_analyses))
+        merged_info.setdefault('deferred_count', 0)
+        merged_info.setdefault(
+            'total_candidates',
+            max(
+                len(path_analyses) + int(merged_info.get('deferred_count') or 0),
+                int(merged_info.get('original_total') or 0),
+                len(path_analyses),
+            ),
+        )
+        merged_info.setdefault('completion_status', 'complete')
+        return path_analyses, merged_info
+    structural_paths, structural_info = _extract_structural_partition_paths(analysis)
+    if structural_paths:
+        merged_info = dict(path_info)
+        merged_info.update(structural_info)
+        return structural_paths, merged_info
+    lightweight_paths = _extract_lightweight_partition_paths(analysis, partition_methods=partition_methods)
+    if lightweight_paths:
+        return lightweight_paths, {
+            'selection_policy': 'lightweight_fallback',
+            'selected_count': len(lightweight_paths),
+            'deferred_count': 0,
+            'total_candidates': len(lightweight_paths),
+        }
+    return [], path_info
+
+
+def _build_entrypoint_enriched_path_payload(
+    project_path: str,
+    partition_id: str,
+    analysis: Dict[str, Any],
+    *,
+    max_paths: int = 4,
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    report = _resolve_report_cached(project_path, allow_global_fallback=False)
+    if not report:
+        return [], {}
+
+    entry_points = analysis.get('entry_points') or []
+    call_graph = analysis.get('call_graph') or {}
+    edges = call_graph.get('edges') or []
+    adjacency: Dict[str, List[str]] = {}
+    for edge in edges:
+        if not isinstance(edge, dict):
+            continue
+        source = str(edge.get('source') or edge.get('sourceId') or edge.get('caller') or '').strip()
+        target = str(edge.get('target') or edge.get('targetId') or edge.get('callee') or '').strip()
+        if not source or not target:
+            continue
+        adjacency.setdefault(source, []).append(target)
+
+    enriched: List[Dict[str, Any]] = []
+    for index, entry in enumerate(entry_points[:max_paths]):
+        if not isinstance(entry, dict):
+            continue
+        method_sig = str(entry.get('method_signature') or '').strip()
+        if not method_sig:
+            continue
+        path = [method_sig]
+        direct_callees = adjacency.get(method_sig) or []
+        if direct_callees:
+            path.append(direct_callees[0])
+
+        resolved = _resolve_method_or_function_from_report(report, method_sig)
+        cfg_payload = _generate_cfg_dfg_io(resolved['info']) if resolved else {
+            'cfg': None,
+            'dfg': None,
+            'io': {'inputs': [], 'outputs': [], 'global_reads': [], 'global_writes': []},
+        }
+
+        enriched.append({
+            'path_id': f'{partition_id}_entry_{index}',
+            'leaf_node': path[-1],
+            'function_chain': path,
+            'path_index': index,
+            'path': path,
+            'worthiness_score': round(max(0.5, 0.82 - index * 0.07), 2),
+            'worthiness_reasons': ['基于入口点与真实方法CFG/DFG生成的按需增强路径'],
+            'deep_analysis_status': 'entrypoint_enriched',
+            'path_name': f'入口增强路径 {index + 1}',
+            'path_description': '基于入口点即时补齐的功能路径详情，适用于原始深路径不足的分区。',
+            'cfg': cfg_payload.get('cfg'),
+            'dfg': cfg_payload.get('dfg'),
+            'io_graph': None,
+            'highlight_config': {
+                'call_chain_type': 'entry_point_enriched',
+                'main_method': method_sig,
+                'intermediate_methods': path[1:-1],
+                'path_methods': path,
+                'explanation': '该路径来自入口点补强，并附带真实方法级 CFG/DFG。',
+            },
+        })
+
+    if not enriched:
+        return [], {}
+
+    return enriched, {
+        'selection_policy': 'entry_point_enriched_fallback',
+        'selected_count': len(enriched),
+        'deferred_count': 0,
+        'total_candidates': len(enriched),
+        'completion_status': 'partial_enriched',
+    }
+
+
+def _select_best_phase6_hierarchy_payload(project_path: str, hierarchy_cached: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    normalized_project_path = os.path.normpath(project_path)
+    layer_cache_payload = data_accessor.get_function_hierarchy_layer_cache(normalized_project_path) or {}
+    layers = layer_cache_payload.get('layers') or {}
+    advanced_snapshot = ((layers.get('advanced_visible') or {}).get('snapshot'))
+    cached_final_result = layer_cache_payload.get('final_result')
+    candidates = [hierarchy_cached, cached_final_result, advanced_snapshot]
+    best_payload = None
+    best_richness = -1
+    for candidate in candidates:
+        richness = _measure_hierarchy_path_richness(candidate)
+        if richness > best_richness:
+            best_payload = candidate
+            best_richness = richness
+    return best_payload if isinstance(best_payload, dict) else hierarchy_cached
+
+
 def api_get_phase6_read_contract():
     """Stage1: 统一前端读契约，聚合 Phase2~5 的可消费数据面。"""
     project_path = request.args.get('project_path') or str(PROJECT_ROOT)
     normalized_project_path = os.path.normpath(project_path)
 
     hierarchy_cached = _resolve_function_hierarchy_cached(normalized_project_path)
+    hierarchy_cached = _select_best_phase6_hierarchy_payload(normalized_project_path, hierarchy_cached)
+
+    if hierarchy_cached and _measure_hierarchy_path_richness(hierarchy_cached) <= 0:
+        try:
+            data_accessor.delete_function_hierarchy(normalized_project_path)
+            data_accessor.delete_function_hierarchy_layer_cache(normalized_project_path)
+            analyze_function_hierarchy(normalized_project_path)
+            hierarchy_cached = _resolve_function_hierarchy_cached(normalized_project_path)
+            hierarchy_cached = _select_best_phase6_hierarchy_payload(normalized_project_path, hierarchy_cached)
+        except Exception as exc:
+            print(f"[api_get_phase6_read_contract] ⚠️ 稀疏层级结果补跑失败: {exc}", flush=True)
+
+    if not hierarchy_cached:
+        current_data = analysis_status.get('data')
+        if isinstance(current_data, dict) and current_data.get('partition_analyses'):
+            hierarchy_cached = current_data
 
     if not hierarchy_cached:
         return jsonify({'error': '未找到可用于 Stage1 读契约的功能层级结果'}), 404
@@ -5915,6 +7158,26 @@ def api_get_phase6_read_contract():
     return jsonify(contract_payload)
 
 
+def _resolve_process_shadow_payload(normalized_project_path: str) -> Optional[Dict[str, Any]]:
+    cached = data_accessor.get_process_shadow(normalized_project_path)
+    if isinstance(cached, dict):
+        return cached
+
+    hierarchy_cached = data_accessor.get_function_hierarchy(normalized_project_path)
+    if isinstance(hierarchy_cached, dict) and isinstance(hierarchy_cached.get('process_shadow'), dict):
+        return hierarchy_cached['process_shadow']
+
+    storage_payload = ProcessShadowStorage().load(normalized_project_path)
+    if isinstance(storage_payload, dict):
+        return storage_payload
+
+    current_data = analysis_status.get('data')
+    if isinstance(current_data, dict) and isinstance(current_data.get('process_shadow'), dict):
+        return current_data['process_shadow']
+
+    return None
+
+
 def api_get_process_shadow():
     """获取 Phase3 的影子 Process 结果。"""
     project_path = request.args.get('project_path')
@@ -5922,24 +7185,54 @@ def api_get_process_shadow():
         project_path = str(PROJECT_ROOT)
 
     normalized_project_path = os.path.normpath(project_path)
+    payload = _resolve_process_shadow_payload(normalized_project_path)
+    if payload is None:
+        return jsonify({'error': '未找到 Phase3 影子结果'}), 404
+    return jsonify(payload)
 
-    cached = data_accessor.get_process_shadow(normalized_project_path)
-    if cached:
-        return jsonify(cached)
 
-    hierarchy_cached = data_accessor.get_function_hierarchy(normalized_project_path)
-    if hierarchy_cached and hierarchy_cached.get('process_shadow'):
-        return jsonify(hierarchy_cached['process_shadow'])
+def api_get_processes_compat():
+    """兼容旧版前端 `/api/processes`：返回 process_shadow 中的流程列表。"""
+    project_path = request.args.get('project_path') or request.args.get('repo') or str(PROJECT_ROOT)
+    normalized_project_path = os.path.normpath(project_path)
+    payload = _resolve_process_shadow_payload(normalized_project_path)
+    if payload is None:
+        return jsonify({'error': '未找到 Phase3 影子结果'}), 404
 
-    storage_payload = ProcessShadowStorage().load(normalized_project_path)
-    if storage_payload:
-        return jsonify(storage_payload)
+    processes_raw = payload.get('processes')
+    processes: List[Dict[str, Any]] = [item for item in processes_raw if isinstance(item, dict)] if isinstance(processes_raw, list) else []
+    return jsonify({
+        'processes': processes,
+        'count': len(processes),
+        'project_path': normalized_project_path,
+    })
 
-    current_data = analysis_status.get('data')
-    if current_data and current_data.get('process_shadow'):
-        return jsonify(current_data['process_shadow'])
 
-    return jsonify({'error': '未找到 Phase3 影子结果'}), 404
+def api_get_process_compat():
+    """兼容旧版前端 `/api/process`：按 name/id 返回单个流程详情。"""
+    project_path = request.args.get('project_path') or request.args.get('repo') or str(PROJECT_ROOT)
+    process_name = str(request.args.get('name') or request.args.get('id') or '').strip()
+    if not process_name:
+        return jsonify({'error': '缺少 name 参数'}), 400
+
+    normalized_project_path = os.path.normpath(project_path)
+    payload = _resolve_process_shadow_payload(normalized_project_path)
+    if payload is None:
+        return jsonify({'error': '未找到 Phase3 影子结果'}), 404
+
+    processes_raw = payload.get('processes')
+    processes: List[Dict[str, Any]] = [item for item in processes_raw if isinstance(item, dict)] if isinstance(processes_raw, list) else []
+    normalized_name = process_name.lower()
+    for process in processes:
+        candidates = [
+            str(process.get('process_id') or '').strip(),
+            str(process.get('entry') or '').strip(),
+            str(process.get('entry_node_id') or '').strip(),
+        ]
+        if any(candidate and candidate.lower() == normalized_name for candidate in candidates):
+            return jsonify(process)
+
+    return jsonify({'error': f'未找到流程: {process_name}'}), 404
 
 
 def api_get_entry_points_shadow():
@@ -6126,7 +7419,8 @@ def api_partition_analysis(partition_id):
         data = None
         
         # 1. 优先从功能层级缓存获取（通过DataAccessor）
-        data = data_accessor.get_function_hierarchy(project_path)
+        hierarchy_cached = _resolve_function_hierarchy_cached(project_path)
+        data = _select_best_phase6_hierarchy_payload(project_path, hierarchy_cached)
         if data:
             print(f"[api_partition_analysis] ✅ 从功能层级缓存获取数据: {project_path}", flush=True)
         
@@ -6151,7 +7445,21 @@ def api_partition_analysis(partition_id):
         partition_data = partition_analyses[partition_id]
         
         # 检查io_graph数据是否存在
-        path_analyses = partition_data.get('path_analyses', [])
+        hierarchy_functions = data.get('hierarchy', {}).get('layer1_functions', [])
+        partition_meta = next((item for item in hierarchy_functions if item.get('partition_id') == partition_id), {}) if isinstance(hierarchy_functions, list) else {}
+        path_analyses, path_info = _get_partition_path_payload(partition_data, partition_methods=partition_meta.get('methods', []))
+        if (path_info.get('selection_policy') == 'lightweight_fallback'):
+            enriched_paths, enriched_info = _build_entrypoint_enriched_path_payload(
+                project_path,
+                partition_id,
+                partition_data,
+            )
+            if enriched_paths:
+                path_analyses = enriched_paths
+                path_info = enriched_info
+        partition_data = dict(partition_data)
+        partition_data['path_analyses'] = path_analyses
+        partition_data['path_analysis_info'] = path_info
         io_graph_count = sum(1 for pa in path_analyses if pa.get('io_graph'))
         print(f"[api_partition_analysis] 分区 {partition_id} 返回数据检查:", flush=True)
         print(f"[api_partition_analysis]   - path_analyses数量: {len(path_analyses)}", flush=True)
@@ -6346,19 +7654,77 @@ def api_search_hybrid_shadow():
         return jsonify({'error': str(exc)}), 500
 
 
-def _resolve_graph_data_for_project(project_path: str) -> Optional[Dict[str, Any]]:
+def _resolve_graph_data_for_project(project_path: str, allow_global_fallback: bool = True) -> Optional[Dict[str, Any]]:
+    project_path = _normalize_project_lookup_path(project_path)
     graph_data = _resolve_main_analysis_cached(project_path)
     if graph_data:
         return graph_data
+    if not allow_global_fallback:
+        return None
     current_data = analysis_status.get('data')
     if current_data and current_data.get('nodes') and current_data.get('edges'):
         return current_data
     return None
 
 
+
+def _list_project_library_entries() -> List[Dict[str, Any]]:
+    entries: Dict[str, Dict[str, Any]] = {}
+    try:
+        for item in _project_library_storage.list_projects():
+            if not isinstance(item, dict):
+                continue
+            project_path = _normalize_project_lookup_path(item.get('project_path'))
+            if not project_path:
+                continue
+            normalized = dict(item)
+            normalized['project_path'] = project_path
+            entries[project_path] = normalized
+    except Exception:
+        pass
+
+    try:
+        from data.experience_path_storage import ExperiencePathStorage
+
+        storage = ExperiencePathStorage()
+        for item in storage.list_all_projects() or []:
+            if not isinstance(item, dict):
+                continue
+            project_path = _normalize_project_lookup_path(item.get('project_path'))
+            if not project_path:
+                continue
+            current = entries.get(project_path, {})
+            if not current:
+                current = {
+                    'project_path': project_path,
+                    'project_name': str(item.get('project_name') or os.path.basename(project_path) or 'unknown_project'),
+                    'display_name': '',
+                    'analysis_timestamp': str(item.get('analysis_timestamp') or ''),
+                    'updated_at': str(item.get('analysis_timestamp') or ''),
+                    'has_graph': False,
+                    'has_hierarchy': True,
+                    'path_count': int(item.get('total_paths') or 0),
+                }
+            entries[project_path] = current
+    except Exception:
+        pass
+
+    result = list(entries.values())
+    result.sort(key=lambda payload: str(payload.get('updated_at') or payload.get('analysis_timestamp') or ''), reverse=True)
+    return result
+
+
 def _infer_repo_project_path(repo_name: Optional[str] = None) -> Optional[str]:
-    cached_keys = data_accessor.list_main_analysis_keys()
-    if not cached_keys:
+    cached_keys = [_normalize_project_lookup_path(path) for path in data_accessor.list_main_analysis_keys()]
+    persisted_entries = _list_project_library_entries()
+    persisted_paths = [_normalize_project_lookup_path(item.get('project_path')) for item in persisted_entries if item.get('project_path')]
+
+    candidate_paths: List[str] = []
+    for item in cached_keys + persisted_paths:
+        if item and item not in candidate_paths:
+            candidate_paths.append(item)
+
+    if not candidate_paths:
         current_path = analysis_status.get('project_path')
         if current_path:
             return os.path.normpath(current_path)
@@ -6368,19 +7734,25 @@ def _infer_repo_project_path(repo_name: Optional[str] = None) -> Optional[str]:
         current_path = analysis_status.get('project_path')
         if current_path:
             normalized_current = os.path.normpath(current_path)
-            for cached_path in cached_keys:
-                if os.path.normpath(cached_path) == normalized_current:
-                    return cached_path
-        return cached_keys[0]
+            for candidate in candidate_paths:
+                if os.path.normpath(candidate) == normalized_current:
+                    return candidate
+        return candidate_paths[0]
 
     normalized_repo = os.path.normpath(str(repo_name))
     repo_basename = os.path.basename(normalized_repo).lower()
-    for cached_path in cached_keys:
-        normalized_cached = os.path.normpath(cached_path)
-        if normalized_cached == normalized_repo:
-            return cached_path
-        if os.path.basename(normalized_cached).lower() == repo_basename:
-            return cached_path
+    for candidate in candidate_paths:
+        normalized_candidate = os.path.normpath(candidate)
+        if normalized_candidate == normalized_repo:
+            return candidate
+        if os.path.basename(normalized_candidate).lower() == repo_basename:
+            return candidate
+
+    for item in persisted_entries:
+        display_name = str(item.get('display_name') or '').lower()
+        project_name = str(item.get('project_name') or '').lower()
+        if repo_basename and (repo_basename in display_name or repo_basename in project_name):
+            return _normalize_project_lookup_path(item.get('project_path'))
     return None
 
 
@@ -6449,6 +7821,25 @@ def _convert_graph_data_to_gn_contract(project_path: str, graph_data: Dict[str, 
     converted_nodes: List[Dict[str, Any]] = []
     converted_relationships: List[Dict[str, Any]] = []
 
+    process_step_count_by_id: Dict[str, int] = {}
+    process_step_max_by_id: Dict[str, int] = {}
+    for edge in graph_data.get('edges', []) or []:
+        data = edge.get('data', {})
+        source_id = str(data.get('source') or '')
+        target_id = str(data.get('target') or '')
+        if not source_id or not target_id:
+            continue
+        rel_type = _map_gn_relationship_type(data.get('relation') or data.get('type'))
+        if rel_type != 'STEP_IN_PROCESS':
+            continue
+        process_step_count_by_id[target_id] = int(process_step_count_by_id.get(target_id) or 0) + 1
+        step_raw = data.get('step')
+        if isinstance(step_raw, (int, float)):
+            step_value = int(step_raw)
+            previous_max = int(process_step_max_by_id.get(target_id) or 0)
+            if step_value > previous_max:
+                process_step_max_by_id[target_id] = step_value
+
     for node in graph_data.get('nodes', []) or []:
         data = node.get('data', {})
         node_id = str(data.get('id') or data.get('name') or data.get('label') or '')
@@ -6474,6 +7865,41 @@ def _convert_graph_data_to_gn_contract(project_path: str, graph_data: Dict[str, 
             properties['language'] = _guess_language(resolved_file_path)
         if label == 'File' and resolved_file_path:
             properties['content'] = _read_file_text_for_graph(project_path, resolved_file_path)
+
+        if label == 'Community':
+            heuristic_label = str(data.get('heuristicLabel') or data.get('heuristic_label') or '').strip()
+            if heuristic_label:
+                properties['heuristicLabel'] = heuristic_label
+            symbol_count_raw = data.get('symbolCount') if data.get('symbolCount') is not None else data.get('symbol_count')
+            if isinstance(symbol_count_raw, (int, float)):
+                properties['symbolCount'] = int(symbol_count_raw)
+
+        if label == 'Process':
+            process_type = str(data.get('processType') or data.get('process_type') or '').strip()
+            if process_type:
+                properties['processType'] = process_type
+
+            communities_raw = data.get('communities')
+            if isinstance(communities_raw, list):
+                communities = [str(item).strip() for item in communities_raw if str(item).strip()]
+                if communities:
+                    properties['communities'] = communities
+
+            step_count_raw = data.get('stepCount') if data.get('stepCount') is not None else data.get('step_count')
+            computed_step_count = 0
+            if isinstance(step_count_raw, (int, float)):
+                computed_step_count = int(step_count_raw)
+            else:
+                computed_step_count = int(process_step_max_by_id.get(node_id) or process_step_count_by_id.get(node_id) or 0)
+            properties['stepCount'] = computed_step_count
+
+            entry_point_id = str(data.get('entryPointId') or data.get('entry_point_id') or data.get('entry_point') or '').strip()
+            if entry_point_id:
+                properties['entryPointId'] = entry_point_id
+
+            terminal_id = str(data.get('terminalId') or data.get('terminal_id') or '').strip()
+            if terminal_id:
+                properties['terminalId'] = terminal_id
 
         converted_nodes.append({
             'id': node_id,
@@ -6542,24 +7968,59 @@ def _build_repo_stats(project_path: str, graph_data: Dict[str, Any]) -> Dict[str
     }
 
 
+
+def _build_project_display_name(project_path: str, partition_analyses: Optional[Dict[str, Any]] = None) -> str:
+    base_name = os.path.basename(project_path) or '项目'
+    payload = partition_analyses if isinstance(partition_analyses, dict) else {}
+    if not payload:
+        hierarchy_cached = _resolve_function_hierarchy_cached(project_path)
+        payload = (hierarchy_cached or {}).get('partition_analyses') if isinstance(hierarchy_cached, dict) else {}
+        if not isinstance(payload, dict):
+            payload = {}
+
+    labels: List[str] = []
+    for partition in payload.values():
+        if not isinstance(partition, dict):
+            continue
+        name = str(partition.get('partition_name') or partition.get('name') or '').strip()
+        if name and name not in labels:
+            labels.append(name)
+        if len(labels) >= 2:
+            break
+
+    llm_name = ' / '.join(labels) if labels else base_name
+    return f"{llm_name} · {project_path}"
+
+
 def _build_repo_summary_payload(project_path: str) -> Optional[Dict[str, Any]]:
     graph_data = _resolve_graph_data_for_project(project_path)
     if not graph_data:
         return None
 
     metadata = graph_data.get('metadata', {}) or {}
-    repo_name = os.path.basename(project_path) or 'current_project'
-    indexed_at = str(metadata.get('analysis_timestamp') or datetime.utcnow().isoformat() + 'Z')
+    profile = _project_library_storage.load_project_profile(project_path) or {}
+    repo_name = str(profile.get('project_name') or os.path.basename(project_path) or 'current_project')
+    indexed_at = str(metadata.get('analysis_timestamp') or profile.get('analysis_timestamp') or datetime.utcnow().isoformat() + 'Z')
     last_commit = str(metadata.get('git_commit') or metadata.get('commit_hash') or '')
     stats = _build_repo_stats(project_path, graph_data)
 
+    has_hierarchy = bool(profile.get('has_hierarchy')) or bool(_resolve_function_hierarchy_cached(project_path))
+    path_count = int(profile.get('path_count') or 0)
+    display_name = str(profile.get('display_name') or '').strip() or _build_project_display_name(project_path)
+
     return {
         'name': repo_name,
+        'displayName': display_name,
         'path': project_path,
         'repoPath': project_path,
         'indexedAt': indexed_at,
         'lastCommit': last_commit,
         'stats': stats,
+        'experienceLibrary': {
+            'hasHierarchy': has_hierarchy,
+            'pathCount': path_count,
+            'status': 'ready' if has_hierarchy else 'building_or_missing',
+        },
     }
 
 
@@ -6567,9 +8028,23 @@ def api_gn_repos():
     """GitNexus compatibility: list available repositories."""
     try:
         summaries: List[Dict[str, Any]] = []
+        seen_paths: Set[str] = set()
+
         for project_path in data_accessor.list_main_analysis_keys():
             summary = _build_repo_summary_payload(project_path)
             if summary:
+                normalized = _normalize_project_lookup_path(summary.get('path'))
+                if normalized and normalized not in seen_paths:
+                    seen_paths.add(normalized)
+                    summaries.append(summary)
+
+        for item in _list_project_library_entries():
+            project_path = _normalize_project_lookup_path(item.get('project_path'))
+            if not project_path or project_path in seen_paths:
+                continue
+            summary = _build_repo_summary_payload(project_path)
+            if summary:
+                seen_paths.add(project_path)
                 summaries.append(summary)
 
         if not summaries:
@@ -6723,9 +8198,377 @@ def _format_rag_answer(query: str, selected_node: Dict[str, Any], partition_summ
     return "\n".join(lines)
 
 
+def _stringify_rag_graph_context(graph_context: Any) -> List[str]:
+    items = graph_context if isinstance(graph_context, list) else [graph_context]
+    lines: List[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        partition_id = str(item.get('partition_id') or '').strip()
+        partition_name = str(item.get('partition_name') or '').strip()
+        path_name = str(item.get('path_name') or '').strip()
+        process_name = str(item.get('process_name') or '').strip()
+        detail = ' / '.join(part for part in [partition_name or partition_id, path_name, process_name] if part)
+        if detail and detail not in lines:
+            lines.append(detail)
+    return lines
+
+
+def _build_rag_context_chunks(
+    query: str,
+    selected_node: Dict[str, Any],
+    partition_summary: Optional[Dict[str, Any]],
+    evidence: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    chunks: List[Dict[str, Any]] = []
+
+    node_label = selected_node.get('label') or selected_node.get('name') or selected_node.get('id')
+    node_type = selected_node.get('type') or ''
+    if node_label:
+        chunks.append({
+            'text': f"当前用户聚焦节点：{node_label}" + (f"（{node_type}）" if node_type else ''),
+            'metadata': {
+                'question': query,
+                'answer': f"当前上下文节点：{node_label}",
+                'label': node_label,
+                'type': node_type,
+                'file_path': selected_node.get('file_path') or '',
+            },
+        })
+
+    if partition_summary:
+        partition_name = partition_summary.get('name') or partition_summary.get('partition_id') or '未知分区'
+        partition_description = str(partition_summary.get('description') or '').strip()
+        partition_text = (
+            f"功能分区：{partition_name}\n"
+            f"Path 数：{partition_summary.get('path_count') or 0}\n"
+            f"Process 数：{partition_summary.get('process_count') or 0}\n"
+            f"Community 数：{partition_summary.get('community_count') or 0}"
+        )
+        if partition_description:
+            partition_text += f"\n分区语义：{partition_description}"
+        chunks.append({
+            'text': partition_text,
+            'metadata': {
+                'question': query,
+                'answer': partition_description or partition_name,
+                'partition_id': partition_summary.get('partition_id') or '',
+                'partition_name': partition_name,
+            },
+        })
+
+    for index, hit in enumerate(evidence, start=1):
+        label = hit.get('label') or hit.get('node_id') or f'evidence_{index}'
+        file_path = hit.get('file_path') or '未知文件'
+        graph_context_lines = _stringify_rag_graph_context(hit.get('graph_context') or [])
+        text_lines = [
+            f"证据 {index}：{label}",
+            f"文件：{file_path}",
+            f"得分：{hit.get('score')}",
+        ]
+        if graph_context_lines:
+            text_lines.append("图上下文：" + '；'.join(graph_context_lines))
+        chunks.append({
+            'text': "\n".join(text_lines),
+            'metadata': {
+                'question': label,
+                'answer': f"命中文件：{file_path}",
+                'label': label,
+                'file_path': file_path,
+                'score': hit.get('score'),
+            },
+        })
+
+    if not chunks:
+        chunks.append({
+            'text': '当前检索未命中明确证据，请基于用户问题给出谨慎回答，并明确说明缺少仓库证据时不要臆测代码细节。',
+            'metadata': {
+                'question': query,
+                'answer': '暂无显式检索证据',
+            },
+        })
+
+    return chunks
+
+
+def _generate_rag_answer_with_llm(
+    query: str,
+    selected_node: Dict[str, Any],
+    partition_summary: Optional[Dict[str, Any]],
+    evidence: List[Dict[str, Any]],
+) -> Tuple[str, str, Optional[str]]:
+    fallback_answer = _format_rag_answer(query, selected_node, partition_summary, evidence)
+    if not has_deepseek_config():
+        return fallback_answer, 'template_fallback', None
+
+    llm_client = _create_deepseek_api_client()
+    if llm_client is None:
+        return fallback_answer, 'template_fallback', None
+
+    try:
+        answer = llm_client.generate_answer(
+            query=query,
+            context_chunks=_build_rag_context_chunks(query, selected_node, partition_summary, evidence[:8]),
+            system_prompt=(
+                '你是 create_graph 的代码仓库问答助手。请优先基于给定检索证据、功能分区语义和当前选中节点回答。'
+                '如果证据不足，要明确说明不确定性，不要编造不存在的代码实现。'
+                '对于问候或轻量聊天，也请自然回复，但不要虚构仓库事实。'
+            ),
+            temperature=RAG_CONFIG.get('temperature', 0.7),
+            max_tokens=RAG_CONFIG.get('max_tokens', 1000),
+            timeout=90,
+        )
+    except Exception as exc:
+        return fallback_answer, 'template_fallback', str(exc)
+
+    normalized_answer = str(answer).strip()
+    if not normalized_answer:
+        return fallback_answer, 'template_fallback', 'DeepSeek 返回了空响应，已退回模板答案'
+    return normalized_answer, 'deepseek_grounded_generation', None
+
+
+def _build_rag_output_protocol(
+    answer: str,
+    evidence: List[Dict[str, Any]],
+    generation_mode: str,
+    generation_error: Optional[str],
+) -> Dict[str, Any]:
+    impacted_files: List[str] = []
+    for hit in evidence:
+        file_path = str(hit.get('file_path') or '').strip()
+        if file_path and file_path not in impacted_files:
+            impacted_files.append(file_path)
+
+    reasons = [
+        '回答优先基于检索证据与功能分区上下文生成',
+        f'生成路径：{generation_mode}',
+    ]
+    if generation_error:
+        reasons.append('DeepSeek 生成失败后回退到模板答案')
+
+    remaining_risks = []
+    if not evidence:
+        remaining_risks.append('当前检索未命中高置信仓库证据，回答可能更偏向通用说明')
+    if generation_error:
+        remaining_risks.append(f'DeepSeek 调用失败：{generation_error}')
+
+    return {
+        'version': '1.0',
+        'task_mode': 'general_chat',
+        'judgment': {
+            'status': 'ready',
+            'confidence': 'medium' if evidence else 'low',
+            'reasons': reasons,
+        },
+        'analysis': {
+            'summary': answer,
+            'key_reasoning': reasons,
+            'impacted_files': impacted_files,
+            'selected_path': {},
+            'candidate_paths': [],
+            'selection_mode': generation_mode,
+            'selection_reason': 'rag_llm_answer' if generation_mode == 'deepseek_grounded_generation' else 'rag_template_fallback',
+        },
+        'code_snippets': [],
+        'remaining_risks_constraints': remaining_risks,
+        'constraints': [],
+    }
+
+
+def _to_feature_flag(raw_value: Any, default: bool = False) -> bool:
+    if raw_value is None:
+        return bool(default)
+    normalized = str(raw_value).strip().lower()
+    if normalized in {'1', 'true', 'yes', 'on'}:
+        return True
+    if normalized in {'0', 'false', 'no', 'off'}:
+        return False
+    return bool(default)
+
+
+def _is_rag_conversation_bridge_enabled(payload: Dict[str, Any]) -> bool:
+    explicit = payload.get('use_conversation_core')
+    if explicit is not None:
+        return _to_feature_flag(explicit, default=True)
+    env_flag = os.getenv('FH_RAG_ASK_CONVERSATION_BRIDGE', '1')
+    return _to_feature_flag(env_flag, default=True)
+
+
+def _legacy_rag_ask_deprecation_info() -> Dict[str, Any]:
+    return {
+        'deprecated': True,
+        'replacement': {
+            'start': '/api/conversations/session/start',
+            'status': '/api/conversations/session/<session_id>/status',
+            'result': '/api/conversations/session/<session_id>/result',
+            'reply': '/api/conversations/<conversation_id>/reply',
+            'events': '/api/conversations/<conversation_id>/events',
+        },
+        'notice': 'rag/ask 已进入兼容模式，请迁移到 conversations API。',
+    }
+
+
+def _is_legacy_rag_ask_enabled() -> bool:
+    env_flag = os.getenv('FH_ENABLE_LEGACY_RAG_ASK', '1')
+    return _to_feature_flag(env_flag, default=True)
+
+
+def _run_rag_ask_via_conversation_core(
+    *,
+    query: str,
+    project_path: str,
+    selected_node: Dict[str, Any],
+    requested_partition_id: str,
+    payload: Dict[str, Any],
+) -> Dict[str, Any]:
+    from app.services import conversation_service as cs
+
+    conversation_id = str(payload.get('conversation_id') or '').strip() or uuid4().hex
+    clarification_context_raw = payload.get('clarification_context')
+    clarification_context = clarification_context_raw if isinstance(clarification_context_raw, dict) else {}
+
+    forced_action_raw = str(payload.get('bridge_force_action') or '').strip()
+    forced_action = forced_action_raw if forced_action_raw in {'clarify', 'general_chat', 'run_retrieval', 'start_multi_agent'} else None
+
+    session_payload = cs._create_conversation_session(
+        project_path=project_path,
+        user_query=query,
+        conversation_id=conversation_id,
+        clarification_context=clarification_context,
+    )
+
+    cs._run_conversation_turn(
+        session_id=str(session_payload.get('sessionId') or ''),
+        project_path=project_path,
+        user_query=query,
+        conversation_id=conversation_id,
+        selected_node=selected_node,
+        partition_id=requested_partition_id or None,
+        clarification_context=clarification_context,
+        reply_payload=None,
+        auto_start_multi_agent=False,
+        force_action=forced_action,
+        force_fallback_clarification=False,
+    )
+
+    timeout_ms_raw = payload.get('bridge_timeout_ms')
+    timeout_ms = int(timeout_ms_raw) if isinstance(timeout_ms_raw, (int, float)) else 60000
+    timeout_ms = max(3000, min(timeout_ms, 120000))
+    deadline = time.time() + (timeout_ms / 1000.0)
+
+    latest_status: Dict[str, Any] = {}
+    while time.time() < deadline:
+        latest_status = cs.data_accessor.get_conversation_session(str(session_payload.get('sessionId') or '')) or {}
+        status = str(latest_status.get('status') or '').strip()
+        if status in {'completed', 'failed'}:
+            break
+        time.sleep(0.2)
+
+    status = str(latest_status.get('status') or '').strip()
+    if status != 'completed':
+        error_message = str(latest_status.get('error') or f'conversation core timeout/status={status or "unknown"}')
+        raise RuntimeError(error_message)
+
+    result = latest_status.get('result') if isinstance(latest_status.get('result'), dict) else {}
+    answer = str(result.get('answer') or result.get('reason') or '').strip()
+
+    pending_question = result.get('pendingQuestion') if isinstance(result.get('pendingQuestion'), dict) else None
+    if pending_question and not answer:
+        answer = str(pending_question.get('question') or '需要进一步澄清需求').strip()
+
+    retrieval = result.get('retrieval') if isinstance(result.get('retrieval'), dict) else {}
+    highlights = retrieval.get('highlights') if isinstance(retrieval.get('highlights'), list) else []
+    evidence: List[Dict[str, Any]] = []
+    for idx, item in enumerate(highlights[:20]):
+        if not isinstance(item, dict):
+            continue
+        graph_context = item.get('graph_context') if isinstance(item.get('graph_context'), list) else None
+        if not isinstance(graph_context, list):
+            graph_context = item.get('sources') if isinstance(item.get('sources'), list) else []
+        evidence.append(
+            {
+                'rank': idx + 1,
+                'node_id': item.get('id'),
+                'label': item.get('label') or item.get('id'),
+                'file_path': item.get('file') or '',
+                'source': 'conversation_retrieval_tool',
+                'score': item.get('score'),
+                'line_start': item.get('lineStart') if item.get('lineStart') is not None else item.get('line_start'),
+                'line_end': item.get('lineEnd') if item.get('lineEnd') is not None else item.get('line_end'),
+                'snippet': item.get('snippet'),
+                'graph_context': graph_context,
+            }
+        )
+
+    generation_mode = 'conversation_core_bridge'
+    if pending_question:
+        generation_mode = 'conversation_core_clarification'
+
+    output_protocol = _build_rag_output_protocol(
+        answer=answer,
+        evidence=evidence,
+        generation_mode=generation_mode,
+        generation_error=None,
+    )
+    if pending_question and isinstance(output_protocol.get('judgment'), dict):
+        output_protocol['judgment']['status'] = 'needs_refinement'
+        reasons = output_protocol['judgment'].get('reasons') if isinstance(output_protocol['judgment'].get('reasons'), list) else []
+        reasons.append('需要用户先完成需求澄清')
+        output_protocol['judgment']['reasons'] = reasons
+
+    return {
+        'query': query,
+        'answer': answer,
+        'project_path': project_path,
+        'selected_node': selected_node,
+        'partition': {},
+        'evidence': evidence,
+        'retrieval_bundle': {
+            'evidence': evidence,
+            'highlights': highlights,
+        },
+        'output_protocol': output_protocol,
+        'generation': {
+            'mode': generation_mode,
+            'used_llm': True,
+            'error': None,
+        },
+        'search': {
+            'stats': {'highlights_count': len(highlights)},
+            'comparison': {},
+            'phase2b': {},
+            'grouped_by_process': [],
+        },
+        'index_rebuild_status': {},
+        'conversation': {
+            'conversationId': conversation_id,
+            'sessionId': session_payload.get('sessionId'),
+            'nextStep': result.get('nextStep'),
+            'pendingQuestion': pending_question,
+        },
+        'bridge': {
+            'mode': 'conversation_core',
+            'force_action': forced_action or 'auto',
+            'fallback': False,
+        },
+    }
+
+
 def api_rag_ask():
     """Phase 6: RAG 抽屉问答接口（上下文注入 + 证据返回）。"""
     try:
+        if not _is_legacy_rag_ask_enabled():
+            response = jsonify(
+                {
+                    'error': 'rag/ask 已停用，请改用 conversations API',
+                    'legacy': _legacy_rag_ask_deprecation_info(),
+                }
+            )
+            response.headers['X-CreateGraph-Legacy-API'] = 'rag/ask'
+            response.headers['X-CreateGraph-Replacement-API'] = '/api/conversations/session/start'
+            response.status_code = 410
+            return response
+
         payload = request.json or {}
         query = str(payload.get('query') or '').strip()
         if not query:
@@ -6738,21 +8581,40 @@ def api_rag_ask():
             top_k = 8
         top_k = max(1, min(top_k, 20))
 
-        project_path = _resolve_runtime_project_path(payload.get('project_path') or request.args.get('project_path'))
-        graph_data = _resolve_graph_data_for_project(project_path)
-        if not graph_data:
-            return jsonify({'error': '未找到主分析结果，请先执行统一分析会话'}), 400
+        raw_project_path = payload.get('project_path') or request.args.get('project_path')
+        project_path = _resolve_runtime_project_path(raw_project_path, allow_global_fallback=False)
+        if not project_path:
+            return jsonify({'error': 'project_path 不能为空，且必须显式指定目标项目'}), 400
+        graph_data = _resolve_graph_data_for_project(project_path, allow_global_fallback=False)
 
         raw_selected_node = payload.get('selected_node')
         selected_node: Dict[str, Any] = raw_selected_node if isinstance(raw_selected_node, dict) else {}
         requested_partition_id = str(payload.get('partition_id') or '').strip()
+
+        bridge_warning: Optional[str] = None
+        if _is_rag_conversation_bridge_enabled(payload):
+            try:
+                bridge_response = _run_rag_ask_via_conversation_core(
+                    query=query,
+                    project_path=project_path,
+                    selected_node=selected_node,
+                    requested_partition_id=requested_partition_id,
+                    payload=payload,
+                )
+                bridge_response['legacy'] = _legacy_rag_ask_deprecation_info()
+                response = jsonify(bridge_response)
+                response.headers['X-CreateGraph-Legacy-API'] = 'rag/ask'
+                response.headers['X-CreateGraph-Replacement-API'] = '/api/conversations/session/start'
+                return response
+            except Exception as bridge_exc:
+                bridge_warning = str(bridge_exc)
 
         shadow_result = run_hybrid_shadow(
             graph_data=graph_data,
             query=query,
             top_k=top_k,
             enable_graph_context=True,
-        )
+        ) if graph_data else {'flat_hits': []}
 
         flat_hits = shadow_result.get('flat_hits') or []
         evidence: List[Dict[str, Any]] = []
@@ -6768,6 +8630,7 @@ def api_rag_ask():
             })
 
         hierarchy_cached = _resolve_function_hierarchy_cached(project_path)
+        hierarchy_cached = _select_best_phase6_hierarchy_payload(project_path, hierarchy_cached)
         contract_payload = _build_phase6_read_contract(project_path, hierarchy_cached) if hierarchy_cached else None
         partition_summary = _resolve_partition_summary_for_rag(
             contract_payload=contract_payload,
@@ -6775,22 +8638,38 @@ def api_rag_ask():
             requested_partition_id=requested_partition_id,
         )
 
-        answer = _format_rag_answer(
+        answer, generation_mode, generation_error = _generate_rag_answer_with_llm(
             query=query,
             selected_node=selected_node,
             partition_summary=partition_summary,
             evidence=evidence,
         )
 
+        output_protocol = _build_rag_output_protocol(
+            answer=answer,
+            evidence=evidence,
+            generation_mode=generation_mode,
+            generation_error=generation_error,
+        )
+
         index_rebuild_status = (hierarchy_cached or {}).get('index_rebuild_status') or {}
 
-        return jsonify({
+        response_payload = {
             'query': query,
             'answer': answer,
             'project_path': project_path,
             'selected_node': selected_node,
             'partition': partition_summary,
             'evidence': evidence,
+            'retrieval_bundle': {
+                'evidence': evidence,
+            },
+            'output_protocol': output_protocol,
+            'generation': {
+                'mode': generation_mode,
+                'used_llm': generation_mode == 'deepseek_grounded_generation',
+                'error': generation_error,
+            },
             'search': {
                 'stats': shadow_result.get('stats') or {},
                 'comparison': shadow_result.get('comparison') or {},
@@ -6798,7 +8677,17 @@ def api_rag_ask():
                 'grouped_by_process': shadow_result.get('grouped_by_process') or [],
             },
             'index_rebuild_status': index_rebuild_status,
-        })
+            'bridge': {
+                'mode': 'legacy_fallback' if bridge_warning else 'legacy',
+                'fallback': bool(bridge_warning),
+                'error': bridge_warning,
+            },
+            'legacy': _legacy_rag_ask_deprecation_info(),
+        }
+        response = jsonify(response_payload)
+        response.headers['X-CreateGraph-Legacy-API'] = 'rag/ask'
+        response.headers['X-CreateGraph-Replacement-API'] = '/api/conversations/session/start'
+        return response
     except Exception as exc:
         return jsonify({'error': str(exc)}), 500
 

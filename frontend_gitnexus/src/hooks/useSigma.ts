@@ -54,6 +54,7 @@ interface UseSigmaOptions {
   onNodeHover?: (nodeId: string | null) => void;
   onStageClick?: () => void;
   highlightedNodeIds?: Set<string>;
+  secondaryHighlightedNodeIds?: Set<string>;
   blastRadiusNodeIds?: Set<string>;
   animatedNodes?: Map<string, NodeAnimation>;
   visibleEdgeTypes?: EdgeType[];
@@ -130,6 +131,7 @@ export const useSigma = (options: UseSigmaOptions = {}): UseSigmaReturn => {
   const layoutRef = useRef<FA2Layout | null>(null);
   const selectedNodeRef = useRef<string | null>(null);
   const highlightedRef = useRef<Set<string>>(new Set());
+  const secondaryHighlightedRef = useRef<Set<string>>(new Set());
   const blastRadiusRef = useRef<Set<string>>(new Set());
   const animatedNodesRef = useRef<Map<string, NodeAnimation>>(new Map());
   const visibleEdgeTypesRef = useRef<EdgeType[] | null>(null);
@@ -140,11 +142,12 @@ export const useSigma = (options: UseSigmaOptions = {}): UseSigmaReturn => {
 
   useEffect(() => {
     highlightedRef.current = options.highlightedNodeIds || new Set();
+    secondaryHighlightedRef.current = options.secondaryHighlightedNodeIds || new Set();
     blastRadiusRef.current = options.blastRadiusNodeIds || new Set();
     animatedNodesRef.current = options.animatedNodes || new Map();
     visibleEdgeTypesRef.current = options.visibleEdgeTypes || null;
     sigmaRef.current?.refresh();
-  }, [options.highlightedNodeIds, options.blastRadiusNodeIds, options.animatedNodes, options.visibleEdgeTypes]);
+  }, [options.highlightedNodeIds, options.secondaryHighlightedNodeIds, options.blastRadiusNodeIds, options.animatedNodes, options.visibleEdgeTypes]);
 
   // Animation loop for node effects
   useEffect(() => {
@@ -191,6 +194,7 @@ export const useSigma = (options: UseSigmaOptions = {}): UseSigmaReturn => {
   }, []);
 
   // Initialize Sigma ONCE
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Sigma instance must be created exactly once for stable canvas lifecycle
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -278,11 +282,14 @@ export const useSigma = (options: UseSigmaOptions = {}): UseSigmaReturn => {
         
         const currentSelected = selectedNodeRef.current;
         const highlighted = highlightedRef.current;
+        const secondaryHighlighted = secondaryHighlightedRef.current;
         const blastRadius = blastRadiusRef.current;
         const animatedNodes = animatedNodesRef.current;
         const hasHighlights = highlighted.size > 0;
+        const hasSecondaryHighlights = secondaryHighlighted.size > 0;
         const hasBlastRadius = blastRadius.size > 0;
         const isQueryHighlighted = highlighted.has(node);
+        const isSecondaryHighlighted = secondaryHighlighted.has(node);
         const isBlastRadiusNode = blastRadius.has(node);
         
         // Apply animation effects FIRST (before other highlighting)
@@ -342,12 +349,16 @@ export const useSigma = (options: UseSigmaOptions = {}): UseSigmaReturn => {
           return res;
         }
         
-        if (hasHighlights && !currentSelected) {
+        if ((hasHighlights || hasSecondaryHighlights) && !currentSelected) {
           if (isQueryHighlighted) {
             res.color = '#06b6d4';
             res.size = (data.size || 8) * 1.6;
             res.zIndex = 2;
             res.highlighted = true;
+          } else if (isSecondaryHighlighted) {
+            res.color = brightenColor(data.color, 1.2);
+            res.size = (data.size || 8) * 1.15;
+            res.zIndex = 1;
           } else {
             res.color = dimColor(data.color, 0.2);
             res.size = (data.size || 8) * 0.5;
@@ -396,8 +407,9 @@ export const useSigma = (options: UseSigmaOptions = {}): UseSigmaReturn => {
         
         const currentSelected = selectedNodeRef.current;
         const highlighted = highlightedRef.current;
+        const secondaryHighlighted = secondaryHighlightedRef.current;
         const blastRadius = blastRadiusRef.current;
-        const hasHighlights = highlighted.size > 0 || blastRadius.size > 0; // Check BOTH sets
+        const hasHighlights = highlighted.size > 0 || secondaryHighlighted.size > 0 || blastRadius.size > 0;
         
         if (hasHighlights && !currentSelected) {
           const graph = graphRef.current;
@@ -405,8 +417,12 @@ export const useSigma = (options: UseSigmaOptions = {}): UseSigmaReturn => {
             const [source, target] = graph.extremities(edge);
             
             // Check if nodes are in EITHER set
-            const isSourceActive = highlighted.has(source) || blastRadius.has(source);
-            const isTargetActive = highlighted.has(target) || blastRadius.has(target);
+            const isSourcePrimary = highlighted.has(source) || blastRadius.has(source);
+            const isTargetPrimary = highlighted.has(target) || blastRadius.has(target);
+            const isSourceSecondary = secondaryHighlighted.has(source);
+            const isTargetSecondary = secondaryHighlighted.has(target);
+            const isSourceActive = isSourcePrimary || isSourceSecondary;
+            const isTargetActive = isTargetPrimary || isTargetSecondary;
             
             const bothHighlighted = isSourceActive && isTargetActive;
             const oneHighlighted = isSourceActive || isTargetActive;
@@ -415,8 +431,10 @@ export const useSigma = (options: UseSigmaOptions = {}): UseSigmaReturn => {
               // If both nodes are in blast radius, use red edge
               if (blastRadius.has(source) && blastRadius.has(target)) {
                 res.color = '#ef4444';
-              } else {
+              } else if (highlighted.has(source) && highlighted.has(target)) {
                 res.color = '#06b6d4';
+              } else {
+                res.color = dimColor('#06b6d4', 0.55);
               }
               res.size = Math.max(2, (data.size || 1) * 3);
               res.zIndex = 2;

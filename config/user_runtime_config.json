@@ -1,0 +1,26 @@
+{
+  "llm": {
+    "provider": "minimax",
+    "api_key": "",
+    "base_url": "https://api.deepseek.com/v1",
+    "model": "deepseek-chat"
+  },
+  "fallback": {
+    "openai_api_key": "",
+    "openai_base_url": "https://api.openai.com/v1",
+    "deepseek_api_key": "",
+    "deepseek_base_url": "https://api.deepseek.com/v1"
+  },
+  "opencode": {
+    "enable_opencode_kernel": true,
+    "opencode_bin": "opencode",
+    "opencode_model": "",
+    "opencode_agent": "",
+    "opencode_timeout_seconds": 300
+  },
+  "advisor": {
+    "enable_advisor_sidecar": true,
+    "advisor_pipeline_timeout_seconds": 120,
+    "advisor_reuse_runtime": true
+  }
+}

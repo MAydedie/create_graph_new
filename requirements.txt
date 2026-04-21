@@ -1,0 +1,47 @@
+# 项目依赖
+# 使用 pip install -r requirements.txt 安装所有依赖
+
+# CLI框架
+# Typer: 现代、直观的命令行界面构建工具，基于Python类型提示
+# 文档: https://typer.tiangolo.com/
+typer>=0.9.0
+
+# 数据验证和设置管理
+# Pydantic: 使用Python类型注解进行数据验证和设置管理
+# 文档: https://docs.pydantic.dev/
+pydantic>=2.5.0
+
+# 可选：如果需要更传统的CLI工具，可以添加argparse（Python标准库，无需单独安装）
+# argparse是Python标准库的一部分，无需在此列出
+
+# 开发工具
+# 代码格式化
+black>=23.0.0
+# 导入排序
+isort>=5.12.0
+# 代码质量检查
+flake8>=6.0.0
+
+# 测试框架
+pytest>=7.4.0
+
+# 其他常用工具
+# 环境变量管理
+python-dotenv>=1.0.0
+# 进度条显示
+tqdm>=4.65.0
+# 日志配置
+loguru>=0.7.0
+
+# ---------- RAG / LangChain（llm/rag_core、llm/agent、analysis 等使用） ----------
+# 核心与消息、回调、工具
+langchain-core>=0.2.0,<1.0
+# OpenAI 兼容 API（DeepSeek 等）
+langchain-openai>=0.1.0
+# 社区模型回退（ChatOpenAI 等）
+langchain-community>=0.2.0
+# 文本分片（RAG 分块，llm/rag_core/text_splitter.py）
+langchain-text-splitters>=0.2.0
+
+# 注意：实际版本号可以根据项目需求调整
+# 建议使用 >= 指定最低版本，而不是固定版本，以便获得安全更新和bug修复

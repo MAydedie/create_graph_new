@@ -1,0 +1,8 @@
+.env
+__pycache__/
+*.pyc
+.pytest_cache/
+logs/
+run_qa_only.log
+qa_service_http.log
+third_party/anomalyco-opencode-dev.zip

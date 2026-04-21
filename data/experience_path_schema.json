@@ -1,0 +1,104 @@
+{
+  "version": "0.3",
+  "description": "经验路径库存储格式（含结构路径兜底，保留 what/how 与 constraints_structured）",
+  "structure": {
+    "project_path": "项目路径（作为键）",
+    "project_name": "项目名称",
+    "analysis_timestamp": "分析时间戳（ISO8601）",
+    "total_paths": "经验路径总数（所有分区汇总）",
+    "partitions": [
+      {
+        "partition_id": "分区ID",
+        "partition_name": "分区名称",
+        "total_paths": "该分区下的路径数量",
+        "paths": [
+          {
+            "path_id": "路径ID（如 partition_1_path_0）",
+            "partition_id": "分区ID",
+            "path_index": "路径索引",
+            "path_name": "路径名称",
+            "path_description": "路径描述",
+            "function_chain": [
+              "函数1签名",
+              "函数2签名"
+            ],
+            "path": [
+              "函数1签名",
+              "函数2签名"
+            ],
+            "leaf_node": "叶子节点方法签名",
+            "what": "路径能力说明",
+            "how": "执行链路说明",
+            "constraints": [
+              "cfg",
+              "dfg",
+              "io_graph",
+              "input_info",
+              "output_info",
+              "constraint_explain"
+            ],
+            "constraints_structured": {
+              "version": "constraints.v1",
+              "types": [
+                "cfg",
+                "dfg",
+                "io_graph"
+              ],
+              "cfg": {
+                "summary": {
+                  "exists": true,
+                  "node_count": 0,
+                  "edge_count": 0
+                }
+              },
+              "dfg": {
+                "summary": {
+                  "exists": true,
+                  "node_count": 0,
+                  "edge_count": 0
+                }
+              },
+              "io_graph": {
+                "summary": {
+                  "exists": true,
+                  "node_count": 0,
+                  "edge_count": 0
+                },
+                "inputs": [],
+                "outputs": []
+              },
+              "input_info": {},
+              "output_info": {},
+              "constraint_explain": {
+                "exists": false,
+                "markdown": ""
+              }
+            },
+            "semantics": {
+              "semantic_label": "语义标签",
+              "keywords": [
+                "关键词1"
+              ],
+              "functional_domain": "功能域",
+              "description": "人类可读路径描述"
+            },
+            "io_summary": {
+              "input": [
+                "输入1"
+              ],
+              "output": [
+                "输出1"
+              ]
+            },
+            "input_info": {},
+            "output_info": {},
+            "cfg": "可选：CFG 数据或引用",
+            "dfg": "可选：DFG 数据或引用",
+            "io_graph": "可选：IO 图数据",
+            "cfg_dfg_explain_md": "可选：CFG/DFG解释Markdown"
+          }
+        ]
+      }
+    ]
+  }
+}

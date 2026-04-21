@@ -1,0 +1,1299 @@
+{
+  "version": "0.1",
+  "project_path": "D:\\代码仓库生图\\create_graph\\test_sandbox",
+  "project_name": "test_sandbox",
+  "analysis_timestamp": "2026-03-20T16:59:20.671184",
+  "total_paths": 15,
+  "partitions": [
+    {
+      "partition_id": "partition_7",
+      "partition_name": "partition_7",
+      "total_paths": 5,
+      "paths": [
+        {
+          "leaf_node": "_get_demo_stock_data",
+          "path_index": 0,
+          "path": [
+            "_get_demo_stock_data",
+            "get_stock_price",
+            "TestGetStockPrice.test_get_demo_stock_not_found"
+          ],
+          "input_info": {},
+          "output_info": {},
+          "path_name": "路径 1",
+          "path_description": "包含 3 个方法的调用链",
+          "cfg": null,
+          "dfg": null,
+          "io_graph": {
+            "nodes": [
+              {
+                "id": "input_0",
+                "label": "输入: symbol",
+                "type": "str"
+              },
+              {
+                "id": "method_0",
+                "label": "_get_demo_stock_data",
+                "type": "操作节点"
+              },
+              {
+                "id": "method_1",
+                "label": "get_stock_price",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_0",
+                "label": "中间数据: Dict[str, Any]",
+                "type": "Dict[str, Any]"
+              },
+              {
+                "id": "method_2",
+                "label": "test_get_demo_stock_not_found",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_1",
+                "label": "中间数据: Tuple[bool, Dict]",
+                "type": "Tuple[bool, Dict]"
+              },
+              {
+                "id": "output_final",
+                "label": "最终输出: Any",
+                "type": "Any"
+              }
+            ],
+            "edges": [
+              {
+                "source": "input_0",
+                "target": "method_0",
+                "label": "输入"
+              },
+              {
+                "source": "method_0",
+                "target": "intermediate_0",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_0",
+                "target": "method_1",
+                "label": "输入"
+              },
+              {
+                "source": "method_1",
+                "target": "intermediate_1",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_1",
+                "target": "method_2",
+                "label": "输入"
+              },
+              {
+                "source": "method_2",
+                "target": "output_final",
+                "label": "输出"
+              }
+            ]
+          },
+          "dataflow_mermaid": null,
+          "semantics": {
+            "semantic_label": "general: _get_demo_stock_data / get_stock_price / test_get_demo_stock_not_found",
+            "description": "从 _get_demo_stock_data 到 test_get_demo_stock_not_found 的调用链，包含 3 个方法",
+            "functional_domain": "general",
+            "keywords": [
+              "_get_demo_stock_data",
+              "get_stock_price",
+              "test_get_demo_stock_not_found"
+            ]
+          },
+          "cfg_dfg_explain_md": null,
+          "function_chain": [
+            "_get_demo_stock_data",
+            "get_stock_price",
+            "TestGetStockPrice.test_get_demo_stock_not_found"
+          ]
+        },
+        {
+          "leaf_node": "symbol.strip",
+          "path_index": 0,
+          "path": [
+            "symbol.strip",
+            "get_stock_price",
+            "TestGetStockPrice.test_get_demo_stock_not_found"
+          ],
+          "input_info": {},
+          "output_info": {},
+          "path_name": "路径 1",
+          "path_description": "包含 3 个方法的调用链",
+          "cfg": null,
+          "dfg": null,
+          "io_graph": {
+            "nodes": [
+              {
+                "id": "input_0",
+                "label": "输入: data",
+                "type": "Any"
+              },
+              {
+                "id": "method_0",
+                "label": "strip",
+                "type": "操作节点"
+              },
+              {
+                "id": "method_1",
+                "label": "get_stock_price",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_0",
+                "label": "中间数据: Any",
+                "type": "Any"
+              },
+              {
+                "id": "method_2",
+                "label": "test_get_demo_stock_not_found",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_1",
+                "label": "中间数据: Tuple[bool, Dict]",
+                "type": "Tuple[bool, Dict]"
+              },
+              {
+                "id": "output_final",
+                "label": "最终输出: Any",
+                "type": "Any"
+              }
+            ],
+            "edges": [
+              {
+                "source": "input_0",
+                "target": "method_0",
+                "label": "输入"
+              },
+              {
+                "source": "method_0",
+                "target": "intermediate_0",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_0",
+                "target": "method_1",
+                "label": "输入"
+              },
+              {
+                "source": "method_1",
+                "target": "intermediate_1",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_1",
+                "target": "method_2",
+                "label": "输入"
+              },
+              {
+                "source": "method_2",
+                "target": "output_final",
+                "label": "输出"
+              }
+            ]
+          },
+          "dataflow_mermaid": null,
+          "semantics": {
+            "semantic_label": "general: strip / get_stock_price / test_get_demo_stock_not_found",
+            "description": "从 strip 到 test_get_demo_stock_not_found 的调用链，包含 3 个方法",
+            "functional_domain": "general",
+            "keywords": [
+              "strip",
+              "get_stock_price",
+              "test_get_demo_stock_not_found"
+            ]
+          },
+          "cfg_dfg_explain_md": null,
+          "function_chain": [
+            "symbol.strip",
+            "get_stock_price",
+            "TestGetStockPrice.test_get_demo_stock_not_found"
+          ]
+        },
+        {
+          "leaf_node": "symbol.strip.upper",
+          "path_index": 0,
+          "path": [
+            "symbol.strip.upper",
+            "get_stock_price",
+            "TestGetStockPrice.test_get_demo_stock_not_found"
+          ],
+          "input_info": {},
+          "output_info": {},
+          "path_name": "路径 1",
+          "path_description": "包含 3 个方法的调用链",
+          "cfg": null,
+          "dfg": null,
+          "io_graph": {
+            "nodes": [
+              {
+                "id": "input_0",
+                "label": "输入: data",
+                "type": "Any"
+              },
+              {
+                "id": "method_0",
+                "label": "upper",
+                "type": "操作节点"
+              },
+              {
+                "id": "method_1",
+                "label": "get_stock_price",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_0",
+                "label": "中间数据: Any",
+                "type": "Any"
+              },
+              {
+                "id": "method_2",
+                "label": "test_get_demo_stock_not_found",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_1",
+                "label": "中间数据: Tuple[bool, Dict]",
+                "type": "Tuple[bool, Dict]"
+              },
+              {
+                "id": "output_final",
+                "label": "最终输出: Any",
+                "type": "Any"
+              }
+            ],
+            "edges": [
+              {
+                "source": "input_0",
+                "target": "method_0",
+                "label": "输入"
+              },
+              {
+                "source": "method_0",
+                "target": "intermediate_0",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_0",
+                "target": "method_1",
+                "label": "输入"
+              },
+              {
+                "source": "method_1",
+                "target": "intermediate_1",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_1",
+                "target": "method_2",
+                "label": "输入"
+              },
+              {
+                "source": "method_2",
+                "target": "output_final",
+                "label": "输出"
+              }
+            ]
+          },
+          "dataflow_mermaid": null,
+          "semantics": {
+            "semantic_label": "general: upper / get_stock_price / test_get_demo_stock_not_found",
+            "description": "从 upper 到 test_get_demo_stock_not_found 的调用链，包含 3 个方法",
+            "functional_domain": "general",
+            "keywords": [
+              "upper",
+              "get_stock_price",
+              "test_get_demo_stock_not_found"
+            ]
+          },
+          "cfg_dfg_explain_md": null,
+          "function_chain": [
+            "symbol.strip.upper",
+            "get_stock_price",
+            "TestGetStockPrice.test_get_demo_stock_not_found"
+          ]
+        },
+        {
+          "leaf_node": "format_stock_price",
+          "path_index": 0,
+          "path": [
+            "format_stock_price",
+            "TestFormatStockPrice.test_format_negative"
+          ],
+          "input_info": {},
+          "output_info": {},
+          "path_name": "路径 1",
+          "path_description": "包含 2 个方法的调用链",
+          "cfg": null,
+          "dfg": null,
+          "io_graph": {
+            "nodes": [
+              {
+                "id": "input_0",
+                "label": "输入: price",
+                "type": "float"
+              },
+              {
+                "id": "method_0",
+                "label": "format_stock_price",
+                "type": "操作节点"
+              },
+              {
+                "id": "method_1",
+                "label": "test_format_negative",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_0",
+                "label": "中间数据: str",
+                "type": "str"
+              },
+              {
+                "id": "output_final",
+                "label": "最终输出: Any",
+                "type": "Any"
+              }
+            ],
+            "edges": [
+              {
+                "source": "input_0",
+                "target": "method_0",
+                "label": "输入"
+              },
+              {
+                "source": "method_0",
+                "target": "intermediate_0",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_0",
+                "target": "method_1",
+                "label": "输入"
+              },
+              {
+                "source": "method_1",
+                "target": "output_final",
+                "label": "输出"
+              }
+            ]
+          },
+          "dataflow_mermaid": null,
+          "semantics": {
+            "semantic_label": "io: format_stock_price / test_format_negative",
+            "description": "从 format_stock_price 到 test_format_negative 的调用链，包含 2 个方法",
+            "functional_domain": "io",
+            "keywords": [
+              "format_stock_price",
+              "test_format_negative"
+            ]
+          },
+          "cfg_dfg_explain_md": null,
+          "function_chain": [
+            "format_stock_price",
+            "TestFormatStockPrice.test_format_negative"
+          ]
+        },
+        {
+          "leaf_node": "patch",
+          "path_index": 1,
+          "path": [
+            "patch",
+            "TestGetStockPrice.test_get_demo_stock_not_found"
+          ],
+          "input_info": {},
+          "output_info": {},
+          "path_name": "路径 2",
+          "path_description": "包含 2 个方法的调用链",
+          "cfg": null,
+          "dfg": null,
+          "io_graph": {
+            "nodes": [
+              {
+                "id": "input_0",
+                "label": "输入: data",
+                "type": "Any"
+              },
+              {
+                "id": "method_0",
+                "label": "patch",
+                "type": "操作节点"
+              },
+              {
+                "id": "method_1",
+                "label": "test_get_demo_stock_not_found",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_0",
+                "label": "中间数据: Any",
+                "type": "Any"
+              },
+              {
+                "id": "output_final",
+                "label": "最终输出: Any",
+                "type": "Any"
+              }
+            ],
+            "edges": [
+              {
+                "source": "input_0",
+                "target": "method_0",
+                "label": "输入"
+              },
+              {
+                "source": "method_0",
+                "target": "intermediate_0",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_0",
+                "target": "method_1",
+                "label": "输入"
+              },
+              {
+                "source": "method_1",
+                "target": "output_final",
+                "label": "输出"
+              }
+            ]
+          },
+          "dataflow_mermaid": null,
+          "semantics": {
+            "semantic_label": "general: patch / test_get_demo_stock_not_found",
+            "description": "从 patch 到 test_get_demo_stock_not_found 的调用链，包含 2 个方法",
+            "functional_domain": "general",
+            "keywords": [
+              "patch",
+              "test_get_demo_stock_not_found"
+            ]
+          },
+          "cfg_dfg_explain_md": null,
+          "function_chain": [
+            "patch",
+            "TestGetStockPrice.test_get_demo_stock_not_found"
+          ]
+        }
+      ]
+    },
+    {
+      "partition_id": "partition_5",
+      "partition_name": "partition_5",
+      "total_paths": 5,
+      "paths": [
+        {
+          "leaf_node": "id",
+          "path_index": 0,
+          "path": [
+            "id",
+            "test_multiple_instances"
+          ],
+          "input_info": {},
+          "output_info": {},
+          "path_name": "路径 1",
+          "path_description": "包含 2 个方法的调用链",
+          "cfg": null,
+          "dfg": null,
+          "io_graph": {
+            "nodes": [
+              {
+                "id": "input_0",
+                "label": "输入: data",
+                "type": "Any"
+              },
+              {
+                "id": "method_0",
+                "label": "id",
+                "type": "操作节点"
+              },
+              {
+                "id": "method_1",
+                "label": "test_multiple_instances",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_0",
+                "label": "中间数据: Any",
+                "type": "Any"
+              },
+              {
+                "id": "output_final",
+                "label": "最终输出: Any",
+                "type": "Any"
+              }
+            ],
+            "edges": [
+              {
+                "source": "input_0",
+                "target": "method_0",
+                "label": "输入"
+              },
+              {
+                "source": "method_0",
+                "target": "intermediate_0",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_0",
+                "target": "method_1",
+                "label": "输入"
+              },
+              {
+                "source": "method_1",
+                "target": "output_final",
+                "label": "输出"
+              }
+            ]
+          },
+          "dataflow_mermaid": null,
+          "semantics": {
+            "semantic_label": "general: id / test_multiple_instances",
+            "description": "从 id 到 test_multiple_instances 的调用链，包含 2 个方法",
+            "functional_domain": "general",
+            "keywords": [
+              "id",
+              "test_multiple_instances"
+            ]
+          },
+          "cfg_dfg_explain_md": null,
+          "function_chain": [
+            "id",
+            "test_multiple_instances"
+          ]
+        },
+        {
+          "leaf_node": "round",
+          "path_index": 0,
+          "path": [
+            "round",
+            "test_get_simulated_price_with_mock_random"
+          ],
+          "input_info": {},
+          "output_info": {},
+          "path_name": "路径 1",
+          "path_description": "包含 2 个方法的调用链",
+          "cfg": null,
+          "dfg": null,
+          "io_graph": {
+            "nodes": [
+              {
+                "id": "input_0",
+                "label": "输入: data",
+                "type": "Any"
+              },
+              {
+                "id": "method_0",
+                "label": "round",
+                "type": "操作节点"
+              },
+              {
+                "id": "method_1",
+                "label": "test_get_simulated_price_with_mock_random",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_0",
+                "label": "中间数据: Any",
+                "type": "Any"
+              },
+              {
+                "id": "output_final",
+                "label": "最终输出: Any",
+                "type": "Any"
+              }
+            ],
+            "edges": [
+              {
+                "source": "input_0",
+                "target": "method_0",
+                "label": "输入"
+              },
+              {
+                "source": "method_0",
+                "target": "intermediate_0",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_0",
+                "target": "method_1",
+                "label": "输入"
+              },
+              {
+                "source": "method_1",
+                "target": "output_final",
+                "label": "输出"
+              }
+            ]
+          },
+          "dataflow_mermaid": null,
+          "semantics": {
+            "semantic_label": "general: round / test_get_simulated_price_with_mock_random",
+            "description": "从 round 到 test_get_simulated_price_with_mock_random 的调用链，包含 2 个方法",
+            "functional_domain": "general",
+            "keywords": [
+              "round",
+              "test_get_simulated_price_with_mock_random"
+            ]
+          },
+          "cfg_dfg_explain_md": null,
+          "function_chain": [
+            "round",
+            "test_get_simulated_price_with_mock_random"
+          ]
+        },
+        {
+          "leaf_node": "StockAPI",
+          "path_index": 0,
+          "path": [
+            "StockAPI",
+            "TestStockAPI.test_init"
+          ],
+          "input_info": {},
+          "output_info": {},
+          "path_name": "路径 1",
+          "path_description": "包含 2 个方法的调用链",
+          "cfg": null,
+          "dfg": null,
+          "io_graph": {
+            "nodes": [
+              {
+                "id": "input_0",
+                "label": "输入: data",
+                "type": "Any"
+              },
+              {
+                "id": "method_0",
+                "label": "StockAPI",
+                "type": "操作节点"
+              },
+              {
+                "id": "method_1",
+                "label": "test_init",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_0",
+                "label": "中间数据: Any",
+                "type": "Any"
+              },
+              {
+                "id": "output_final",
+                "label": "最终输出: Any",
+                "type": "Any"
+              }
+            ],
+            "edges": [
+              {
+                "source": "input_0",
+                "target": "method_0",
+                "label": "输入"
+              },
+              {
+                "source": "method_0",
+                "target": "intermediate_0",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_0",
+                "target": "method_1",
+                "label": "输入"
+              },
+              {
+                "source": "method_1",
+                "target": "output_final",
+                "label": "输出"
+              }
+            ]
+          },
+          "dataflow_mermaid": null,
+          "semantics": {
+            "semantic_label": "api: StockAPI / test_init",
+            "description": "从 StockAPI 到 test_init 的调用链，包含 2 个方法",
+            "functional_domain": "api",
+            "keywords": [
+              "StockAPI",
+              "test_init"
+            ]
+          },
+          "cfg_dfg_explain_md": null,
+          "function_chain": [
+            "StockAPI",
+            "TestStockAPI.test_init"
+          ]
+        },
+        {
+          "leaf_node": "StockSimulator",
+          "path_index": 1,
+          "path": [
+            "StockSimulator",
+            "test_both_classes_independent"
+          ],
+          "input_info": {},
+          "output_info": {},
+          "path_name": "路径 2",
+          "path_description": "包含 2 个方法的调用链",
+          "cfg": null,
+          "dfg": null,
+          "io_graph": {
+            "nodes": [
+              {
+                "id": "input_0",
+                "label": "输入: data",
+                "type": "Any"
+              },
+              {
+                "id": "method_0",
+                "label": "StockSimulator",
+                "type": "操作节点"
+              },
+              {
+                "id": "method_1",
+                "label": "test_both_classes_independent",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_0",
+                "label": "中间数据: Any",
+                "type": "Any"
+              },
+              {
+                "id": "output_final",
+                "label": "最终输出: Any",
+                "type": "Any"
+              }
+            ],
+            "edges": [
+              {
+                "source": "input_0",
+                "target": "method_0",
+                "label": "输入"
+              },
+              {
+                "source": "method_0",
+                "target": "intermediate_0",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_0",
+                "target": "method_1",
+                "label": "输入"
+              },
+              {
+                "source": "method_1",
+                "target": "output_final",
+                "label": "输出"
+              }
+            ]
+          },
+          "dataflow_mermaid": null,
+          "semantics": {
+            "semantic_label": "general: StockSimulator / test_both_classes_independent",
+            "description": "从 StockSimulator 到 test_both_classes_independent 的调用链，包含 2 个方法",
+            "functional_domain": "general",
+            "keywords": [
+              "StockSimulator",
+              "test_both_classes_independent"
+            ]
+          },
+          "cfg_dfg_explain_md": null,
+          "function_chain": [
+            "StockSimulator",
+            "test_both_classes_independent"
+          ]
+        },
+        {
+          "leaf_node": "api.get_real_time_price",
+          "path_index": 0,
+          "path": [
+            "api.get_real_time_price",
+            "test_both_classes_independent"
+          ],
+          "input_info": {},
+          "output_info": {},
+          "path_name": "路径 1",
+          "path_description": "包含 2 个方法的调用链",
+          "cfg": null,
+          "dfg": null,
+          "io_graph": {
+            "nodes": [
+              {
+                "id": "input_0",
+                "label": "输入: data",
+                "type": "Any"
+              },
+              {
+                "id": "method_0",
+                "label": "get_real_time_price",
+                "type": "操作节点"
+              },
+              {
+                "id": "method_1",
+                "label": "test_both_classes_independent",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_0",
+                "label": "中间数据: Any",
+                "type": "Any"
+              },
+              {
+                "id": "output_final",
+                "label": "最终输出: Any",
+                "type": "Any"
+              }
+            ],
+            "edges": [
+              {
+                "source": "input_0",
+                "target": "method_0",
+                "label": "输入"
+              },
+              {
+                "source": "method_0",
+                "target": "intermediate_0",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_0",
+                "target": "method_1",
+                "label": "输入"
+              },
+              {
+                "source": "method_1",
+                "target": "output_final",
+                "label": "输出"
+              }
+            ]
+          },
+          "dataflow_mermaid": null,
+          "semantics": {
+            "semantic_label": "api: get_real_time_price / test_both_classes_independent",
+            "description": "从 get_real_time_price 到 test_both_classes_independent 的调用链，包含 2 个方法",
+            "functional_domain": "api",
+            "keywords": [
+              "get_real_time_price",
+              "test_both_classes_independent"
+            ]
+          },
+          "cfg_dfg_explain_md": null,
+          "function_chain": [
+            "api.get_real_time_price",
+            "test_both_classes_independent"
+          ]
+        }
+      ]
+    },
+    {
+      "partition_id": "partition_4",
+      "partition_name": "partition_4",
+      "total_paths": 5,
+      "paths": [
+        {
+          "leaf_node": "dir",
+          "path_index": 0,
+          "path": [
+            "dir",
+            "test_module_structure"
+          ],
+          "input_info": {},
+          "output_info": {},
+          "path_name": "路径 1",
+          "path_description": "包含 2 个方法的调用链",
+          "cfg": null,
+          "dfg": null,
+          "io_graph": {
+            "nodes": [
+              {
+                "id": "input_0",
+                "label": "输入: data",
+                "type": "Any"
+              },
+              {
+                "id": "method_0",
+                "label": "dir",
+                "type": "操作节点"
+              },
+              {
+                "id": "method_1",
+                "label": "test_module_structure",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_0",
+                "label": "中间数据: Any",
+                "type": "Any"
+              },
+              {
+                "id": "output_final",
+                "label": "最终输出: Any",
+                "type": "Any"
+              }
+            ],
+            "edges": [
+              {
+                "source": "input_0",
+                "target": "method_0",
+                "label": "输入"
+              },
+              {
+                "source": "method_0",
+                "target": "intermediate_0",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_0",
+                "target": "method_1",
+                "label": "输入"
+              },
+              {
+                "source": "method_1",
+                "target": "output_final",
+                "label": "输出"
+              }
+            ]
+          },
+          "dataflow_mermaid": null,
+          "semantics": {
+            "semantic_label": "general: dir / test_module_structure",
+            "description": "从 dir 到 test_module_structure 的调用链，包含 2 个方法",
+            "functional_domain": "general",
+            "keywords": [
+              "dir",
+              "test_module_structure"
+            ]
+          },
+          "cfg_dfg_explain_md": null,
+          "function_chain": [
+            "dir",
+            "test_module_structure"
+          ]
+        },
+        {
+          "leaf_node": "hasattr",
+          "path_index": 0,
+          "path": [
+            "hasattr",
+            "TestCommandsInit.test_module_import"
+          ],
+          "input_info": {},
+          "output_info": {},
+          "path_name": "路径 1",
+          "path_description": "包含 2 个方法的调用链",
+          "cfg": null,
+          "dfg": null,
+          "io_graph": {
+            "nodes": [
+              {
+                "id": "input_0",
+                "label": "输入: data",
+                "type": "Any"
+              },
+              {
+                "id": "method_0",
+                "label": "hasattr",
+                "type": "操作节点"
+              },
+              {
+                "id": "method_1",
+                "label": "test_module_import",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_0",
+                "label": "中间数据: Any",
+                "type": "Any"
+              },
+              {
+                "id": "output_final",
+                "label": "最终输出: Any",
+                "type": "Any"
+              }
+            ],
+            "edges": [
+              {
+                "source": "input_0",
+                "target": "method_0",
+                "label": "输入"
+              },
+              {
+                "source": "method_0",
+                "target": "intermediate_0",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_0",
+                "target": "method_1",
+                "label": "输入"
+              },
+              {
+                "source": "method_1",
+                "target": "output_final",
+                "label": "输出"
+              }
+            ]
+          },
+          "dataflow_mermaid": null,
+          "semantics": {
+            "semantic_label": "general: hasattr / test_module_import",
+            "description": "从 hasattr 到 test_module_import 的调用链，包含 2 个方法",
+            "functional_domain": "general",
+            "keywords": [
+              "hasattr",
+              "test_module_import"
+            ]
+          },
+          "cfg_dfg_explain_md": null,
+          "function_chain": [
+            "hasattr",
+            "TestCommandsInit.test_module_import"
+          ]
+        },
+        {
+          "leaf_node": "len",
+          "path_index": 0,
+          "path": [
+            "len",
+            "test_module_author"
+          ],
+          "input_info": {},
+          "output_info": {},
+          "path_name": "路径 1",
+          "path_description": "包含 2 个方法的调用链",
+          "cfg": null,
+          "dfg": null,
+          "io_graph": {
+            "nodes": [
+              {
+                "id": "input_0",
+                "label": "输入: data",
+                "type": "Any"
+              },
+              {
+                "id": "method_0",
+                "label": "len",
+                "type": "操作节点"
+              },
+              {
+                "id": "method_1",
+                "label": "test_module_author",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_0",
+                "label": "中间数据: Any",
+                "type": "Any"
+              },
+              {
+                "id": "output_final",
+                "label": "最终输出: Any",
+                "type": "Any"
+              }
+            ],
+            "edges": [
+              {
+                "source": "input_0",
+                "target": "method_0",
+                "label": "输入"
+              },
+              {
+                "source": "method_0",
+                "target": "intermediate_0",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_0",
+                "target": "method_1",
+                "label": "输入"
+              },
+              {
+                "source": "method_1",
+                "target": "output_final",
+                "label": "输出"
+              }
+            ]
+          },
+          "dataflow_mermaid": null,
+          "semantics": {
+            "semantic_label": "auth: len / test_module_author",
+            "description": "从 len 到 test_module_author 的调用链，包含 2 个方法",
+            "functional_domain": "auth",
+            "keywords": [
+              "len",
+              "test_module_author"
+            ]
+          },
+          "cfg_dfg_explain_md": null,
+          "function_chain": [
+            "len",
+            "test_module_author"
+          ]
+        },
+        {
+          "leaf_node": "attr.startswith",
+          "path_index": 0,
+          "path": [
+            "attr.startswith",
+            "test_module_structure"
+          ],
+          "input_info": {},
+          "output_info": {},
+          "path_name": "路径 1",
+          "path_description": "包含 2 个方法的调用链",
+          "cfg": null,
+          "dfg": null,
+          "io_graph": {
+            "nodes": [
+              {
+                "id": "input_0",
+                "label": "输入: data",
+                "type": "Any"
+              },
+              {
+                "id": "method_0",
+                "label": "startswith",
+                "type": "操作节点"
+              },
+              {
+                "id": "method_1",
+                "label": "test_module_structure",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_0",
+                "label": "中间数据: Any",
+                "type": "Any"
+              },
+              {
+                "id": "output_final",
+                "label": "最终输出: Any",
+                "type": "Any"
+              }
+            ],
+            "edges": [
+              {
+                "source": "input_0",
+                "target": "method_0",
+                "label": "输入"
+              },
+              {
+                "source": "method_0",
+                "target": "intermediate_0",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_0",
+                "target": "method_1",
+                "label": "输入"
+              },
+              {
+                "source": "method_1",
+                "target": "output_final",
+                "label": "输出"
+              }
+            ]
+          },
+          "dataflow_mermaid": null,
+          "semantics": {
+            "semantic_label": "general: startswith / test_module_structure",
+            "description": "从 startswith 到 test_module_structure 的调用链，包含 2 个方法",
+            "functional_domain": "general",
+            "keywords": [
+              "startswith",
+              "test_module_structure"
+            ]
+          },
+          "cfg_dfg_explain_md": null,
+          "function_chain": [
+            "attr.startswith",
+            "test_module_structure"
+          ]
+        },
+        {
+          "leaf_node": "commands_init.__author__.strip",
+          "path_index": 0,
+          "path": [
+            "commands_init.__author__.strip",
+            "TestCommandsInit.test_module_author"
+          ],
+          "input_info": {},
+          "output_info": {},
+          "path_name": "路径 1",
+          "path_description": "包含 2 个方法的调用链",
+          "cfg": null,
+          "dfg": null,
+          "io_graph": {
+            "nodes": [
+              {
+                "id": "input_0",
+                "label": "输入: data",
+                "type": "Any"
+              },
+              {
+                "id": "method_0",
+                "label": "strip",
+                "type": "操作节点"
+              },
+              {
+                "id": "method_1",
+                "label": "test_module_author",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_0",
+                "label": "中间数据: Any",
+                "type": "Any"
+              },
+              {
+                "id": "output_final",
+                "label": "最终输出: Any",
+                "type": "Any"
+              }
+            ],
+            "edges": [
+              {
+                "source": "input_0",
+                "target": "method_0",
+                "label": "输入"
+              },
+              {
+                "source": "method_0",
+                "target": "intermediate_0",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_0",
+                "target": "method_1",
+                "label": "输入"
+              },
+              {
+                "source": "method_1",
+                "target": "output_final",
+                "label": "输出"
+              }
+            ]
+          },
+          "dataflow_mermaid": null,
+          "semantics": {
+            "semantic_label": "auth: strip / test_module_author",
+            "description": "从 strip 到 test_module_author 的调用链，包含 2 个方法",
+            "functional_domain": "auth",
+            "keywords": [
+              "strip",
+              "test_module_author"
+            ]
+          },
+          "cfg_dfg_explain_md": null,
+          "function_chain": [
+            "commands_init.__author__.strip",
+            "TestCommandsInit.test_module_author"
+          ]
+        }
+      ]
+    }
+  ]
+}

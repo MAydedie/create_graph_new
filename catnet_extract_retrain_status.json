@@ -1,0 +1,26 @@
+{
+  "start": {
+    "experienceOutputRoot": null,
+    "message": "统一分析会话已开始",
+    "phase": "starting",
+    "projectPath": "D:\\代码仓库生图\\借鉴项目\\CAT-Net-main",
+    "sessionId": "fef452c9224a4adaaa7753eb5188f783",
+    "status": "starting"
+  },
+  "final": {
+    "bootstrapReady": true,
+    "completedAt": "2026-04-21T12:32:44.061847Z",
+    "error": null,
+    "message": "统一分析会话完成",
+    "phase": "bootstrap_ready",
+    "progress": 100,
+    "projectPath": "D:\\代码仓库生图\\借鉴项目\\CAT-Net-main",
+    "sessionId": "fef452c9224a4adaaa7753eb5188f783",
+    "stageDetail": "统一分析会话完成",
+    "stageLabel": "工作台已就绪",
+    "startedAt": "2026-04-21T12:32:42.031981Z",
+    "status": "completed",
+    "updatedAt": "2026-04-21T12:32:44.098574Z"
+  },
+  "exists": false
+}

@@ -1,0 +1,182 @@
+{
+  "version": "advisor.lab.v1",
+  "step": "analyze_advisor_process",
+  "generated_at": "2026-04-21T11:37:18.749684Z",
+  "run_id": "single_run",
+  "question_id": "q00",
+  "requirement": "请基于当前 CAT-Net 的经验库，在 D:/代码仓库生图/汇报/4.21/test/ 下生成一个真实可落地的 Python 命令行 demo 项目。这个项目要演示 CAT-Net 最核心的篡改定位能力：输入一张图像路径后，输出一个简化版的篡改定位结果，并打印关键处理阶段说明。",
+  "phase_traces": [
+    {
+      "phase": "input_parse",
+      "details": {
+        "matched_advisor_count": 12,
+        "policy": "project_partition_path_hierarchical_fusion"
+      }
+    },
+    {
+      "phase": "primary_advisor_selection",
+      "details": {
+        "selected_advisor": {
+          "advisor_id": "experience::CAT-Net-main::partition_2::path_2",
+          "advisor_name": "CAT-Net-main:partition_2:获取篡改数据",
+          "partition_id": "partition_2",
+          "fused_score": 74.1491
+        },
+        "top_candidates_preview": [
+          {
+            "rank": 1,
+            "advisor_id": "experience::CAT-Net-main::partition_2::path_2",
+            "advisor_name": "CAT-Net-main:partition_2:获取篡改数据",
+            "project_name": "CAT-Net-main",
+            "partition_id": "partition_2",
+            "fused_score": 74.1491,
+            "what": "该经验库来自项目CAT-Net-main，功能分区“partition_2”，路径“获取篡改数据”，能力描述：从CASIA数据集中获取图像篡改样本，用于后续的篡改检测模型训练或测试。",
+            "how": "[1] 输入需求输入 -> 进入np.array；执行模块处理；得到step_1_output；下一步CASIA.get_tamp。；[2] 输入step_1_output -> 进入CASIA.get_tamp；执行模块处理；得到np.array；下一步END。；约束依据：CFG、DFG、输入输出、np.array、CASIA.get_tamp。"
+          },
+          {
+            "rank": 2,
+            "advisor_id": "experience::GitNexus-main::partition_14::path_0",
+            "advisor_name": "GitNexus-main:partition_14:获取仓库信息",
+            "project_name": "GitNexus-main",
+            "partition_id": "partition_14",
+            "fused_score": 66.9108,
+            "what": "该经验库来自项目GitNexus-main，功能分区“partition_14”，路径“获取仓库信息”，能力描述：该路径通过GitNexusDockerEnvironment类的_get_repo_info方法获取代码仓库的基本信息，用于后续的Docker环境配置或操作。",
+            "how": "[1] 输入需求输入 -> 进入GitNexusDockerEnvironment._get_repo_info；执行模块处理；得到step_1_output；下一步_get_repo_info。；[2] 输入step_1_output -> 进入_get_repo_info；执行模块处理；得到step_2_output；下一步commit_result.get.strip。；[3] 输入step_2_output -> 进入commit_result.get.strip；执行模块处理；得到step_3_output；下一步commit_result.get。；[4] 输入step_3_output -> 进入commit_result.get；执行模块处理；得到_get_repo_info；下一步END。；约束依据：CFG、DFG、输入输出、_get_repo_info、commit_result.get.strip。"
+          },
+          {
+            "rank": 3,
+            "advisor_id": "experience::CAT-Net-main::partition_11::path_4",
+            "advisor_name": "CAT-Net-main:partition_11:配置参数解析更新",
+            "project_name": "CAT-Net-main",
+            "partition_id": "partition_11",
+            "fused_score": 67.9683,
+            "what": "该经验库来自项目CAT-Net-main，功能分区“partition_11”，路径“配置参数解析更新”，能力描述：该路径首先解析命令行参数，然后根据解析结果更新系统配置，用于动态调整程序运行时的参数设置。",
+            "how": "[1] 输入需求输入 -> 进入parse_args；执行模块处理；得到step_1_output；下一步update_config。；[2] 输入step_1_output -> 进入update_config；执行模块处理；得到step_2_output；下一步cfg.defrost。；[3] 输入step_2_output -> 进入cfg.defrost；执行模块处理；得到cfg.defrost；下一步END。；约束依据：CFG、DFG、输入输出、cfg.defrost、update_config。"
+          },
+          {
+            "rank": 4,
+            "advisor_id": "experience::CAT-Net-main::partition_2::path_2",
+            "advisor_name": "CAT-Net-main:partition_2:获取篡改数据",
+            "project_name": "CAT-Net-main",
+            "partition_id": "partition_2",
+            "fused_score": 66.3005,
+            "what": "该经验库来自项目CAT-Net-main，功能分区“partition_2”，路径“获取篡改数据”，能力描述：从CASIA数据集中获取图像篡改样本，用于后续的篡改检测模型训练或测试。",
+            "how": "[1] 输入需求输入 -> 进入np.array；执行模块处理；得到step_1_output；下一步CASIA.get_tamp。；[2] 输入step_1_output -> 进入CASIA.get_tamp；执行模块处理；得到np.array；下一步END。；约束依据：CFG、DFG、输入输出、np.array、CASIA.get_tamp。"
+          },
+          {
+            "rank": 5,
+            "advisor_id": "experience::CAT-Net-main::partition_7::path_0",
+            "advisor_name": "CAT-Net-main:partition_7:前向传播测试",
+            "project_name": "CAT-Net-main",
+            "partition_id": "partition_7",
+            "fused_score": 65.7623,
+            "what": "该经验库来自项目CAT-Net-main，功能分区“partition_7”，路径“前向传播测试”，能力描述：执行神经网络模型的前向传播过程测试，验证模型在给定输入下的正向计算流程和输出结果。",
+            "how": "[1] 输入需求输入 -> 进入self.mock_loss.assert_called_once_with；执行模块处理；得到step_1_output；下一步test_forward_pass。；[2] 输入step_1_output -> 进入test_forward_pass；执行模块处理；得到self.mock_loss.assert_called_once_with；下一步END。；约束依据：CFG、DFG、输入输出、self.mock_loss.assert_called_once_with、test_forward_pass。"
+          },
+          {
+            "rank": 6,
+            "advisor_id": "experience::CAT-Net-main::partition_7::path_2",
+            "advisor_name": "CAT-Net-main:partition_7:前向传播测试",
+            "project_name": "CAT-Net-main",
+            "partition_id": "partition_7",
+            "fused_score": 65.7623,
+            "what": "该经验库来自项目CAT-Net-main，功能分区“partition_7”，路径“前向传播测试”，能力描述：该路径用于测试神经网络模型的前向传播过程，验证输入数据经过网络各层后的输出结果是否符合预期。",
+            "how": "[1] 输入需求输入 -> 进入test_forward_pass；执行模块处理；得到step_1_output；下一步self.mock_loss.assert_called_once_with。；[2] 输入step_1_output -> 进入self.mock_loss.assert_called_once_with；执行模块处理；得到self.mock_loss.assert_called_once_with；下一步END。；约束依据：CFG、DFG、输入输出、self.mock_loss.assert_called_once_with、test_forward_pass。"
+          },
+          {
+            "rank": 7,
+            "advisor_id": "experience::CAT-Net-main::partition_11::path_0",
+            "advisor_name": "CAT-Net-main:partition_11:配置参数更新",
+            "project_name": "CAT-Net-main",
+            "partition_id": "partition_11",
+            "fused_score": 65.349,
+            "what": "该经验库来自项目CAT-Net-main，功能分区“partition_11”，路径“配置参数更新”，能力描述：该路径负责更新系统配置并解析命令行参数，用于动态调整程序运行时的设置和选项。",
+            "how": "[1] 输入需求输入 -> 进入cfg.defrost；执行模块处理；得到step_1_output；下一步update_config。；[2] 输入step_1_output -> 进入update_config；执行模块处理；得到step_2_output；下一步parse_args。；[3] 输入step_2_output -> 进入parse_args；执行模块处理；得到cfg.defrost；下一步END。；约束依据：CFG、DFG、输入输出、cfg.defrost、update_config。"
+          },
+          {
+            "rank": 8,
+            "advisor_id": "experience::CAT-Net-main::partition_11::path_1",
+            "advisor_name": "CAT-Net-main:partition_11:配置更新主流程",
+            "project_name": "CAT-Net-main",
+            "partition_id": "partition_11",
+            "fused_score": 65.349,
+            "what": "该经验库来自项目CAT-Net-main，功能分区“partition_11”，路径“配置更新主流程”，能力描述：该路径首先更新系统配置，然后执行主程序逻辑，完成配置初始化后的核心功能运行。",
+            "how": "[1] 输入需求输入 -> 进入cfg.defrost；执行模块处理；得到step_1_output；下一步update_config。；[2] 输入step_1_output -> 进入update_config；执行模块处理；得到step_2_output；下一步main。；[3] 输入step_2_output -> 进入main；执行模块处理；得到cfg.defrost；下一步END。；约束依据：CFG、DFG、输入输出、cfg.defrost、update_config。"
+          },
+          {
+            "rank": 9,
+            "advisor_id": "experience::CAT-Net-main::partition_2::path_3",
+            "advisor_name": "CAT-Net-main:partition_2:创建张量",
+            "project_name": "CAT-Net-main",
+            "partition_id": "partition_2",
+            "fused_score": 64.8809,
+            "what": "该经验库来自项目CAT-Net-main，功能分区“partition_2”，路径“创建张量”，能力描述：该路径负责创建张量对象，是数据处理和模型计算的基础操作，用于初始化神经网络中的多维数组数据结构。",
+            "how": "[1] 输入需求输入 -> 进入np.array；执行模块处理；得到step_1_output；下一步_create_tensor。；[2] 输入step_1_output -> 进入_create_tensor；执行模块处理；得到np.array；下一步END。；约束依据：CFG、DFG、输入输出、np.array、_create_tensor。"
+          },
+          {
+            "rank": 10,
+            "advisor_id": "experience::CAT-Net-main::partition_2::path_4",
+            "advisor_name": "CAT-Net-main:partition_2:创建张量数据集",
+            "project_name": "CAT-Net-main",
+            "partition_id": "partition_2",
+            "fused_score": 64.8809,
+            "what": "该经验库来自项目CAT-Net-main，功能分区“partition_2”，路径“创建张量数据集”，能力描述：该方法用于创建抽象数据集中的张量表示，为后续数据处理和模型训练准备基础数据结构。",
+            "how": "[1] 输入需求输入 -> 进入np.array；执行模块处理；得到step_1_output；下一步AbstractDataset._create_tensor。；[2] 输入step_1_output -> 进入AbstractDataset._create_tensor；执行模块处理；得到np.array；下一步END。；约束依据：CFG、DFG、输入输出、np.array、AbstractDataset._create_tensor。"
+          }
+        ],
+        "selected_for_followup_count": 9,
+        "selected_for_followup_ids": [
+          "experience::CAT-Net-main::partition_2::path_2",
+          "experience::GitNexus-main::partition_14::path_0",
+          "experience::CAT-Net-main::partition_11::path_4",
+          "experience::CAT-Net-main::partition_7::path_0",
+          "experience::CAT-Net-main::partition_7::path_2",
+          "experience::CAT-Net-main::partition_11::path_0",
+          "experience::CAT-Net-main::partition_11::path_1",
+          "experience::CAT-Net-main::partition_2::path_3",
+          "experience::CAT-Net-main::partition_2::path_4"
+        ]
+      }
+    },
+    {
+      "phase": "analysis_materialization",
+      "details": {
+        "what": "该经验库来自项目CAT-Net-main，功能分区“partition_2”，路径“获取篡改数据”，能力描述：从CASIA数据集中获取图像篡改样本，用于后续的篡改检测模型训练或测试。",
+        "how": "[1] 输入需求输入 -> 进入np.array；执行模块处理；得到step_1_output；下一步CASIA.get_tamp。；[2] 输入step_1_output -> 进入CASIA.get_tamp；执行模块处理；得到np.array；下一步END。；约束依据：CFG、DFG、输入输出、np.array、CASIA.get_tamp。",
+        "constraints": [
+          "np.array",
+          "CASIA.get_tamp",
+          "优先复用经验库中的 CFG/DFG/IO 证据，不直接跳过中间路径步骤。",
+          "需要 CFG 约束证据",
+          "需要 DFG 约束证据",
+          "需要输入输出约束"
+        ],
+        "constraints_structured_summary": {
+          "types": [
+            "cfg",
+            "dfg",
+            "io_graph",
+            "input_info",
+            "output_info",
+            "constraint_explain"
+          ],
+          "has_cfg": true,
+          "has_dfg": true,
+          "has_io_graph": true,
+          "cfg_node_count": 12,
+          "dfg_node_count": 20,
+          "io_node_count": 5,
+          "has_constraint_explain": true
+        },
+        "key_call_chain": [
+          "np.array",
+          "CASIA.get_tamp"
+        ],
+        "key_code_refs": [
+          "np.array",
+          "CASIA.get_tamp"
+        ]
+      }
+    }
+  ]
+}

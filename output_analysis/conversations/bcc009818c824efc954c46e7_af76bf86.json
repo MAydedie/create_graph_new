@@ -1,0 +1,1003 @@
+{
+  "conversationId": "bcc009818c824efc954c46e7e68aaba5",
+  "projectPath": "D:\\代码仓库生图\\create_graph",
+  "status": "active",
+  "messages": [
+    {
+      "role": "user",
+      "content": "请根据选中经验库生成改造建议，并把输出写入 \"D:/tmp/qa_extract_validation\"",
+      "createdAt": "2026-04-21T12:53:16.948899Z",
+      "messageId": "9cfb3742f9924c77ac1911e8c65a17b3"
+    },
+    {
+      "role": "assistant",
+      "content": "您希望生成的改造建议遵循哪些约束条件？",
+      "createdAt": "2026-04-21T12:53:27.667504Z",
+      "messageId": "0c59bbaf168d4b32a9b6dc320165dc27"
+    },
+    {
+      "role": "user",
+      "content": "请选择 B、C，并优先参考经验库。",
+      "createdAt": "2026-04-21T12:53:52.737897Z",
+      "messageId": "f63f01d99eaa4f04928ac681ebc8167a"
+    },
+    {
+      "role": "assistant",
+      "content": "### 定位结论\n根据检索到的证据，当前查询“请选择 B、C，并优先参考经验库。”与代码库中的具体功能或问题没有直接关联。证据显示的是前端组件中关于文件选择、节点选择的用户提示信息，以及后端应用的入口文件，并未涉及“B、C”选项或“经验库”的具体实现。\n\n### 关键证据\n- `frontend_gitnexus/src/components/DropZone.tsx:200-208`: 代码显示对上传文件类型的校验逻辑，提示用户选择 `.zip` 文件。\n- `frontend_gitnexus/src/components/FileTreePanel.tsx:525-533`: 代码显示在应用深度筛选时，提示用户需要先选择一个节点。\n- `frontend_gitnexus/src/components/CodeReferencesPanel.tsx:464-472`: 代码显示在源码预览区域，根据选中节点的类型（文件或目录）向用户显示不同的提示信息。\n- `app.py:1-5`: 这是Flask应用的主入口文件，定义了应用的初始结构。\n\n### 建议改动步骤\n由于提供的检索证据与查询要求不匹配，无法生成具体的、可执行的代码改造步骤。建议采取以下动作来明确需求：\n- 步骤一：重新审查查询请求，明确“B、C”具体指代代码库中的哪个功能模块、配置选项或UI元素。\n- 步骤二：在代码库中搜索与“经验库”或“知识库”相关的关键词，定位其具体实现文件。\n- 步骤三：根据新定位到的具体代码上下文，重新构造一个明确的、与代码功能相关的查询。\n- 步骤四：将新的查询提交给问答助手，以便获得基于代码证据的针对性改造建议。\n\n### 建议验证命令\n由于缺乏具体的改造目标，无法提供针对性的验证命令。在明确改造内容后，可运行以下通用命令确保基础功能正常：\n- `python -m py_compile \"app.py\"`\n- `npm run build`",
+      "createdAt": "2026-04-21T12:54:15.382753Z",
+      "messageId": "0fd4c1bfe73e4ca3b325bd18e5e6094d"
+    }
+  ],
+  "parts": [
+    {
+      "type": "user_text",
+      "content": "请根据选中经验库生成改造建议，并把输出写入 \"D:/tmp/qa_extract_validation\"",
+      "metadata": {
+        "sessionId": "94705a419f294b15aef6aadca1d6f9ab",
+        "projectPath": "D:\\代码仓库生图\\create_graph"
+      },
+      "partId": "7d17f593151e4b8fa5c28282c23700d1",
+      "createdAt": "2026-04-21T12:53:16.949916Z"
+    },
+    {
+      "type": "question_request",
+      "content": "您希望生成的改造建议遵循哪些约束条件？",
+      "metadata": {
+        "questionId": "70826aaf32a742238eebb716997b276c",
+        "question": "您希望生成的改造建议遵循哪些约束条件？",
+        "header": "需求澄清：约束条件",
+        "options": [
+          {
+            "label": "A",
+            "description": "仅生成文本建议，不包含代码实现"
+          },
+          {
+            "label": "B",
+            "description": "包含具体代码示例和实现步骤"
+          },
+          {
+            "label": "C",
+            "description": "按优先级排序，并标注实施难度"
+          },
+          {
+            "label": "D",
+            "description": "包含风险评估和回滚方案"
+          }
+        ],
+        "multiple": true,
+        "custom": true,
+        "allowFreeform": true,
+        "source": "llm",
+        "projectPath": "D:\\代码仓库生图\\create_graph",
+        "reason": "缺少约束条件说明，需要明确建议的输出格式、详细程度和附加要求，以确保生成的改造建议符合您的实际需求。",
+        "round": 1,
+        "maxRounds": 2,
+        "clarityLevel": "missing_indicators",
+        "inferredIntent": "请根据选中经验库生成改造建议，并把输出写入 \"D:/tmp/qa_extract_validation\"",
+        "structuredFields": [
+          {
+            "id": "constraints",
+            "label": "是否有约束、指标或风格要求"
+          }
+        ],
+        "terminal": false,
+        "originalQuery": "请根据选中经验库生成改造建议，并把输出写入 \"D:/tmp/qa_extract_validation\"",
+        "createdAt": "2026-04-21T12:53:27.665969Z",
+        "status": "pending"
+      },
+      "partId": "bd6faf5cac2a4913b955531a3e1c8ce3",
+      "createdAt": "2026-04-21T12:53:27.667504Z"
+    },
+    {
+      "type": "user_text",
+      "content": "请选择 B、C，并优先参考经验库。",
+      "metadata": {
+        "sessionId": "67a465f52f5847c380cc35fd9aa9e08f",
+        "projectPath": "D:\\代码仓库生图\\create_graph"
+      },
+      "partId": "6fe12a17dab24b5187ee9728e8a38d84",
+      "createdAt": "2026-04-21T12:53:52.741959Z"
+    },
+    {
+      "type": "question_reply",
+      "content": "{\"questionId\": \"70826aaf32a742238eebb716997b276c\", \"answer\": \"请选择 B、C，并优先参考经验库。\", \"selectedOptionLabels\": [\"B\", \"C\"], \"raw\": {\"project_path\": \"D:\\\\代码仓库生图\\\\create_graph\", \"answer\": \"请选择 B、C，并优先参考经验库。\", \"selectedOptionLabels\": [\"B\", \"C\"], \"clarification_context\": {\"id\": \"70826aaf32a742238eebb716997b276c\", \"round\": 1, \"originalQuery\": \"请根据选中经验库生成改造建议，并把输出写入 \\\"D:/tmp/qa_extract_validation\\\"\", \"latestUserReply\": \"请选择 B、C，并优先参考经验库。\", \"selectedOptionLabels\": [\"B\", \"C\"], \"prioritizedExperienceLibraries\": [\"create_graph_50055b0f.json\", \"CAT-Net-main_2d8849b3.json\"]}, \"auto_start_multi_agent\": true, \"opencode_enabled\": true, \"output_root\": \"D:/tmp/qa_extract_validation\", \"auto_apply_output\": true}, \"replyId\": \"bb7c3397cde74cac9cc05566296e9efb\", \"createdAt\": \"2026-04-21T12:53:52.745256Z\"}",
+      "metadata": {
+        "questionId": "70826aaf32a742238eebb716997b276c",
+        "answer": "请选择 B、C，并优先参考经验库。",
+        "selectedOptionLabels": [
+          "B",
+          "C"
+        ],
+        "raw": {
+          "project_path": "D:\\代码仓库生图\\create_graph",
+          "answer": "请选择 B、C，并优先参考经验库。",
+          "selectedOptionLabels": [
+            "B",
+            "C"
+          ],
+          "clarification_context": {
+            "id": "70826aaf32a742238eebb716997b276c",
+            "round": 1,
+            "originalQuery": "请根据选中经验库生成改造建议，并把输出写入 \"D:/tmp/qa_extract_validation\"",
+            "latestUserReply": "请选择 B、C，并优先参考经验库。",
+            "selectedOptionLabels": [
+              "B",
+              "C"
+            ],
+            "prioritizedExperienceLibraries": [
+              "create_graph_50055b0f.json",
+              "CAT-Net-main_2d8849b3.json"
+            ]
+          },
+          "auto_start_multi_agent": true,
+          "opencode_enabled": true,
+          "output_root": "D:/tmp/qa_extract_validation",
+          "auto_apply_output": true
+        },
+        "replyId": "bb7c3397cde74cac9cc05566296e9efb",
+        "createdAt": "2026-04-21T12:53:52.745256Z"
+      },
+      "partId": "32638e6b0e3c45a98f499f2b2b65e1a0",
+      "createdAt": "2026-04-21T12:53:52.746770Z"
+    },
+    {
+      "type": "tool_call",
+      "content": "{\"tool\": \"codebase_first_retrieval\", \"query\": \"请选择 B、C，并优先参考经验库。\", \"createdAt\": \"2026-04-21T12:53:56.204844Z\"}",
+      "metadata": {
+        "tool": "codebase_first_retrieval",
+        "query": "请选择 B、C，并优先参考经验库。",
+        "createdAt": "2026-04-21T12:53:56.204844Z"
+      },
+      "partId": "1c0c7fd8fb5c4afc8ee0450fad26aa9d",
+      "createdAt": "2026-04-21T12:53:56.204844Z"
+    },
+    {
+      "type": "tool_result",
+      "content": "{\"ok\": true, \"error\": null, \"highlights\": [{\"id\": \"file:frontend_gitnexus/src/components/DropZone.tsx:200\", \"label\": \"frontend_gitnexus/src/components/DropZone.tsx:200\", \"file\": \"frontend_gitnexus/src/components/DropZone.tsx\", \"score\": 1.3, \"sources\": [\"codebase_scan\"], \"snippet\": \"const file = files[0];\\n    if (file.name.endsWith('.zip')) {\\n      onFileSelect(file);\\n    } else {\\n      setError('请选择 .zip 文件');\\n    }\\n  }\\n}, [onFileSelect]);\", \"lineStart\": 200, \"lineEnd\": 208}, {\"id\": \"file:frontend_gitnexus/src/components/FileTreePanel.tsx:525\", \"label\": \"frontend_gitnexus/src/components/FileTreePanel.tsx:525\", \"file\": \"frontend_gitnexus/src/components/FileTreePanel.tsx\", \"score\": 1.3, \"sources\": [\"codebase_scan\"], \"snippet\": \"</div>\\n\\n            {depthFilter !== null && !selectedNode && (\\n              <p className=\\\"mt-2 text-[10px] text-amber-400\\\">\\n                请选择节点后再应用深度筛选\\n              </p>\\n            )}\\n          </div>\", \"lineStart\": 525, \"lineEnd\": 533}, {\"id\": \"file:frontend_gitnexus/src/components/CodeReferencesPanel.tsx:464\", \"label\": \"frontend_gitnexus/src/components/CodeReferencesPanel.tsx:464\", \"file\": \"frontend_gitnexus/src/components/CodeReferencesPanel.tsx\", \"score\": 1.3, \"sources\": [\"codebase_scan\"], \"snippet\": \"<>当前节点没有可预览的源码路径。</>\\n                  ) : selectedIsFile ? (\\n                     <>内存中暂无 <span className=\\\"font-mono\\\">{selectedFilePath}</span> 的源码内容。</>\\n                  ) : (\\n                     <>请选择文件节点以预览其内容。</>\\n                  )}\\n                </div>\\n              )}\\n            </div>\", \"lineStart\": 464, \"lineEnd\": 472}, {\"id\": \"file:app.py:1\", \"label\": \"app.py:1\", \"file\": \"app.py\", \"score\": 0.2, \"sources\": [\"codebase_scan\"], \"snippet\": \"#!/usr/bin/env python\\n# -*- coding: utf-8 -*-\\n\\\"\\\"\\\"\\nFlask application entrypoint.\\nCreates the app and registers Blueprints; all business logic lives in app/services.\", \"lineStart\": 1, \"lineEnd\": 5}, {\"id\": \"file:main.py:1\", \"label\": \"main.py:1\", \"file\": \"main.py\", \"score\": 0.2, \"sources\": [\"codebase_scan\"], \"snippet\": \"\\\"\\\"\\\"\\n代码分析与可视化系统 - 主程序入口\\n\\\"\\\"\\\"\\n\\nimport argparse\", \"lineStart\": 1, \"lineEnd\": 5}, {\"id\": \"file:models.py:1\", \"label\": \"models.py:1\", \"file\": \"models.py\", \"score\": 0.2, \"sources\": [\"codebase_scan\"], \"snippet\": \"from dataclasses import dataclass, field\\nfrom datetime import date\\nfrom typing import List, Optional\\nfrom decimal import Decimal\", \"lineStart\": 1, \"lineEnd\": 5}]}",
+      "metadata": {
+        "tool": "codebase_first_retrieval",
+        "ok": true,
+        "error": null,
+        "highlights": [
+          {
+            "id": "file:frontend_gitnexus/src/components/DropZone.tsx:200",
+            "label": "frontend_gitnexus/src/components/DropZone.tsx:200",
+            "file": "frontend_gitnexus/src/components/DropZone.tsx",
+            "score": 1.3,
+            "sources": [
+              "codebase_scan"
+            ],
+            "snippet": "const file = files[0];\n    if (file.name.endsWith('.zip')) {\n      onFileSelect(file);\n    } else {\n      setError('请选择 .zip 文件');\n    }\n  }\n}, [onFileSelect]);",
+            "lineStart": 200,
+            "lineEnd": 208
+          },
+          {
+            "id": "file:frontend_gitnexus/src/components/FileTreePanel.tsx:525",
+            "label": "frontend_gitnexus/src/components/FileTreePanel.tsx:525",
+            "file": "frontend_gitnexus/src/components/FileTreePanel.tsx",
+            "score": 1.3,
+            "sources": [
+              "codebase_scan"
+            ],
+            "snippet": "</div>\n\n            {depthFilter !== null && !selectedNode && (\n              <p className=\"mt-2 text-[10px] text-amber-400\">\n                请选择节点后再应用深度筛选\n              </p>\n            )}\n          </div>",
+            "lineStart": 525,
+            "lineEnd": 533
+          },
+          {
+            "id": "file:frontend_gitnexus/src/components/CodeReferencesPanel.tsx:464",
+            "label": "frontend_gitnexus/src/components/CodeReferencesPanel.tsx:464",
+            "file": "frontend_gitnexus/src/components/CodeReferencesPanel.tsx",
+            "score": 1.3,
+            "sources": [
+              "codebase_scan"
+            ],
+            "snippet": "<>当前节点没有可预览的源码路径。</>\n                  ) : selectedIsFile ? (\n                     <>内存中暂无 <span className=\"font-mono\">{selectedFilePath}</span> 的源码内容。</>\n                  ) : (\n                     <>请选择文件节点以预览其内容。</>\n                  )}\n                </div>\n              )}\n            </div>",
+            "lineStart": 464,
+            "lineEnd": 472
+          },
+          {
+            "id": "file:app.py:1",
+            "label": "app.py:1",
+            "file": "app.py",
+            "score": 0.2,
+            "sources": [
+              "codebase_scan"
+            ],
+            "snippet": "#!/usr/bin/env python\n# -*- coding: utf-8 -*-\n\"\"\"\nFlask application entrypoint.\nCreates the app and registers Blueprints; all business logic lives in app/services.",
+            "lineStart": 1,
+            "lineEnd": 5
+          },
+          {
+            "id": "file:main.py:1",
+            "label": "main.py:1",
+            "file": "main.py",
+            "score": 0.2,
+            "sources": [
+              "codebase_scan"
+            ],
+            "snippet": "\"\"\"\n代码分析与可视化系统 - 主程序入口\n\"\"\"\n\nimport argparse",
+            "lineStart": 1,
+            "lineEnd": 5
+          },
+          {
+            "id": "file:models.py:1",
+            "label": "models.py:1",
+            "file": "models.py",
+            "score": 0.2,
+            "sources": [
+              "codebase_scan"
+            ],
+            "snippet": "from dataclasses import dataclass, field\nfrom datetime import date\nfrom typing import List, Optional\nfrom decimal import Decimal",
+            "lineStart": 1,
+            "lineEnd": 5
+          }
+        ]
+      },
+      "partId": "f96c96e1492f465694c3c3f2d530c020",
+      "createdAt": "2026-04-21T12:53:59.415208Z"
+    },
+    {
+      "type": "assistant_text",
+      "content": "### 定位结论\n根据检索到的证据，当前查询“请选择 B、C，并优先参考经验库。”与代码库中的具体功能或问题没有直接关联。证据显示的是前端组件中关于文件选择、节点选择的用户提示信息，以及后端应用的入口文件，并未涉及“B、C”选项或“经验库”的具体实现。\n\n### 关键证据\n- `frontend_gitnexus/src/components/DropZone.tsx:200-208`: 代码显示对上传文件类型的校验逻辑，提示用户选择 `.zip` 文件。\n- `frontend_gitnexus/src/components/FileTreePanel.tsx:525-533`: 代码显示在应用深度筛选时，提示用户需要先选择一个节点。\n- `frontend_gitnexus/src/components/CodeReferencesPanel.tsx:464-472`: 代码显示在源码预览区域，根据选中节点的类型（文件或目录）向用户显示不同的提示信息。\n- `app.py:1-5`: 这是Flask应用的主入口文件，定义了应用的初始结构。\n\n### 建议改动步骤\n由于提供的检索证据与查询要求不匹配，无法生成具体的、可执行的代码改造步骤。建议采取以下动作来明确需求：\n- 步骤一：重新审查查询请求，明确“B、C”具体指代代码库中的哪个功能模块、配置选项或UI元素。\n- 步骤二：在代码库中搜索与“经验库”或“知识库”相关的关键词，定位其具体实现文件。\n- 步骤三：根据新定位到的具体代码上下文，重新构造一个明确的、与代码功能相关的查询。\n- 步骤四：将新的查询提交给问答助手，以便获得基于代码证据的针对性改造建议。\n\n### 建议验证命令\n由于缺乏具体的改造目标，无法提供针对性的验证命令。在明确改造内容后，可运行以下通用命令确保基础功能正常：\n- `python -m py_compile \"app.py\"`\n- `npm run build`",
+      "metadata": {
+        "mode": "retrieval",
+        "validationCommands": [
+          "python -m py_compile \"app.py\"",
+          "python -m py_compile \"main.py\"",
+          "npm run build"
+        ],
+        "search": {
+          "mode": "codebase_first_with_graph_augmentation",
+          "stats": {
+            "scannedFiles": 400,
+            "matchedFiles": 315,
+            "symbolHits": 0,
+            "astHits": 0,
+            "importHits": 0,
+            "followupSymbolHits": 0,
+            "followupImportHits": 0,
+            "topK": 8,
+            "queryPlanCount": 4,
+            "graphAvailable": true
+          },
+          "strategy": [
+            "codebase_scan",
+            "symbol_hunt",
+            "python_ast_hunt",
+            "import_hunt",
+            "followup_symbol_hunt",
+            "followup_import_hunt"
+          ],
+          "queryPlans": [
+            {
+              "query": "请选择 B、C，并优先参考经验库。",
+              "kind": "primary",
+              "weight": 1.0
+            },
+            {
+              "query": "请选择 B、C",
+              "kind": "segment",
+              "weight": 0.78
+            },
+            {
+              "query": "并优先参考经验库。",
+              "kind": "segment",
+              "weight": 0.78
+            },
+            {
+              "query": "请选择 B、C 并优先参考经验库。",
+              "kind": "bridge",
+              "weight": 0.72
+            }
+          ],
+          "decisionTrace": [
+            {
+              "step": "action_decision",
+              "decision": "run_retrieval",
+              "reason": "用户明确要求选择B、C并优先参考经验库，这符合检索经验库以生成改造建议的意图，且任务目标清晰，适合直接执行检索。",
+              "confidence": "high"
+            },
+            {
+              "step": "cache_lookup",
+              "decision": "miss",
+              "reason": "未命中缓存，执行新检索"
+            },
+            {
+              "step": "query_decomposition",
+              "decision": "plans=4",
+              "reason": "主查询 + 分段 + bridge 子查询聚合",
+              "evidence": [
+                {
+                  "query": "请选择 B、C，并优先参考经验库。",
+                  "kind": "primary",
+                  "weight": 1.0
+                },
+                {
+                  "query": "请选择 B、C",
+                  "kind": "segment",
+                  "weight": 0.78
+                },
+                {
+                  "query": "并优先参考经验库。",
+                  "kind": "segment",
+                  "weight": 0.78
+                },
+                {
+                  "query": "请选择 B、C 并优先参考经验库。",
+                  "kind": "bridge",
+                  "weight": 0.72
+                }
+              ]
+            },
+            {
+              "step": "strategy_selection",
+              "decision": "codebase_scan -> symbol_hunt -> python_ast_hunt -> import_hunt -> followup_symbol_hunt -> followup_import_hunt",
+              "reason": "代码优先，符号/AST/导入与二次补全联合打分"
+            },
+            {
+              "step": "graph_augmentation",
+              "decision": "enabled",
+              "reason": "图谱可用时增强调用链上下文；不可用则保持代码优先"
+            },
+            {
+              "step": "result_assembly",
+              "decision": "highlights=6",
+              "reason": "输出证据命中并附带建议验证命令"
+            }
+          ]
+        }
+      },
+      "partId": "48dd5557a98f4bf993a8b77ba1fefa6f",
+      "createdAt": "2026-04-21T12:54:15.385296Z"
+    }
+  ],
+  "pendingQuestion": null,
+  "questionReplies": [
+    {
+      "questionId": "70826aaf32a742238eebb716997b276c",
+      "answer": "请选择 B、C，并优先参考经验库。",
+      "selectedOptionLabels": [
+        "B",
+        "C"
+      ],
+      "raw": {
+        "project_path": "D:\\代码仓库生图\\create_graph",
+        "answer": "请选择 B、C，并优先参考经验库。",
+        "selectedOptionLabels": [
+          "B",
+          "C"
+        ],
+        "clarification_context": {
+          "id": "70826aaf32a742238eebb716997b276c",
+          "round": 1,
+          "originalQuery": "请根据选中经验库生成改造建议，并把输出写入 \"D:/tmp/qa_extract_validation\"",
+          "latestUserReply": "请选择 B、C，并优先参考经验库。",
+          "selectedOptionLabels": [
+            "B",
+            "C"
+          ],
+          "prioritizedExperienceLibraries": [
+            "create_graph_50055b0f.json",
+            "CAT-Net-main_2d8849b3.json"
+          ]
+        },
+        "auto_start_multi_agent": true,
+        "opencode_enabled": true,
+        "output_root": "D:/tmp/qa_extract_validation",
+        "auto_apply_output": true
+      },
+      "replyId": "bb7c3397cde74cac9cc05566296e9efb",
+      "createdAt": "2026-04-21T12:53:52.745256Z"
+    }
+  ],
+  "summarySnapshot": null,
+  "compactionHistory": [],
+  "keyFactsMemory": {
+    "version": "v2",
+    "updatedAt": "2026-04-21T12:54:15.389830Z",
+    "projectPath": "D:\\代码仓库生图\\create_graph",
+    "recentUserGoal": "请选择 B、C，并优先参考经验库。",
+    "taskMode": "write_new_code",
+    "pathHints": [],
+    "selectedOptionLabels": [
+      "B",
+      "C"
+    ],
+    "decisions": [
+      {
+        "action": "clarify",
+        "taskMode": "write_new_code",
+        "reason": "用户请求涉及生成改造建议并写入指定路径，但缺少具体指标、约束或实现框架偏好，需要进一步澄清以确保生成符合预期的代码。",
+        "at": "2026-04-21T12:53:27.671196Z"
+      },
+      {
+        "action": "run_retrieval",
+        "taskMode": "write_new_code",
+        "reason": "用户明确要求选择B、C并优先参考经验库，这符合检索经验库以生成改造建议的意图，且任务目标清晰，适合直接执行检索。",
+        "at": "2026-04-21T12:54:15.389830Z"
+      }
+    ],
+    "retrievalCache": [
+      {
+        "queryKey": "请选择 b、c，并优先参考经验库。",
+        "query": "请选择 B、C，并优先参考经验库。",
+        "highlights": [
+          {
+            "id": "file:frontend_gitnexus/src/components/DropZone.tsx:200",
+            "label": "frontend_gitnexus/src/components/DropZone.tsx:200",
+            "file": "frontend_gitnexus/src/components/DropZone.tsx",
+            "score": 1.3,
+            "sources": [
+              "codebase_scan"
+            ],
+            "lineStart": 200,
+            "lineEnd": 208,
+            "snippet": "const file = files[0];\n    if (file.name.endsWith('.zip')) {\n      onFileSelect(file);\n    } else {\n      setError('请选择 .zip 文件');\n    }\n  }\n}, [onFileSelect]);"
+          },
+          {
+            "id": "file:frontend_gitnexus/src/components/FileTreePanel.tsx:525",
+            "label": "frontend_gitnexus/src/components/FileTreePanel.tsx:525",
+            "file": "frontend_gitnexus/src/components/FileTreePanel.tsx",
+            "score": 1.3,
+            "sources": [
+              "codebase_scan"
+            ],
+            "lineStart": 525,
+            "lineEnd": 533,
+            "snippet": "</div>\n\n            {depthFilter !== null && !selectedNode && (\n              <p className=\"mt-2 text-[10px] text-amber-400\">\n                请选择节点后再应用深度筛选\n              </p>\n            )}\n          </div>"
+          },
+          {
+            "id": "file:frontend_gitnexus/src/components/CodeReferencesPanel.tsx:464",
+            "label": "frontend_gitnexus/src/components/CodeReferencesPanel.tsx:464",
+            "file": "frontend_gitnexus/src/components/CodeReferencesPanel.tsx",
+            "score": 1.3,
+            "sources": [
+              "codebase_scan"
+            ],
+            "lineStart": 464,
+            "lineEnd": 472,
+            "snippet": "<>当前节点没有可预览的源码路径。</>\n                  ) : selectedIsFile ? (\n                     <>内存中暂无 <span className=\"font-mono\">{selectedFilePath}</span> 的源码内容。</>\n                  ) : (\n                     <>请选择文件节点以预览其内容。</>\n                  )}\n                </div>\n              )}\n            </div>"
+          },
+          {
+            "id": "file:app.py:1",
+            "label": "app.py:1",
+            "file": "app.py",
+            "score": 0.2,
+            "sources": [
+              "codebase_scan"
+            ],
+            "lineStart": 1,
+            "lineEnd": 5,
+            "snippet": "#!/usr/bin/env python\n# -*- coding: utf-8 -*-\n\"\"\"\nFlask application entrypoint.\nCreates the app and registers Blueprints; all business logic lives in app/services."
+          },
+          {
+            "id": "file:main.py:1",
+            "label": "main.py:1",
+            "file": "main.py",
+            "score": 0.2,
+            "sources": [
+              "codebase_scan"
+            ],
+            "lineStart": 1,
+            "lineEnd": 5,
+            "snippet": "\"\"\"\n代码分析与可视化系统 - 主程序入口\n\"\"\"\n\nimport argparse"
+          },
+          {
+            "id": "file:models.py:1",
+            "label": "models.py:1",
+            "file": "models.py",
+            "score": 0.2,
+            "sources": [
+              "codebase_scan"
+            ],
+            "lineStart": 1,
+            "lineEnd": 5,
+            "snippet": "from dataclasses import dataclass, field\nfrom datetime import date\nfrom typing import List, Optional\nfrom decimal import Decimal"
+          }
+        ],
+        "searchSummary": {
+          "mode": "codebase_first_with_graph_augmentation",
+          "stats": {
+            "scannedFiles": 400,
+            "matchedFiles": 315,
+            "symbolHits": 0,
+            "astHits": 0,
+            "importHits": 0,
+            "followupSymbolHits": 0,
+            "followupImportHits": 0,
+            "topK": 8,
+            "queryPlanCount": 4,
+            "graphAvailable": true
+          },
+          "strategy": [
+            "codebase_scan",
+            "symbol_hunt",
+            "python_ast_hunt",
+            "import_hunt",
+            "followup_symbol_hunt",
+            "followup_import_hunt"
+          ],
+          "queryPlans": [
+            {
+              "query": "请选择 B、C，并优先参考经验库。",
+              "kind": "primary",
+              "weight": 1.0
+            },
+            {
+              "query": "请选择 B、C",
+              "kind": "segment",
+              "weight": 0.78
+            },
+            {
+              "query": "并优先参考经验库。",
+              "kind": "segment",
+              "weight": 0.78
+            },
+            {
+              "query": "请选择 B、C 并优先参考经验库。",
+              "kind": "bridge",
+              "weight": 0.72
+            }
+          ],
+          "decisionTrace": [
+            {
+              "step": "action_decision",
+              "decision": "run_retrieval",
+              "reason": "用户明确要求选择B、C并优先参考经验库，这符合检索经验库以生成改造建议的意图，且任务目标清晰，适合直接执行检索。",
+              "confidence": "high"
+            },
+            {
+              "step": "cache_lookup",
+              "decision": "miss",
+              "reason": "未命中缓存，执行新检索"
+            },
+            {
+              "step": "query_decomposition",
+              "decision": "plans=4",
+              "reason": "主查询 + 分段 + bridge 子查询聚合",
+              "evidence": [
+                {
+                  "query": "请选择 B、C，并优先参考经验库。",
+                  "kind": "primary",
+                  "weight": 1.0
+                },
+                {
+                  "query": "请选择 B、C",
+                  "kind": "segment",
+                  "weight": 0.78
+                },
+                {
+                  "query": "并优先参考经验库。",
+                  "kind": "segment",
+                  "weight": 0.78
+                },
+                {
+                  "query": "请选择 B、C 并优先参考经验库。",
+                  "kind": "bridge",
+                  "weight": 0.72
+                }
+              ]
+            },
+            {
+              "step": "strategy_selection",
+              "decision": "codebase_scan -> symbol_hunt -> python_ast_hunt -> import_hunt -> followup_symbol_hunt -> followup_import_hunt",
+              "reason": "代码优先，符号/AST/导入与二次补全联合打分"
+            },
+            {
+              "step": "graph_augmentation",
+              "decision": "enabled",
+              "reason": "图谱可用时增强调用链上下文；不可用则保持代码优先"
+            },
+            {
+              "step": "result_assembly",
+              "decision": "highlights=6",
+              "reason": "输出证据命中并附带建议验证命令"
+            }
+          ]
+        },
+        "updatedAt": "2026-04-21T12:54:15.377159Z"
+      }
+    ]
+  },
+  "eventLog": [
+    {
+      "seq": 1,
+      "eventId": "3e1e11914c9647eba3450294729f60db",
+      "type": "turn.session_created",
+      "payload": {
+        "sessionId": "94705a419f294b15aef6aadca1d6f9ab",
+        "stage": "intake",
+        "status": "starting",
+        "query": "请根据选中经验库生成改造建议，并把输出写入 \"D:/tmp/qa_extract_validation\""
+      },
+      "createdAt": "2026-04-21T12:53:16.944285Z"
+    },
+    {
+      "seq": 2,
+      "eventId": "c378fd3c22c34cfe95bbdd571595fd5a",
+      "type": "api.turn.requested",
+      "payload": {
+        "sessionId": "94705a419f294b15aef6aadca1d6f9ab",
+        "query": "请根据选中经验库生成改造建议，并把输出写入 \"D:/tmp/qa_extract_validation\"",
+        "projectPath": "D:\\代码仓库生图\\create_graph"
+      },
+      "createdAt": "2026-04-21T12:53:16.945828Z"
+    },
+    {
+      "seq": 3,
+      "eventId": "9f956615c84348b19041052ac14917ce",
+      "type": "turn.state_changed",
+      "payload": {
+        "sessionId": "94705a419f294b15aef6aadca1d6f9ab",
+        "stage": "intake",
+        "status": "running",
+        "message": "正在写入会话消息"
+      },
+      "createdAt": "2026-04-21T12:53:16.947379Z"
+    },
+    {
+      "seq": 4,
+      "eventId": "a582406a730e45ab91fe7ed599512eea",
+      "type": "turn.started",
+      "payload": {
+        "sessionId": "94705a419f294b15aef6aadca1d6f9ab",
+        "query": "请根据选中经验库生成改造建议，并把输出写入 \"D:/tmp/qa_extract_validation\"",
+        "projectPath": "D:\\代码仓库生图\\create_graph"
+      },
+      "createdAt": "2026-04-21T12:53:16.947379Z"
+    },
+    {
+      "seq": 5,
+      "eventId": "4d296766d4c44c62a425777d5197400d",
+      "type": "turn.state_changed",
+      "payload": {
+        "sessionId": "94705a419f294b15aef6aadca1d6f9ab",
+        "stage": "decide",
+        "status": "running",
+        "message": "正在评估本轮动作"
+      },
+      "createdAt": "2026-04-21T12:53:16.950990Z"
+    },
+    {
+      "seq": 6,
+      "eventId": "e5e91d7427634677a315793f3b002b33",
+      "type": "turn.decided",
+      "payload": {
+        "sessionId": "94705a419f294b15aef6aadca1d6f9ab",
+        "action": "clarify",
+        "taskMode": "write_new_code",
+        "reason": "用户请求涉及生成改造建议并写入指定路径，但缺少具体指标、约束或实现框架偏好，需要进一步澄清以确保生成符合预期的代码。",
+        "confidence": "medium"
+      },
+      "createdAt": "2026-04-21T12:53:20.571761Z"
+    },
+    {
+      "seq": 7,
+      "eventId": "08219fc72770478b8bee01f72d3fba41",
+      "type": "clarification.requested",
+      "payload": {
+        "sessionId": "94705a419f294b15aef6aadca1d6f9ab",
+        "questionId": "70826aaf32a742238eebb716997b276c"
+      },
+      "createdAt": "2026-04-21T12:53:27.669026Z"
+    },
+    {
+      "seq": 8,
+      "eventId": "2775502395f348efa90f1bd39138a37c",
+      "type": "memory.updated",
+      "payload": {
+        "action": "clarify",
+        "taskMode": "write_new_code"
+      },
+      "createdAt": "2026-04-21T12:53:27.672328Z"
+    },
+    {
+      "seq": 9,
+      "eventId": "6d260e6aaf444e71b45a485bc3b89c6c",
+      "type": "turn.state_changed",
+      "payload": {
+        "sessionId": "94705a419f294b15aef6aadca1d6f9ab",
+        "stage": "done",
+        "status": "completed",
+        "message": "会话回合完成"
+      },
+      "createdAt": "2026-04-21T12:53:27.673855Z"
+    },
+    {
+      "seq": 10,
+      "eventId": "ef95ee5f392447f9bd23174ab76087c9",
+      "type": "turn.completed",
+      "payload": {
+        "sessionId": "94705a419f294b15aef6aadca1d6f9ab",
+        "nextStep": "ask_clarification",
+        "hasAnswer": false
+      },
+      "createdAt": "2026-04-21T12:53:27.675108Z"
+    },
+    {
+      "seq": 11,
+      "eventId": "8a75e3aa61df4afc8d9876df605d6340",
+      "type": "api.reply.requested",
+      "payload": {
+        "questionId": "70826aaf32a742238eebb716997b276c",
+        "answer": "请选择 B、C，并优先参考经验库。",
+        "selectedOptionLabels": [
+          "B",
+          "C"
+        ]
+      },
+      "createdAt": "2026-04-21T12:53:52.729661Z"
+    },
+    {
+      "seq": 12,
+      "eventId": "5c1510a095714665bb2c24687e2e2da8",
+      "type": "turn.session_created",
+      "payload": {
+        "sessionId": "67a465f52f5847c380cc35fd9aa9e08f",
+        "stage": "intake",
+        "status": "starting",
+        "query": "请选择 B、C，并优先参考经验库。"
+      },
+      "createdAt": "2026-04-21T12:53:52.729661Z"
+    },
+    {
+      "seq": 13,
+      "eventId": "722475f2e87a4554b8e01e0db6e5f80e",
+      "type": "turn.state_changed",
+      "payload": {
+        "sessionId": "67a465f52f5847c380cc35fd9aa9e08f",
+        "stage": "intake",
+        "status": "running",
+        "message": "正在写入会话消息"
+      },
+      "createdAt": "2026-04-21T12:53:52.732206Z"
+    },
+    {
+      "seq": 14,
+      "eventId": "5e448249db804e52890ca71bb4687d3a",
+      "type": "turn.started",
+      "payload": {
+        "sessionId": "67a465f52f5847c380cc35fd9aa9e08f",
+        "query": "请选择 B、C，并优先参考经验库。",
+        "projectPath": "D:\\代码仓库生图\\create_graph"
+      },
+      "createdAt": "2026-04-21T12:53:52.736597Z"
+    },
+    {
+      "seq": 15,
+      "eventId": "c785fffa308b4897bdc89b22708363ab",
+      "type": "turn.state_changed",
+      "payload": {
+        "sessionId": "67a465f52f5847c380cc35fd9aa9e08f",
+        "stage": "decide",
+        "status": "running",
+        "message": "正在评估本轮动作"
+      },
+      "createdAt": "2026-04-21T12:53:52.748279Z"
+    },
+    {
+      "seq": 16,
+      "eventId": "9b54dad2f3354a7bb14b1a675b8d40ad",
+      "type": "turn.decided",
+      "payload": {
+        "sessionId": "67a465f52f5847c380cc35fd9aa9e08f",
+        "action": "run_retrieval",
+        "taskMode": "write_new_code",
+        "reason": "用户明确要求选择B、C并优先参考经验库，这符合检索经验库以生成改造建议的意图，且任务目标清晰，适合直接执行检索。",
+        "confidence": "high"
+      },
+      "createdAt": "2026-04-21T12:53:56.202325Z"
+    },
+    {
+      "seq": 17,
+      "eventId": "fbf4050eaa1c492cb6ecf473bca7b6c0",
+      "type": "turn.state_changed",
+      "payload": {
+        "sessionId": "67a465f52f5847c380cc35fd9aa9e08f",
+        "stage": "retrieval",
+        "status": "running",
+        "message": "正在执行按需检索"
+      },
+      "createdAt": "2026-04-21T12:53:56.203833Z"
+    },
+    {
+      "seq": 18,
+      "eventId": "ece89c50707844ccb17e4ea7c38d6934",
+      "type": "retrieval.progress",
+      "payload": {
+        "sessionId": "67a465f52f5847c380cc35fd9aa9e08f",
+        "phase": "codebase_scan",
+        "message": "开始代码库检索"
+      },
+      "createdAt": "2026-04-21T12:53:56.207898Z"
+    },
+    {
+      "seq": 19,
+      "eventId": "e8325485f74b495b8c3dd966a4edae5f",
+      "type": "retrieval.progress",
+      "payload": {
+        "sessionId": "67a465f52f5847c380cc35fd9aa9e08f",
+        "phase": "codebase_scan",
+        "message": "代码库检索完成（8 命中）"
+      },
+      "createdAt": "2026-04-21T12:53:58.467914Z"
+    },
+    {
+      "seq": 20,
+      "eventId": "90eb54b10df94fffb1b00d7c2c71b5e6",
+      "type": "retrieval.progress",
+      "payload": {
+        "sessionId": "67a465f52f5847c380cc35fd9aa9e08f",
+        "phase": "graph_aug",
+        "message": "开始图谱增强检索"
+      },
+      "createdAt": "2026-04-21T12:53:59.016653Z"
+    },
+    {
+      "seq": 21,
+      "eventId": "4995670e428c411a9791e9ce3934ec41",
+      "type": "retrieval.progress",
+      "payload": {
+        "sessionId": "67a465f52f5847c380cc35fd9aa9e08f",
+        "phase": "graph_aug",
+        "message": "图谱增强完成（0 命中）"
+      },
+      "createdAt": "2026-04-21T12:53:59.411130Z"
+    },
+    {
+      "seq": 22,
+      "eventId": "8d5fa58aad134e62bdb4b88c95c6be31",
+      "type": "retrieval.progress",
+      "payload": {
+        "sessionId": "67a465f52f5847c380cc35fd9aa9e08f",
+        "phase": "merge",
+        "message": "证据合并完成（6 命中）",
+        "highlightsCount": 6
+      },
+      "createdAt": "2026-04-21T12:53:59.413695Z"
+    },
+    {
+      "seq": 23,
+      "eventId": "739f93dfe7264583a9b9b4ede8d5e312",
+      "type": "tool.codebase_retrieval.completed",
+      "payload": {
+        "sessionId": "67a465f52f5847c380cc35fd9aa9e08f",
+        "ok": true,
+        "highlightsCount": 6
+      },
+      "createdAt": "2026-04-21T12:53:59.416718Z"
+    },
+    {
+      "seq": 24,
+      "eventId": "bee9a640f61b4e75867d90d99bda9b78",
+      "type": "tool.run_hybrid_shadow.completed",
+      "payload": {
+        "sessionId": "67a465f52f5847c380cc35fd9aa9e08f",
+        "ok": true,
+        "highlightsCount": 6
+      },
+      "createdAt": "2026-04-21T12:53:59.418259Z"
+    },
+    {
+      "seq": 25,
+      "eventId": "47db3743a0664e3eb05b3c734828092d",
+      "type": "retrieval.progress",
+      "payload": {
+        "sessionId": "67a465f52f5847c380cc35fd9aa9e08f",
+        "phase": "answer",
+        "message": "正在基于证据生成回答"
+      },
+      "createdAt": "2026-04-21T12:53:59.420927Z"
+    },
+    {
+      "seq": 26,
+      "eventId": "71ab73ed600842fdb326a9d0b879e580",
+      "type": "retrieval.progress",
+      "payload": {
+        "sessionId": "67a465f52f5847c380cc35fd9aa9e08f",
+        "phase": "answer",
+        "message": "回答生成完成"
+      },
+      "createdAt": "2026-04-21T12:54:15.371585Z"
+    },
+    {
+      "seq": 27,
+      "eventId": "ee0d1fbda48e4a8ca1b55eca85e5cc01",
+      "type": "retrieval.orchestration.trace",
+      "payload": {
+        "sessionId": "67a465f52f5847c380cc35fd9aa9e08f",
+        "steps": [
+          {
+            "step": "action_decision",
+            "decision": "run_retrieval",
+            "reason": "用户明确要求选择B、C并优先参考经验库，这符合检索经验库以生成改造建议的意图，且任务目标清晰，适合直接执行检索。",
+            "confidence": "high"
+          },
+          {
+            "step": "cache_lookup",
+            "decision": "miss",
+            "reason": "未命中缓存，执行新检索"
+          },
+          {
+            "step": "query_decomposition",
+            "decision": "plans=4",
+            "reason": "主查询 + 分段 + bridge 子查询聚合",
+            "evidence": [
+              {
+                "query": "请选择 B、C，并优先参考经验库。",
+                "kind": "primary",
+                "weight": 1.0
+              },
+              {
+                "query": "请选择 B、C",
+                "kind": "segment",
+                "weight": 0.78
+              },
+              {
+                "query": "并优先参考经验库。",
+                "kind": "segment",
+                "weight": 0.78
+              },
+              {
+                "query": "请选择 B、C 并优先参考经验库。",
+                "kind": "bridge",
+                "weight": 0.72
+              }
+            ]
+          },
+          {
+            "step": "strategy_selection",
+            "decision": "codebase_scan -> symbol_hunt -> python_ast_hunt -> import_hunt -> followup_symbol_hunt -> followup_import_hunt",
+            "reason": "代码优先，符号/AST/导入与二次补全联合打分"
+          },
+          {
+            "step": "graph_augmentation",
+            "decision": "enabled",
+            "reason": "图谱可用时增强调用链上下文；不可用则保持代码优先"
+          },
+          {
+            "step": "result_assembly",
+            "decision": "highlights=6",
+            "reason": "输出证据命中并附带建议验证命令"
+          }
+        ]
+      },
+      "createdAt": "2026-04-21T12:54:15.374132Z"
+    },
+    {
+      "seq": 28,
+      "eventId": "e6eec81e784b4d908e5db8c68a7c996a",
+      "type": "memory.updated",
+      "payload": {
+        "action": "run_retrieval",
+        "taskMode": "write_new_code"
+      },
+      "createdAt": "2026-04-21T12:54:15.394989Z"
+    },
+    {
+      "seq": 29,
+      "eventId": "4e8fee3cc89e46dca288089ff3d40808",
+      "type": "turn.state_changed",
+      "payload": {
+        "sessionId": "67a465f52f5847c380cc35fd9aa9e08f",
+        "stage": "done",
+        "status": "completed",
+        "message": "会话回合完成"
+      },
+      "createdAt": "2026-04-21T12:54:15.398031Z"
+    },
+    {
+      "seq": 30,
+      "eventId": "2f9ea3355125402f956cedf2bfd576fa",
+      "type": "turn.completed",
+      "payload": {
+        "sessionId": "67a465f52f5847c380cc35fd9aa9e08f",
+        "nextStep": "retrieval_answer",
+        "hasAnswer": true
+      },
+      "createdAt": "2026-04-21T12:54:15.401045Z"
+    }
+  ],
+  "createdAt": "2026-04-21T12:53:16.942751Z",
+  "updatedAt": "2026-04-21T12:54:15.401045Z"
+}

@@ -1,0 +1,172 @@
+{
+  "version": "advisor.lab.v1",
+  "step": "design_solution",
+  "generated_at": "2026-04-21T11:37:18.842407Z",
+  "run_id": "single_run",
+  "question_id": "q00",
+  "input_file": "D:\\代码仓库生图\\汇报\\4.21\\create_graph_问答按钮功能抽离_2026-04-21\\advisor_consultant_lab\\runtime\\step2_analysis.json",
+  "design_goal": "请基于当前 CAT-Net 的经验库，在 D:/代码仓库生图/汇报/4.21/test/ 下生成一个真实可落地的 Python 命令行 demo 项目。这个项目要演示 CAT-Net 最核心的篡改定位能力：输入一张图像路径后，输出一个简化版的篡改定位结果，并打印关键处理阶段说明。",
+  "architecture_overview": "以 CAT-Net-main:partition_2:获取篡改数据 的调用链为核心，组织为数据加载层、模型主干层、训练入口层三段式最小可运行架构。",
+  "interface_contract": "遵循约束类型 cfg, dfg, io_graph, input_info, output_info, constraint_explain；关键接口需显式声明输入输出并保持 CFG/DFG 路径一致。",
+  "selected_advisor": {
+    "name": "CAT-Net-main:partition_2:获取篡改数据",
+    "partition": "partition_2"
+  },
+  "design_principles": [
+    "匹配与顾问能力解耦，匹配 Agent 只负责检索，不直接做业务实现。",
+    "分析阶段必须输出匹配依据、how、constraints 三类信息。",
+    "设计阶段复用分析结果，不重复检索经验库。",
+    "代码生成阶段必须引用调用链和源码锚点，避免脱离经验库编写。"
+  ],
+  "pipeline_design": [
+    {
+      "stage": "matching",
+      "inputs": [
+        "用户需求",
+        "经验库技能卡"
+      ],
+      "outputs": [
+        "Top3 顾问候选",
+        "三匹配 Agent 分数"
+      ],
+      "notes": "path/semantic/code 三 Agent 并行评分，融合排序。"
+    },
+    {
+      "stage": "analysis",
+      "inputs": [
+        "Top3 顾问候选",
+        "主顾问 what/how/constraints"
+      ],
+      "outputs": [
+        "分析文档",
+        "分析结论"
+      ],
+      "notes": "必须包含第一步匹配说明、how、constraints。"
+    },
+    {
+      "stage": "design",
+      "inputs": [
+        "分析结论",
+        "how",
+        "constraints"
+      ],
+      "outputs": [
+        "系统设计文档"
+      ],
+      "notes": "输出模块划分、数据流、接口契约。"
+    },
+    {
+      "stage": "codegen",
+      "inputs": [
+        "分析文档",
+        "设计文档",
+        "调用链源码线索"
+      ],
+      "outputs": [
+        "代码草案",
+        "文件级实施建议"
+      ],
+      "notes": "代码草案需明确入口函数和可落地文件锚点。"
+    }
+  ],
+  "how_used_in_design": "[1] 输入需求输入 -> 进入np.array；执行模块处理；得到step_1_output；下一步CASIA.get_tamp。；[2] 输入step_1_output -> 进入CASIA.get_tamp；执行模块处理；得到np.array；下一步END。；约束依据：CFG、DFG、输入输出、np.array、CASIA.get_tamp。",
+  "constraints_used_in_design": [
+    "np.array",
+    "CASIA.get_tamp",
+    "优先复用经验库中的 CFG/DFG/IO 证据，不直接跳过中间路径步骤。",
+    "需要 CFG 约束证据",
+    "需要 DFG 约束证据",
+    "需要输入输出约束"
+  ],
+  "constraints_structured_used_in_design": {
+    "version": "constraints.v1",
+    "types": [
+      "cfg",
+      "dfg",
+      "io_graph",
+      "input_info",
+      "output_info",
+      "constraint_explain"
+    ],
+    "cfg": {
+      "summary": {
+        "exists": true,
+        "node_count": 12,
+        "edge_count": 11
+      },
+      "input_info_keys": [
+        "np.array",
+        "CASIA.get_tamp"
+      ],
+      "output_info_keys": [
+        "np.array",
+        "CASIA.get_tamp"
+      ]
+    },
+    "dfg": {
+      "summary": {
+        "exists": true,
+        "node_count": 20,
+        "edge_count": 22
+      }
+    },
+    "io_graph": {
+      "summary": {
+        "exists": true,
+        "node_count": 5,
+        "edge_count": 4
+      },
+      "inputs": [
+        "np.array",
+        "CASIA.get_tamp"
+      ],
+      "outputs": [
+        "np.array",
+        "CASIA.get_tamp"
+      ]
+    },
+    "input_info": {
+      "np.array": [
+        {
+          "name": "data",
+          "type": "Any"
+        }
+      ],
+      "CASIA.get_tamp": [
+        {
+          "name": "self",
+          "type": "Any"
+        },
+        {
+          "name": "index",
+          "type": "Any"
+        }
+      ]
+    },
+    "output_info": {
+      "np.array": "Any",
+      "CASIA.get_tamp": "Any"
+    },
+    "constraint_explain": {
+      "exists": true,
+      "markdown": "好的，作为资深代码分析专家，我将为你解释这条功能路径的 CFG 和 DFG。\n\n### 路径功能概括\n这条路径的核心功能是：**根据给定的索引，从一个数据集中加载篡改图像及其对应的掩码，并最终转换为张量格式**。具体执行顺序如下：\n1.  方法 `CASIA.get_tamp` 接收一个 `index` 参数。\n2.  根据 `index` 从 `self.tamp_list` 中查找并拼接出篡改图像文件路径 `tamp_path` 和掩码文件路径 `mask_path`。\n3.  检查该索引对应的掩码是否为 `‘None’`，如果是，则将 `mask` 变量设为 `None`。\n4.  如果不是，则打开掩码图像文件，将其转换为灰度数组，并将所有大于0的像素值设为1，进行二值化处理。\n5.  最后，调用 `self._create_tensor` 方法，传入图像路径和掩码，生成并返回最终的张量。\n\n### CFG（控制流图）解释\nCFG 展示了代码执行的**顺序和分支**。在这条路径上，CFG 清晰地描绘了 `CASIA.get_tamp` 方法内部的逻辑流程：\n*   **顺序执行**：从节点1（Entry）开始，依次执行节点2（构建 `tamp_path`）、节点3（构建 `mask_path`），然后到达节点4（条件判断）。\n*   **关键分支**：节点4 `If: self.tamp_list[index][1] == ‘None’` 是核心决策点。\n    *   **绿色边（True）**：如果条件为真，执行节点5，将 `mask` 设为 `None`，然后直接跳转到节点11准备返回。\n    *   **橙色边（False）**：如果条件为假，执行节点7（加载并转换掩码图像）、节点9（二值化掩码），然后也流向节点11。\n*   **汇聚与返回**：无论走哪条分支，最终都会汇聚到节点11 `return self._create_tensor(tamp_path, mask)`，然后通过节点12（Exit）结束方法。\n\n### DFG（数据流图）解释\nDFG 展示了数据（变量、参数）在路径上的**定义、使用和传递关系**。在这条路径上，DFG 揭示了关键数据的生命周期：\n*   **输入数据的消费**：`self` 和 `index` 被多次使用（`use`），用于访问 `self._root_path`、`self.tamp_list` 以及进行条件判断。\n*   **关键变量的生成链**：\n    1.  `tamp_path` 和 `mask_path` 被定义（`def`），它们依赖于 `self` 和 `index`。\n    2.  `mask` 变量在两条分支上被定义（节点11和节点12），其值要么是 `None`，要么是经过 `np.array` 和 `Image.open` 处理后的二值化数组。\n*   **最终输出的数据来源**：返回值由 `self._create_tensor(tamp_path, mask)` 产生，因此它依赖于之前定义好的 `tamp_path` 和 `mask` 这两个关键变量。\n\n### 方法之间的联系\n*   **控制流**：路径显示为 `array -> get_tamp`，但根据图表，`array` 方法并未在 `get_tamp` 的CFG中被显式调用。`np.array` 是 `get_tamp` 内部使用的一个库函数，用于将图像数据转换为NumPy数组。因此，这里的“联系”更可能是数据流层面的。\n*   **数据流**：\n    *   **参数**：`get_tamp` 接收 `self` 和 `index` 作为输入。\n    *   **关键变量**：在 `get_tamp` 内部，`mask` 变量的值可能通过 `np.array(...)` 生成（这调用了 `np.array` 函数）。\n    *   **返回值**：`get_tamp` 的返回值是调用 `self._create_tensor(...)` 的结果，该结果最终作为整个路径的输出。\n\n### 阅读指南\n1.  **先看CFG的入口和分支**：从 `CASIA_get_tamp_node_1` (Entry) 开始，顺着箭头看到节点4的 `If` 判断，这是理解整个方法逻辑走向的关键。\n2.  **关注CFG边的颜色**：绿色边代表条件为 `True` 的分支（掩码为None），橙色边代表 `False` 的分支（需要处理掩码文件）。这能帮你快速区分两种场景。\n3.  **在DFG中追踪关键变量**：重点关注 `tamp_path`、`mask_path` 和 `mask` 这几个变量的节点。看它们如何被定义（`def`），以及最终如何被使用（`use`）来生成返回值。\n4.  **理解“方法”节点**：DFG顶部的 `method_np_array` 和 `method_CASIA_get_tamp` 是容器节点。它们通过虚线连接到其内部的具体数据流节点，表示包含关系。这表明 `np.array` 的功能被内嵌在 `get_tamp` 的数据流中。\n5.  **对照输入/输出集群**：CFG图顶部蓝色椭圆是输入参数，底部绿色椭圆是返回值。这帮你快速定位路径的起点和终点。\n\n### 缩放/定位建议\n由于图结构清晰且规模适中，通常无需特殊缩放。建议的阅读顺序是：\n1.  **整体概览CFG**：从上到下浏览CFG，把握 `get_tamp` 方法的线性流程和唯一的分支结构。\n2.  **聚焦DFG数据链**：在DFG中，可以沿着 `index` -> `tamp_path/mask_path` -> `mask` -> `return ...` 这条主线来理解数据如何流动并最终形成输出。\n3.  **结合查看**：将CFG中的分支逻辑（特别是节点4、5、7、9）与DFG中 `mask` 变量的两个不同定义（节点11和节点12）对应起来，理解不同条件下数据的产生过程。"
+    }
+  },
+  "constraints_structured_summary_used_in_design": {
+    "types": [
+      "cfg",
+      "dfg",
+      "io_graph",
+      "input_info",
+      "output_info",
+      "constraint_explain"
+    ],
+    "has_cfg": true,
+    "has_dfg": true,
+    "has_io_graph": true,
+    "cfg_node_count": 12,
+    "dfg_node_count": 20,
+    "io_node_count": 5,
+    "has_constraint_explain": true
+  }
+}

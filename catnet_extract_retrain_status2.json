@@ -1,0 +1,37 @@
+{
+  "start": {
+    "experienceOutputRoot": null,
+    "message": "统一分析会话已开始",
+    "phase": "starting",
+    "projectPath": "D:\\代码仓库生图\\借鉴项目\\CAT-Net-main",
+    "sessionId": "6aedf3a50e114f78a797127abbde127e",
+    "status": "starting"
+  },
+  "final": {
+    "bootstrapReady": true,
+    "completedAt": "2026-04-21T12:36:57.494417Z",
+    "error": null,
+    "message": "统一分析会话完成",
+    "phase": "bootstrap_ready",
+    "progress": 100,
+    "projectPath": "D:\\代码仓库生图\\借鉴项目\\CAT-Net-main",
+    "sessionId": "6aedf3a50e114f78a797127abbde127e",
+    "stageDetail": "统一分析会话完成",
+    "stageLabel": "工作台已就绪",
+    "startedAt": "2026-04-21T12:36:55.517529Z",
+    "status": "completed",
+    "updatedAt": "2026-04-21T12:36:57.531905Z"
+  },
+  "overview": {
+    "entries": [],
+    "experienceOutputRoot": "D:\\代码仓库生图\\汇报\\4.21\\create_graph_问答按钮功能抽离_2026-04-21\\output_analysis",
+    "experiencePathsDir": "D:\\代码仓库生图\\汇报\\4.21\\create_graph_问答按钮功能抽离_2026-04-21\\output_analysis\\experience_paths",
+    "projectPath": "D:\\代码仓库生图\\借鉴项目\\CAT-Net-main",
+    "summary": {
+      "experienceDays": 0,
+      "generatedFiles": 0,
+      "importedFiles": 0,
+      "totalFiles": 0
+    }
+  }
+}

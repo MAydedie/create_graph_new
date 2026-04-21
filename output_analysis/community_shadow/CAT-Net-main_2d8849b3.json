@@ -1,0 +1,1748 @@
+{
+  "version": "phase5-shadow-v1",
+  "config": {
+    "algorithm": "leiden",
+    "fallback_algorithm": "louvain",
+    "weight_threshold": 0.0,
+    "timeout_seconds": 30.0,
+    "max_nodes": 2000
+  },
+  "execution": {
+    "sampled": false,
+    "timed_out": false,
+    "fallback_used": true,
+    "effective_algorithm": "louvain",
+    "fallback_reason": "only numbers, strings or igraph.Vertex objects can be converted to vertex IDs"
+  },
+  "communities": [
+    {
+      "partition_id": "partition_12",
+      "methods": [
+        "functional.leaky_relu",
+        "functional.relu",
+        "functional.batch_norm",
+        "functional.elu",
+        "ABN.forward"
+      ],
+      "modularity": 1.0,
+      "internal_calls": 4,
+      "external_calls": 0,
+      "size": 5,
+      "label": "Community Shadow 1",
+      "cohesion": 1.0
+    },
+    {
+      "partition_id": "partition_13",
+      "methods": [
+        "rep.format",
+        "ABN.__repr__",
+        "__repr__"
+      ],
+      "modularity": 1.0,
+      "internal_calls": 2,
+      "external_calls": 0,
+      "size": 3,
+      "label": "Community Shadow 2",
+      "cohesion": 1.0
+    },
+    {
+      "partition_id": "partition_14",
+      "methods": [
+        "self.loss",
+        "FullModel.forward",
+        "self.model",
+        "torch.unsqueeze",
+        "forward"
+      ],
+      "modularity": 1.0,
+      "internal_calls": 6,
+      "external_calls": 0,
+      "size": 5,
+      "label": "Community Shadow 3",
+      "cohesion": 1.0
+    },
+    {
+      "partition_id": "partition_15",
+      "methods": [
+        "AverageMeter.update",
+        "self.initialize",
+        "update",
+        "self.add"
+      ],
+      "modularity": 1.0,
+      "internal_calls": 4,
+      "external_calls": 0,
+      "size": 4,
+      "label": "Community Shadow 4",
+      "cohesion": 1.0
+    },
+    {
+      "partition_id": "partition_20",
+      "methods": [
+        "random.shuffle",
+        "shuffle",
+        "SplicingDataset.shuffle"
+      ],
+      "modularity": 1.0,
+      "internal_calls": 2,
+      "external_calls": 0,
+      "size": 3,
+      "label": "Community Shadow 5",
+      "cohesion": 1.0
+    },
+    {
+      "partition_id": "partition_22",
+      "methods": [
+        "model.init_weights",
+        "DCT_Stream_cls",
+        "get_seg_model",
+        "DCT_Stream",
+        "get_cls_net"
+      ],
+      "modularity": 1.0,
+      "internal_calls": 4,
+      "external_calls": 0,
+      "size": 5,
+      "label": "Community Shadow 6",
+      "cohesion": 1.0
+    },
+    {
+      "partition_id": "partition_16",
+      "methods": [
+        "test_get_rank_windows",
+        "TestAverageMeter.test_initialize",
+        "TestDistributedFunctions.test_get_rank_initialized",
+        "TestAverageMeter.test_update_first_time",
+        "test_initialization",
+        "self.assertIsInstance",
+        "AverageMeter",
+        "mock_get_rank.assert_called_once",
+        "test_get_world_size_windows",
+        "TestFullModel.test_initialization",
+        "mock_is_initialized.assert_called_once",
+        "test_get_world_size_not_initialized",
+        "meter.update",
+        "TestAverageMeter.test_initial_state",
+        "meter.average",
+        "torch.distributed.get_rank",
+        "TestAverageMeter.test_value_and_average_methods",
+        "TestAverageMeter.test_add_method",
+        "self.assertEqual",
+        "mock_get_world_size.assert_called_once",
+        "TestDistributedFunctions.test_get_world_size_initialized",
+        "meter.initialize",
+        "test_value_and_average_methods",
+        "test_get_rank_initialized",
+        "torch.distributed.get_world_size",
+        "meter.value",
+        "torch.distributed.is_initialized",
+        "TestDistributedFunctions.test_get_rank_windows",
+        "get_rank",
+        "TestDistributedFunctions.test_get_world_size_windows",
+        "test_initial_state",
+        "test_get_rank_not_initialized",
+        "self.assertIsNone",
+        "get_world_size",
+        "test_initialize",
+        "self.assertFalse",
+        "TestAverageMeter.test_update_multiple_times",
+        "test_update_multiple_times",
+        "TestDistributedFunctions.test_get_rank_not_initialized",
+        "TestDistributedFunctions.test_get_world_size_not_initialized",
+        "meter.add",
+        "test_update_first_time",
+        "test_get_world_size_initialized",
+        "test_add_method",
+        "patch"
+      ],
+      "modularity": 0.9615384615384616,
+      "internal_calls": 100,
+      "external_calls": 4,
+      "size": 45,
+      "label": "Community Shadow 7",
+      "cohesion": 0.9615
+    },
+    {
+      "partition_id": "partition_8",
+      "methods": [
+        "mean",
+        "x.contiguous.view",
+        "queue.put",
+        "var.unsqueeze",
+        "x.sum",
+        "edzs.append",
+        "_backend.edz_eydz",
+        "running_var.mul_",
+        "ctx.worker_queue.get",
+        "_backend.backward",
+        "_broadcast_shape",
+        "running_mean.contiguous",
+        "InPlaceABNSync.forward",
+        "cls._parse_extra",
+        "edz.get_device",
+        "vars.append",
+        "means.append",
+        "_reduce",
+        "dz.contiguous",
+        "ctx.master_queue.put",
+        "InPlaceABNSync.backward",
+        "_backend.leaky_relu_backward",
+        "ctx.master_queue.get",
+        "eydzs.append",
+        "ctx.save_for_backward",
+        "out_size.append",
+        "zip",
+        "_count_samples",
+        "_backend.elu_backward",
+        "_backend.mean_var",
+        "running_var.mul_.add_",
+        "x.contiguous.view.sum.sum",
+        "running_var.contiguous",
+        "_backend.leaky_relu_forward",
+        "x.new_empty",
+        "dz.size",
+        "running_mean.mul_.add_",
+        "running_mean.mul_",
+        "ctx.mark_dirty",
+        "backward",
+        "bias.contiguous",
+        "_backend.forward",
+        "mean.unsqueeze",
+        "means.mean",
+        "ctx.master_queue.task_done",
+        "_act_forward",
+        "comm.gather",
+        "comm.broadcast_coalesced",
+        "InPlaceABN.backward",
+        "mean.get_device",
+        "InPlaceABN.forward",
+        "x.contiguous",
+        "var_w.unsqueeze",
+        "comm.reduce_add",
+        "x.size",
+        "_act_backward",
+        "x.contiguous.view.sum",
+        "weight.contiguous",
+        "dz.new_zeros",
+        "ctx.worker_queue.task_done",
+        "mean_w.unsqueeze",
+        "_backend.elu_forward"
+      ],
+      "modularity": 0.9298245614035088,
+      "internal_calls": 106,
+      "external_calls": 8,
+      "size": 62,
+      "label": "Community Shadow 8",
+      "cohesion": 0.9298
+    },
+    {
+      "partition_id": "partition_5",
+      "methods": [
+        "AbstractDataset.get_tamp_name",
+        "model_dict.keys",
+        "self.state_dict",
+        "RuntimeError",
+        "init_weights",
+        "loaded_dict.items",
+        "DCT_Stream_cls.init_weights",
+        "nn.init.kaiming_normal_",
+        "logger.info",
+        "nn.init.normal_",
+        "DCT_Stream.init_weights",
+        "format",
+        "CAT_Net.init_weights",
+        "isinstance",
+        "HighResolutionModule._check_branches",
+        "nn.init.constant_",
+        "_check_branches",
+        "model_dict.update",
+        "pretrained_dict.items",
+        "self.load_state_dict",
+        "logger.error",
+        "reset_parameters",
+        "logger.warning",
+        "k.startswith",
+        "_check",
+        "fn",
+        "ABN.reset_parameters",
+        "torch.load",
+        "self.modules"
+      ],
+      "modularity": 0.9117647058823529,
+      "internal_calls": 62,
+      "external_calls": 6,
+      "size": 29,
+      "label": "Community Shadow 9",
+      "cohesion": 0.9118
+    },
+    {
+      "partition_id": "partition_11",
+      "methods": [
+        "pixel_accuracy",
+        "predict.cpu.numpy",
+        "predict.cpu.numpy.astype",
+        "predict.cpu",
+        "torch.max",
+        "target.cpu",
+        "np.histogram",
+        "intersection_and_union",
+        "target.cpu.numpy",
+        "batch_pix_accuracy",
+        "np.asarray",
+        "batch_intersection_union",
+        "np.sum",
+        "target.cpu.numpy.astype"
+      ],
+      "modularity": 0.9090909090909091,
+      "internal_calls": 20,
+      "external_calls": 2,
+      "size": 14,
+      "label": "Community Shadow 10",
+      "cohesion": 0.9091
+    },
+    {
+      "partition_id": "partition_2",
+      "methods": [
+        "x.reshape",
+        "torch.cat",
+        "qtable.unsqueeze.unsqueeze",
+        "y.size",
+        "self.layer1",
+        "self.dc_layer1_tail",
+        "qtable.unsqueeze",
+        "self.dc_layer2",
+        "DCT_Stream.forward",
+        "self.stage3",
+        "y.flatten",
+        "x_list.append",
+        "self.stage2",
+        "xq_temp.reshape",
+        "self.dc_stage3",
+        "self.conv2",
+        "BasicBlock.forward",
+        "self.bn3",
+        "y.flatten.mean",
+        "CAT_Net.forward",
+        "F.avg_pool2d",
+        "self.bn2",
+        "x.reshape.permute.reshape",
+        "HighResolutionModule.forward",
+        "self.last_layer",
+        "self.stage5",
+        "self.downsample",
+        "self.relu",
+        "self.final_layer",
+        "self.dc_layer0_dil",
+        "self.bn1",
+        "Bottleneck.forward",
+        "self.classifier",
+        "x.reshape.permute",
+        "x_fuse.append",
+        "self.stage4",
+        "DCT_Stream_cls.forward",
+        "self.conv3",
+        "x.insert",
+        "torch._C._get_tracing_state",
+        "self.conv1",
+        "F.avg_pool2d.view",
+        "F.upsample",
+        "self.dc_stage4"
+      ],
+      "modularity": 0.9069767441860465,
+      "internal_calls": 78,
+      "external_calls": 8,
+      "size": 44,
+      "label": "Community Shadow 11",
+      "cohesion": 0.907
+    },
+    {
+      "partition_id": "partition_3",
+      "methods": [
+        "SplicingDataset.get_PIL_image",
+        "os.remove",
+        "get_PIL_Image",
+        "np.zeros",
+        "tampCOCO.get_qtable",
+        "int",
+        "_create_tensor",
+        "max",
+        "img_block.append",
+        "arbitrary.get_tamp",
+        "KeyError",
+        "AbstractDataset._create_tensor",
+        "Image.open.convert",
+        "float",
+        "SplicingDataset.get_info",
+        "self._get_jpeg_info",
+        "str",
+        "get_tamp",
+        "IMD2020.get_tamp",
+        "__getitem__",
+        "CASIA.get_qtable",
+        "random.randint",
+        "get_PIL_image",
+        "SplicingDataset.get_filename",
+        "get_filename",
+        "SplicingDataset.__getitem__",
+        "compRAISE.get_qtable",
+        "get_qtable",
+        "IMD2020.get_qtable",
+        "Image.open.convert.save",
+        "np.full",
+        "float.squeeze",
+        "compRAISE.get_tamp",
+        "get_tamp_name",
+        "FantasticReality.get_PIL_Image",
+        "AbstractDataset.__len__",
+        "tampCOCO.get_tamp",
+        "self._create_tensor",
+        "FantasticReality.get_qtable",
+        "get_next_filename",
+        "Image.open",
+        "np.array",
+        "CASIA.get_tamp",
+        "str.lower.endswith",
+        "Djpeg.get_tamp",
+        "get_info",
+        "img_RGB.transpose",
+        "len"
+      ],
+      "modularity": 0.9026548672566371,
+      "internal_calls": 102,
+      "external_calls": 11,
+      "size": 48,
+      "label": "Community Shadow 12",
+      "cohesion": 0.9027
+    },
+    {
+      "partition_id": "partition_0",
+      "methods": [
+        "nn.CrossEntropyLoss",
+        "t.strip",
+        "FantasticReality.__init__",
+        "glob.glob",
+        "self.reset_parameters",
+        "FullModel.__init__",
+        "self.register_buffer",
+        "super",
+        "super.__init__",
+        "self.register_parameter",
+        "nn.Parameter",
+        "CrossEntropy.__init__",
+        "BasicBlock.__init__",
+        "open",
+        "ABN.__init__",
+        "self._make_fuse_layers",
+        "torch.ones",
+        "arbitrary.__init__",
+        "CASIA.__init__",
+        "compRAISE.__init__",
+        "Djpeg.__init__",
+        "IMD2020.__init__",
+        "self._check_branches",
+        "tampCOCO.__init__",
+        "f.readlines",
+        "t.strip.split",
+        "self._make_branches",
+        "OhemCrossEntropy.__init__",
+        "conv3x3",
+        "HighResolutionModule.__init__"
+      ],
+      "modularity": 0.8955223880597015,
+      "internal_calls": 60,
+      "external_calls": 7,
+      "size": 30,
+      "label": "Community Shadow 13",
+      "cohesion": 0.8955
+    },
+    {
+      "partition_id": "partition_4",
+      "methods": [
+        "DCT_Stream_cls._make_layer",
+        "modules.append",
+        "fuse_layer.append",
+        "HighResolutionModule._make_one_branch",
+        "nn.Sequential",
+        "self._make_layer",
+        "get_num_inchannels",
+        "nn.BatchNorm2d",
+        "layers.append",
+        "range",
+        "HighResolutionModule._make_fuse_layers",
+        "_make_fuse_layers",
+        "DCT_Stream_cls.__init__",
+        "fuse_layers.append",
+        "self._make_head",
+        "_make_stage",
+        "_make_layer",
+        "self._make_one_branch",
+        "_make_head",
+        "DCT_Stream_cls._make_transition_layer",
+        "BatchNorm2d",
+        "transition_layers.append",
+        "_make_one_branch",
+        "nn.ReLU",
+        "DCT_Stream_cls._make_head",
+        "nn.Linear",
+        "block",
+        "DC_final_stage_channels.insert",
+        "DCT_Stream_cls._make_stage",
+        "_make_transition_layer",
+        "CAT_Net.__init__",
+        "_make_branches",
+        "CAT_Net._make_transition_layer",
+        "self._make_transition_layer",
+        "nn.Conv2d",
+        "DCT_Stream._make_layer",
+        "incre_modules.append",
+        "HighResolutionModule",
+        "DCT_Stream.__init__",
+        "CAT_Net._make_layer",
+        "conv3x3s.append",
+        "nn.ModuleList",
+        "Bottleneck.__init__",
+        "DCT_Stream._make_stage",
+        "branches.append",
+        "nn.Upsample",
+        "CAT_Net._make_stage",
+        "DCT_Stream._make_transition_layer",
+        "self._make_stage",
+        "HighResolutionModule._make_branches",
+        "enumerate",
+        "downsamp_modules.append"
+      ],
+      "modularity": 0.8888888888888888,
+      "internal_calls": 168,
+      "external_calls": 21,
+      "size": 52,
+      "label": "Community Shadow 14",
+      "cohesion": 0.8889
+    },
+    {
+      "partition_id": "partition_1",
+      "methods": [
+        "self.criterion",
+        "target.size",
+        "min",
+        "target.contiguous.view",
+        "target.contiguous",
+        "contiguous",
+        "target.clone",
+        "CrossEntropy.forward",
+        "tmp_target.unsqueeze",
+        "pred.contiguous.view",
+        "pred.gather",
+        "pixel_losses.mean",
+        "F.softmax",
+        "self.criterion.contiguous.view",
+        "OhemCrossEntropy.forward",
+        "score.size",
+        "pred.contiguous",
+        "pred.numel",
+        "self.criterion.contiguous",
+        "contiguous.sort"
+      ],
+      "modularity": 0.875,
+      "internal_calls": 21,
+      "external_calls": 3,
+      "size": 20,
+      "label": "Community Shadow 15",
+      "cohesion": 0.875
+    },
+    {
+      "partition_id": "partition_19",
+      "methods": [
+        "torch.FloatTensor",
+        "self.dataset_list.append",
+        "CASIA",
+        "IMD2020",
+        "arbitrary",
+        "FantasticReality",
+        "__init__",
+        "SplicingDataset.__init__"
+      ],
+      "modularity": 0.8571428571428571,
+      "internal_calls": 12,
+      "external_calls": 2,
+      "size": 8,
+      "label": "Community Shadow 16",
+      "cohesion": 0.8571
+    },
+    {
+      "partition_id": "partition_18",
+      "methods": [
+        "np.load",
+        "AbstractDataset.get_PIL_Image",
+        "FantasticReality.save_mask",
+        "Image.fromarray",
+        "squeeze",
+        "cv2.cvtColor",
+        "cv2.imread",
+        "replace",
+        "save_mask",
+        "Image.fromarray.save",
+        "FantasticReality.get_tamp"
+      ],
+      "modularity": 0.8421052631578947,
+      "internal_calls": 16,
+      "external_calls": 3,
+      "size": 11,
+      "label": "Community Shadow 17",
+      "cohesion": 0.8421
+    },
+    {
+      "partition_id": "partition_6",
+      "methods": [
+        "out_flat.reshape",
+        "ValueError",
+        "C.t",
+        "x.numel",
+        "x_flat.t",
+        "C_w.t",
+        "torch.matmul.t",
+        "mask.to",
+        "C_h.t",
+        "math.sqrt",
+        "dct",
+        "outs.append",
+        "idct",
+        "torch.arange.unsqueeze",
+        "torch.arange",
+        "torch.device",
+        "_idct_2d_single",
+        "torch.stack",
+        "_dct_2d_single",
+        "dct_2d",
+        "torch.matmul",
+        "x_flat.reshape",
+        "dct_filter",
+        "dct_compress",
+        "torch.cos",
+        "C.to",
+        "_get_dct_matrix",
+        "y_flat.reshape",
+        "X.reshape",
+        "idct_2d",
+        "X_flat.t",
+        "x_filtered.reshape",
+        "round"
+      ],
+      "modularity": 0.8363636363636363,
+      "internal_calls": 46,
+      "external_calls": 9,
+      "size": 33,
+      "label": "Community Shadow 18",
+      "cohesion": 0.8364
+    },
+    {
+      "partition_id": "partition_9",
+      "methods": [
+        "param_.view",
+        "torch.prod",
+        "module.register_forward_hook",
+        "summary.append",
+        "hook.remove",
+        "size",
+        "output.size",
+        "get_model_summary",
+        "class_name.find",
+        "add_hooks",
+        "torch.LongTensor",
+        "list",
+        "hooks.append",
+        "hasattr",
+        "ModuleDetails",
+        "model.apply",
+        "hook",
+        "item",
+        "namedtuple",
+        "param_.view.size",
+        "module.parameters"
+      ],
+      "modularity": 0.8214285714285714,
+      "internal_calls": 46,
+      "external_calls": 10,
+      "size": 21,
+      "label": "Community Shadow 19",
+      "cohesion": 0.8214
+    },
+    {
+      "partition_id": "partition_10",
+      "methods": [
+        "tensorboard_log_dir.mkdir",
+        "argparse.Namespace",
+        "parser.add_argument",
+        "root_output_dir.exists",
+        "logging.getLogger",
+        "torch.nn.DataParallel.cuda",
+        "cfg.merge_from_list",
+        "optimizer.state_dict",
+        "model.parameters",
+        "SummaryWriter",
+        "time.strftime",
+        "create_logger",
+        "torch.nn.DataParallel",
+        "parser.parse_args",
+        "cfg.defrost",
+        "cfg.merge_from_file",
+        "main",
+        "pprint.pformat",
+        "cfg.freeze",
+        "filter",
+        "final_output_dir.mkdir",
+        "logging.StreamHandler",
+        "time.sleep",
+        "OhemCrossEntropy",
+        "timeit.default_timer",
+        "logger.setLevel",
+        "train_dataset.get_info",
+        "root_output_dir.mkdir",
+        "OhemCrossEntropy.cuda",
+        "CrossEntropy.cuda",
+        "splicing_dataset",
+        "update_config",
+        "train_dataset.__len__",
+        "np.int",
+        "logging.getLogger.addHandler",
+        "print",
+        "logging.basicConfig",
+        "torch.save",
+        "model.model.module.load_state_dict",
+        "eval",
+        "gc.collect",
+        "torch.optim.SGD",
+        "Path",
+        "model.model.module.state_dict",
+        "argparse.ArgumentParser",
+        "train_dataset.shuffle",
+        "optimizer.load_state_dict",
+        "torch.cuda.empty_cache",
+        "CrossEntropy",
+        "parse_args"
+      ],
+      "modularity": 0.7936507936507936,
+      "internal_calls": 50,
+      "external_calls": 13,
+      "size": 50,
+      "label": "Community Shadow 20",
+      "cohesion": 0.7937
+    },
+    {
+      "partition_id": "partition_7",
+      "methods": [
+        "torch.Size",
+        "self.full_model",
+        "sum",
+        "TestFullModel.setUp",
+        "self.assertTrue",
+        "torch.zeros",
+        "loss.item",
+        "torch.equal",
+        "self.mock_loss_value.item",
+        "TestFullModel.test_forward_pass",
+        "test_forward_with_different_batch_sizes",
+        "self.mock_loss.assert_called_once_with",
+        "all",
+        "test_basic_functionality",
+        "setUp",
+        "pred.cpu.numpy.transpose",
+        "test_forward_pass",
+        "torch.tensor",
+        "confusion.diagonal",
+        "label.cpu.numpy",
+        "self.mock_model.assert_called_once_with",
+        "test_with_ignore_label",
+        "TestGetConfusionMatrix.test_basic_functionality",
+        "FullModel",
+        "__len__",
+        "torch.randint",
+        "confusion.sum",
+        "TestFullModel.test_forward_with_different_batch_sizes",
+        "label.cpu",
+        "get_confusion_matrix",
+        "SplicingDataset.__len__",
+        "MagicMock",
+        "TestGetConfusionMatrix.test_with_ignore_label",
+        "pred.cpu",
+        "test_perfect_prediction",
+        "sum.item",
+        "TestGetConfusionMatrix.test_perfect_prediction",
+        "np.argmax",
+        "pred.cpu.numpy",
+        "torch.randn"
+      ],
+      "modularity": 0.78,
+      "internal_calls": 78,
+      "external_calls": 22,
+      "size": 40,
+      "label": "Community Shadow 21",
+      "cohesion": 0.78
+    },
+    {
+      "partition_id": "partition_21",
+      "methods": [
+        "torch.from_numpy.cuda",
+        "avg_mIoU.update",
+        "np.maximum",
+        "labels.long.cuda",
+        "labels.long",
+        "avg_p_mIoU.update",
+        "IoU_array.mean",
+        "torch.no_grad",
+        "batch_time.average",
+        "reduced_confusion_matrix.cpu",
+        "writer.add_scalar",
+        "optimizer.step",
+        "avg_p_mIoU.average",
+        "loss.backward",
+        "label.long",
+        "dist.reduce",
+        "images.cuda",
+        "ave_loss.average",
+        "pos.sum",
+        "avg_mIoU.average",
+        "batch_time.update",
+        "reduced_loss.item",
+        "label.long.cuda",
+        "model.train",
+        "model",
+        "torch.from_numpy",
+        "model.eval",
+        "validate",
+        "reduce_tensor",
+        "model.zero_grad",
+        "label.size",
+        "adjust_learning_rate",
+        "reduced_confusion_matrix.cpu.numpy",
+        "logging.info",
+        "confusion_matrix.sum",
+        "train",
+        "tqdm",
+        "current_confusion_matrix.sum",
+        "ave_loss.update",
+        "losses.mean",
+        "tp.sum",
+        "time.time",
+        "image.cuda"
+      ],
+      "modularity": 0.765625,
+      "internal_calls": 49,
+      "external_calls": 15,
+      "size": 43,
+      "label": "Community Shadow 22",
+      "cohesion": 0.7656
+    },
+    {
+      "partition_id": "partition_17",
+      "methods": [
+        "np.bincount.reshape",
+        "astype",
+        "jpegio.read",
+        "out_arr.reshape",
+        "np.bincount",
+        "dict",
+        "lt.flatten",
+        "np.diag.sum",
+        "np.diag",
+        "out_arr.reshape.transpose",
+        "_fast_hist",
+        "_get_jpeg_info",
+        "hist.sum",
+        "scores",
+        "reshape.transpose",
+        "DCT_coef.append",
+        "lp.flatten",
+        "np.nanmean",
+        "AbstractDataset._get_jpeg_info",
+        "reshape"
+      ],
+      "modularity": 0.6756756756756757,
+      "internal_calls": 25,
+      "external_calls": 12,
+      "size": 20,
+      "label": "Community Shadow 23",
+      "cohesion": 0.6757
+    }
+  ],
+  "community_nodes": [
+    {
+      "id": "community_shadow_partition_12",
+      "label": "Community Shadow 1",
+      "type": "Community",
+      "symbol_count": 5,
+      "modularity": 1.0,
+      "cohesion": 1.0
+    },
+    {
+      "id": "community_shadow_partition_13",
+      "label": "Community Shadow 2",
+      "type": "Community",
+      "symbol_count": 3,
+      "modularity": 1.0,
+      "cohesion": 1.0
+    },
+    {
+      "id": "community_shadow_partition_14",
+      "label": "Community Shadow 3",
+      "type": "Community",
+      "symbol_count": 5,
+      "modularity": 1.0,
+      "cohesion": 1.0
+    },
+    {
+      "id": "community_shadow_partition_15",
+      "label": "Community Shadow 4",
+      "type": "Community",
+      "symbol_count": 4,
+      "modularity": 1.0,
+      "cohesion": 1.0
+    },
+    {
+      "id": "community_shadow_partition_20",
+      "label": "Community Shadow 5",
+      "type": "Community",
+      "symbol_count": 3,
+      "modularity": 1.0,
+      "cohesion": 1.0
+    },
+    {
+      "id": "community_shadow_partition_22",
+      "label": "Community Shadow 6",
+      "type": "Community",
+      "symbol_count": 5,
+      "modularity": 1.0,
+      "cohesion": 1.0
+    },
+    {
+      "id": "community_shadow_partition_16",
+      "label": "Community Shadow 7",
+      "type": "Community",
+      "symbol_count": 45,
+      "modularity": 0.9615384615384616,
+      "cohesion": 0.9615
+    },
+    {
+      "id": "community_shadow_partition_8",
+      "label": "Community Shadow 8",
+      "type": "Community",
+      "symbol_count": 62,
+      "modularity": 0.9298245614035088,
+      "cohesion": 0.9298
+    },
+    {
+      "id": "community_shadow_partition_5",
+      "label": "Community Shadow 9",
+      "type": "Community",
+      "symbol_count": 29,
+      "modularity": 0.9117647058823529,
+      "cohesion": 0.9118
+    },
+    {
+      "id": "community_shadow_partition_11",
+      "label": "Community Shadow 10",
+      "type": "Community",
+      "symbol_count": 14,
+      "modularity": 0.9090909090909091,
+      "cohesion": 0.9091
+    },
+    {
+      "id": "community_shadow_partition_2",
+      "label": "Community Shadow 11",
+      "type": "Community",
+      "symbol_count": 44,
+      "modularity": 0.9069767441860465,
+      "cohesion": 0.907
+    },
+    {
+      "id": "community_shadow_partition_3",
+      "label": "Community Shadow 12",
+      "type": "Community",
+      "symbol_count": 48,
+      "modularity": 0.9026548672566371,
+      "cohesion": 0.9027
+    },
+    {
+      "id": "community_shadow_partition_0",
+      "label": "Community Shadow 13",
+      "type": "Community",
+      "symbol_count": 30,
+      "modularity": 0.8955223880597015,
+      "cohesion": 0.8955
+    },
+    {
+      "id": "community_shadow_partition_4",
+      "label": "Community Shadow 14",
+      "type": "Community",
+      "symbol_count": 52,
+      "modularity": 0.8888888888888888,
+      "cohesion": 0.8889
+    },
+    {
+      "id": "community_shadow_partition_1",
+      "label": "Community Shadow 15",
+      "type": "Community",
+      "symbol_count": 20,
+      "modularity": 0.875,
+      "cohesion": 0.875
+    },
+    {
+      "id": "community_shadow_partition_19",
+      "label": "Community Shadow 16",
+      "type": "Community",
+      "symbol_count": 8,
+      "modularity": 0.8571428571428571,
+      "cohesion": 0.8571
+    },
+    {
+      "id": "community_shadow_partition_18",
+      "label": "Community Shadow 17",
+      "type": "Community",
+      "symbol_count": 11,
+      "modularity": 0.8421052631578947,
+      "cohesion": 0.8421
+    },
+    {
+      "id": "community_shadow_partition_6",
+      "label": "Community Shadow 18",
+      "type": "Community",
+      "symbol_count": 33,
+      "modularity": 0.8363636363636363,
+      "cohesion": 0.8364
+    },
+    {
+      "id": "community_shadow_partition_9",
+      "label": "Community Shadow 19",
+      "type": "Community",
+      "symbol_count": 21,
+      "modularity": 0.8214285714285714,
+      "cohesion": 0.8214
+    },
+    {
+      "id": "community_shadow_partition_10",
+      "label": "Community Shadow 20",
+      "type": "Community",
+      "symbol_count": 50,
+      "modularity": 0.7936507936507936,
+      "cohesion": 0.7937
+    },
+    {
+      "id": "community_shadow_partition_7",
+      "label": "Community Shadow 21",
+      "type": "Community",
+      "symbol_count": 40,
+      "modularity": 0.78,
+      "cohesion": 0.78
+    },
+    {
+      "id": "community_shadow_partition_21",
+      "label": "Community Shadow 22",
+      "type": "Community",
+      "symbol_count": 43,
+      "modularity": 0.765625,
+      "cohesion": 0.7656
+    },
+    {
+      "id": "community_shadow_partition_17",
+      "label": "Community Shadow 23",
+      "type": "Community",
+      "symbol_count": 20,
+      "modularity": 0.6756756756756757,
+      "cohesion": 0.6757
+    }
+  ],
+  "member_of_edges": [
+    {
+      "source": "method_ABN___repr__",
+      "target": "community_shadow_partition_13",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "method_ABN_forward",
+      "target": "community_shadow_partition_14",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "method_AverageMeter_update",
+      "target": "community_shadow_partition_15",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_shuffle",
+      "target": "community_shadow_partition_20",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "class_DCT_Stream_cls",
+      "target": "community_shadow_partition_22",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_get_seg_model",
+      "target": "community_shadow_partition_22",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "class_DCT_Stream",
+      "target": "community_shadow_partition_22",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_get_cls_net",
+      "target": "community_shadow_partition_22",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_test_get_rank_windows",
+      "target": "community_shadow_partition_16",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_test_initialization",
+      "target": "community_shadow_partition_16",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "class_AverageMeter",
+      "target": "community_shadow_partition_16",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_test_get_world_size_windows",
+      "target": "community_shadow_partition_16",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_test_get_world_size_not_initialized",
+      "target": "community_shadow_partition_16",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "method_TestAverageMeter_test_value_and_average_methods",
+      "target": "community_shadow_partition_16",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_test_get_rank_initialized",
+      "target": "community_shadow_partition_16",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_get_rank",
+      "target": "community_shadow_partition_16",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "method_TestAverageMeter_test_initial_state",
+      "target": "community_shadow_partition_16",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_test_get_rank_not_initialized",
+      "target": "community_shadow_partition_16",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_get_world_size",
+      "target": "community_shadow_partition_16",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "method_TestAverageMeter_test_initialize",
+      "target": "community_shadow_partition_16",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "method_TestAverageMeter_test_update_multiple_times",
+      "target": "community_shadow_partition_16",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "method_TestAverageMeter_test_update_first_time",
+      "target": "community_shadow_partition_16",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_test_get_world_size_initialized",
+      "target": "community_shadow_partition_16",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_test_add_method",
+      "target": "community_shadow_partition_16",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "decorator_patch",
+      "target": "community_shadow_partition_16",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "variable_InPlaceABNSync_forward_mean",
+      "target": "community_shadow_partition_8",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func__broadcast_shape",
+      "target": "community_shadow_partition_8",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func__reduce",
+      "target": "community_shadow_partition_8",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func__count_samples",
+      "target": "community_shadow_partition_8",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_backward",
+      "target": "community_shadow_partition_8",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func__act_forward",
+      "target": "community_shadow_partition_8",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func__act_backward",
+      "target": "community_shadow_partition_8",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "variable__check_RuntimeError",
+      "target": "community_shadow_partition_5",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "method_CAT_Net_init_weights",
+      "target": "community_shadow_partition_5",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "variable_AbstractDataset_get_tamp_name_isinstance",
+      "target": "community_shadow_partition_5",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func__check_branches",
+      "target": "community_shadow_partition_5",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "method_ABN_reset_parameters",
+      "target": "community_shadow_partition_5",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func__check",
+      "target": "community_shadow_partition_5",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "param__check_fn",
+      "target": "community_shadow_partition_5",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_pixel_accuracy",
+      "target": "community_shadow_partition_11",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_intersection_and_union",
+      "target": "community_shadow_partition_11",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_batch_pix_accuracy",
+      "target": "community_shadow_partition_11",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_batch_intersection_union",
+      "target": "community_shadow_partition_11",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "method_AbstractDataset_get_PIL_Image",
+      "target": "community_shadow_partition_3",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "method_AbstractDataset__create_tensor",
+      "target": "community_shadow_partition_3",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "variable_AbstractDataset__create_tensor_KeyError",
+      "target": "community_shadow_partition_3",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "method_AbstractDataset_get_tamp",
+      "target": "community_shadow_partition_3",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func___getitem__",
+      "target": "community_shadow_partition_3",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_get_PIL_image",
+      "target": "community_shadow_partition_3",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_get_filename",
+      "target": "community_shadow_partition_3",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "method_CASIA_get_qtable",
+      "target": "community_shadow_partition_3",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "method_AbstractDataset_get_tamp_name",
+      "target": "community_shadow_partition_3",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_get_next_filename",
+      "target": "community_shadow_partition_3",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_get_info",
+      "target": "community_shadow_partition_3",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "variable_ABN___init___super",
+      "target": "community_shadow_partition_0",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "variable_CASIA___init___open",
+      "target": "community_shadow_partition_0",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_conv3x3",
+      "target": "community_shadow_partition_0",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_get_num_inchannels",
+      "target": "community_shadow_partition_4",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func__make_fuse_layers",
+      "target": "community_shadow_partition_4",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func__make_stage",
+      "target": "community_shadow_partition_4",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func__make_layer",
+      "target": "community_shadow_partition_4",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func__make_head",
+      "target": "community_shadow_partition_4",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "variable_CAT_Net___init___BatchNorm2d",
+      "target": "community_shadow_partition_4",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func__make_one_branch",
+      "target": "community_shadow_partition_4",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "variable_AbstractDataset___init___block",
+      "target": "community_shadow_partition_4",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func__make_transition_layer",
+      "target": "community_shadow_partition_4",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func__make_branches",
+      "target": "community_shadow_partition_4",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "class_HighResolutionModule",
+      "target": "community_shadow_partition_4",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "class_CASIA",
+      "target": "community_shadow_partition_19",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "class_IMD2020",
+      "target": "community_shadow_partition_19",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "class_arbitrary",
+      "target": "community_shadow_partition_19",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "class_FantasticReality",
+      "target": "community_shadow_partition_19",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "method_ABN___init__",
+      "target": "community_shadow_partition_19",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "method_FantasticReality_save_mask",
+      "target": "community_shadow_partition_18",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "variable_HighResolutionModule__check_branches_ValueError",
+      "target": "community_shadow_partition_6",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_dct",
+      "target": "community_shadow_partition_6",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_idct",
+      "target": "community_shadow_partition_6",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func__idct_2d_single",
+      "target": "community_shadow_partition_6",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func__dct_2d_single",
+      "target": "community_shadow_partition_6",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_dct_2d",
+      "target": "community_shadow_partition_6",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_dct_filter",
+      "target": "community_shadow_partition_6",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_dct_compress",
+      "target": "community_shadow_partition_6",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func__get_dct_matrix",
+      "target": "community_shadow_partition_6",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_idct_2d",
+      "target": "community_shadow_partition_6",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "param_get_confusion_matrix_size",
+      "target": "community_shadow_partition_9",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_get_model_summary",
+      "target": "community_shadow_partition_9",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_add_hooks",
+      "target": "community_shadow_partition_9",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_hook",
+      "target": "community_shadow_partition_9",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "variable_AbstractDataset_get_tamp_name_item",
+      "target": "community_shadow_partition_9",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_create_logger",
+      "target": "community_shadow_partition_10",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_main",
+      "target": "community_shadow_partition_10",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "class_OhemCrossEntropy",
+      "target": "community_shadow_partition_10",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_update_config",
+      "target": "community_shadow_partition_10",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "class_CrossEntropy",
+      "target": "community_shadow_partition_10",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_parse_args",
+      "target": "community_shadow_partition_10",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_test_forward_with_different_batch_sizes",
+      "target": "community_shadow_partition_7",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_test_basic_functionality",
+      "target": "community_shadow_partition_7",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_setUp",
+      "target": "community_shadow_partition_7",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_test_forward_pass",
+      "target": "community_shadow_partition_7",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_test_with_ignore_label",
+      "target": "community_shadow_partition_7",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "class_FullModel",
+      "target": "community_shadow_partition_7",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func___len__",
+      "target": "community_shadow_partition_7",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_get_confusion_matrix",
+      "target": "community_shadow_partition_7",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "variable_TestFullModel_setUp_MagicMock",
+      "target": "community_shadow_partition_7",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_test_perfect_prediction",
+      "target": "community_shadow_partition_7",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "param_FullModel___init___model",
+      "target": "community_shadow_partition_21",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_validate",
+      "target": "community_shadow_partition_21",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_reduce_tensor",
+      "target": "community_shadow_partition_21",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_adjust_learning_rate",
+      "target": "community_shadow_partition_21",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_train",
+      "target": "community_shadow_partition_21",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func__fast_hist",
+      "target": "community_shadow_partition_17",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "method_AbstractDataset__get_jpeg_info",
+      "target": "community_shadow_partition_17",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    },
+    {
+      "source": "func_scores",
+      "target": "community_shadow_partition_17",
+      "type": "MEMBER_OF",
+      "relation": "MEMBER_OF"
+    }
+  ],
+  "quality_report": {
+    "community_count": 23,
+    "total_methods": 595,
+    "avg_cohesion": 0.8936,
+    "singleton_ratio": 0.0,
+    "timeout_fallback_rate": 1.0
+  },
+  "relation_report": {
+    "community_node_count": 23,
+    "member_of_edge_count": 113,
+    "missing_method_count": 482,
+    "consistent": false
+  },
+  "project_path": "D:\\代码仓库生图\\借鉴项目\\CAT-Net-main",
+  "generated_at": "2026-04-21T22:08:01.623446"
+}

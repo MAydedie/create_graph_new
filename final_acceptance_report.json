@@ -1,0 +1,29 @@
+{
+  "home_status": 200,
+  "library_checks": {
+    "create_graph_total": 1,
+    "catnet_total": 1,
+    "catnet_contains_target": true
+  },
+  "passthrough_from_previous_validation": {
+    "contains_create_graph_lib": true,
+    "contains_catnet_lib": true,
+    "verified": true
+  },
+  "parity": {
+    "totals": {
+      "extraction": 262,
+      "original": 263,
+      "cat_baseline": 262
+    },
+    "approx_similarity": {
+      "total_paths_ratio": 0.9961977186311787,
+      "partition_distribution_similarity": 0.9980952380952381,
+      "approx_ok": true,
+      "rule": "Relaxed acceptance: structure and totals close enough (>=95%)"
+    },
+    "strict_equal": {
+      "original_vs_extraction": false
+    }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "bundle": "create_graph_问答按钮功能抽离_2026-04-21",
+  "mode": "qa-button-only extraction (not full frontend clone)",
+  "entrypoint": "qa_button_app.py",
+  "ui": "qa_ui/index.html",
+  "defaultPort": 5123,
+  "frontend_gitnexus_copied": false,
+  "experience_json_count": 13,
+  "opencode_source_present": true,
+  "notes": [
+    "Only QA button flow kept: start session, poll status, fetch result, reply clarification.",
+    "Uses source MINIMAX settings via config/user_runtime_config.json -> scripts/apply_user_config.py -> .env",
+    "One-click startup script uses PORT=5123."
+  ],
+  "previous": {
+    "sourceRoot": "D:\\代码仓库生图\\create_graph",
+    "oldBundle": "D:\\代码仓库生图\\汇报\\4.21\\create_graph_可运行问答副本_2026-04-21",
+    "newBundle": "D:\\代码仓库生图\\汇报\\4.21\\create_graph_问答按钮功能抽离_2026-04-21",
+    "mode": "QA-button-only extraction",
+    "copiedEntries": [
+      "app",
+      "analysis",
+      "config",
+      "data",
+      "llm",
+      "src",
+      "parsers",
+      "advisor_consultant_lab",
+      "build_graph_index.py",
+      "requirements.txt",
+      "third_party"
+    ],
+    "experienceJsonCount": 13,
+    "note": "No full frontend_gitnexus copied; backend + QA-only UI will be added."
+  }
+}

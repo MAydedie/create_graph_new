@@ -1,0 +1,138 @@
+{
+  "version": "advisor.lab.v2",
+  "step": "generate_code_process",
+  "generated_at": "2026-04-21T11:37:18.955841Z",
+  "run_id": "single_run",
+  "question_id": "q00",
+  "requirement": "请基于当前 CAT-Net 的经验库，在 D:/代码仓库生图/汇报/4.21/test/ 下生成一个真实可落地的 Python 命令行 demo 项目。这个项目要演示 CAT-Net 最核心的篡改定位能力：输入一张图像路径后，输出一个简化版的篡改定位结果，并打印关键处理阶段说明。",
+  "phase_traces": [
+    {
+      "phase": "input_documents",
+      "details": {
+        "step1_match_file": "D:\\代码仓库生图\\汇报\\4.21\\create_graph_问答按钮功能抽离_2026-04-21\\advisor_consultant_lab\\runtime\\step1_match_result.json",
+        "step2_analysis_file": "D:\\代码仓库生图\\汇报\\4.21\\create_graph_问答按钮功能抽离_2026-04-21\\advisor_consultant_lab\\runtime\\step2_analysis.json",
+        "step3_design_file": "D:\\代码仓库生图\\汇报\\4.21\\create_graph_问答按钮功能抽离_2026-04-21\\advisor_consultant_lab\\runtime\\step3_design.json",
+        "matched_advisor_count": 12
+      }
+    },
+    {
+      "phase": "source_target_resolution",
+      "details": {
+        "source_target_count": 9,
+        "source_advisor_count": 9,
+        "source_targets": [
+          {
+            "advisor_id": "experience::CAT-Net-main::partition_2::path_2",
+            "advisor_name": "CAT-Net-main:partition_2:获取篡改数据",
+            "project_name": "CAT-Net-main",
+            "project_path": "D:\\catnet\\CAT-Net-main",
+            "source_targets": [
+              "Splicing\\data\\dataset_CASIA.py:46"
+            ]
+          },
+          {
+            "advisor_id": "experience::GitNexus-main::partition_14::path_0",
+            "advisor_name": "GitNexus-main:partition_14:获取仓库信息",
+            "project_name": "GitNexus-main",
+            "project_path": "D:\\代码仓库生图\\GitNexus-main",
+            "source_targets": [
+              "GitNexusDockerEnvironment._get_repo_info",
+              "_get_repo_info"
+            ]
+          },
+          {
+            "advisor_id": "experience::CAT-Net-main::partition_11::path_4",
+            "advisor_name": "CAT-Net-main:partition_11:配置参数解析更新",
+            "project_name": "CAT-Net-main",
+            "project_path": "D:\\catnet\\CAT-Net-main",
+            "source_targets": [
+              "tools\\infer.py:42",
+              "lib\\config\\default.py:111"
+            ]
+          },
+          {
+            "advisor_id": "experience::CAT-Net-main::partition_7::path_0",
+            "advisor_name": "CAT-Net-main:partition_7:前向传播测试",
+            "project_name": "CAT-Net-main",
+            "project_path": "D:\\catnet\\CAT-Net-main",
+            "source_targets": [
+              "lib\\utils\\test\\test_utils.py:57"
+            ]
+          },
+          {
+            "advisor_id": "experience::CAT-Net-main::partition_7::path_2",
+            "advisor_name": "CAT-Net-main:partition_7:前向传播测试",
+            "project_name": "CAT-Net-main",
+            "project_path": "D:\\catnet\\CAT-Net-main",
+            "source_targets": [
+              "lib\\utils\\test\\test_utils.py:57"
+            ]
+          },
+          {
+            "advisor_id": "experience::CAT-Net-main::partition_11::path_0",
+            "advisor_name": "CAT-Net-main:partition_11:配置参数更新",
+            "project_name": "CAT-Net-main",
+            "project_path": "D:\\catnet\\CAT-Net-main",
+            "source_targets": [
+              "lib\\config\\default.py:111",
+              "tools\\infer.py:42"
+            ]
+          },
+          {
+            "advisor_id": "experience::CAT-Net-main::partition_11::path_1",
+            "advisor_name": "CAT-Net-main:partition_11:配置更新主流程",
+            "project_name": "CAT-Net-main",
+            "project_path": "D:\\catnet\\CAT-Net-main",
+            "source_targets": [
+              "lib\\config\\default.py:111",
+              "tools\\infer.py:60"
+            ]
+          },
+          {
+            "advisor_id": "experience::CAT-Net-main::partition_2::path_3",
+            "advisor_name": "CAT-Net-main:partition_2:创建张量",
+            "project_name": "CAT-Net-main",
+            "project_path": "D:\\catnet\\CAT-Net-main",
+            "source_targets": [
+              "Splicing\\data\\AbstractDataset.py:103"
+            ]
+          },
+          {
+            "advisor_id": "experience::CAT-Net-main::partition_2::path_4",
+            "advisor_name": "CAT-Net-main:partition_2:创建张量数据集",
+            "project_name": "CAT-Net-main",
+            "project_path": "D:\\catnet\\CAT-Net-main",
+            "source_targets": [
+              "Splicing\\data\\AbstractDataset.py:103"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "phase": "code_solution_synthesis",
+      "details": {
+        "codegen_mode": "file_level_code",
+        "codegen_scenario": "generic_refactor",
+        "codegen_provider": "template_fallback",
+        "fallback_used": true,
+        "opencode_status": "error",
+        "constraint_types": [
+          "cfg",
+          "dfg",
+          "io_graph",
+          "input_info",
+          "output_info",
+          "constraint_explain"
+        ],
+        "implementation_target_count": 1,
+        "code_block_count": 1,
+        "patch_block_count": 1,
+        "apply_ready_patch_count": 1,
+        "code_block_files": [
+          "app/refactor/plan.py"
+        ]
+      }
+    }
+  ]
+}

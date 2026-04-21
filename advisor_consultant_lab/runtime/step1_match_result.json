@@ -1,0 +1,1593 @@
+{
+  "version": "advisor.lab.v2",
+  "step": "match_advisors",
+  "generated_at": "2026-04-21T11:37:18.630356Z",
+  "run_id": "single_run",
+  "question_id": "q00",
+  "input_files": {
+    "task_input": "D:\\代码仓库生图\\汇报\\4.21\\create_graph_问答按钮功能抽离_2026-04-21\\advisor_consultant_lab\\task_input.txt",
+    "skills_source": "experience_paths",
+    "skills_library": "D:\\代码仓库生图\\汇报\\4.21\\create_graph_问答按钮功能抽离_2026-04-21\\skill_callchain_v2\\runtime\\generated_skills.json",
+    "experience_store_dir": "D:\\代码仓库生图\\汇报\\4.21\\create_graph_问答按钮功能抽离_2026-04-21\\output_analysis\\experience_paths",
+    "experience_files": [
+      "D:\\代码仓库生图\\汇报\\4.21\\create_graph_问答按钮功能抽离_2026-04-21\\output_analysis\\experience_paths\\create_graph_50055b0f.json",
+      "D:\\代码仓库生图\\汇报\\4.21\\create_graph_问答按钮功能抽离_2026-04-21\\output_analysis\\experience_paths\\CAT-Net-main_2d8849b3.json",
+      "D:\\代码仓库生图\\汇报\\4.21\\create_graph_问答按钮功能抽离_2026-04-21\\output_analysis\\experience_paths\\EvoSkill-main_dcc38938.json",
+      "D:\\代码仓库生图\\汇报\\4.21\\create_graph_问答按钮功能抽离_2026-04-21\\output_analysis\\experience_paths\\JUnitGenie-main_aec36653.json",
+      "D:\\代码仓库生图\\汇报\\4.21\\create_graph_问答按钮功能抽离_2026-04-21\\output_analysis\\experience_paths\\AI_Team-master_bbef5c24.json",
+      "D:\\代码仓库生图\\汇报\\4.21\\create_graph_问答按钮功能抽离_2026-04-21\\output_analysis\\experience_paths\\GitNexus-main_a6b0c9c9.json",
+      "D:\\代码仓库生图\\汇报\\4.21\\create_graph_问答按钮功能抽离_2026-04-21\\output_analysis\\experience_paths\\demo_code_package_096c3973.json",
+      "D:\\代码仓库生图\\汇报\\4.21\\create_graph_问答按钮功能抽离_2026-04-21\\output_analysis\\experience_paths\\finance_cli_440a415b.json",
+      "D:\\代码仓库生图\\汇报\\4.21\\create_graph_问答按钮功能抽离_2026-04-21\\output_analysis\\experience_paths\\test_sandbox_3beb4ce9.json",
+      "D:\\代码仓库生图\\汇报\\4.21\\create_graph_问答按钮功能抽离_2026-04-21\\output_analysis\\experience_paths\\tests_cbdb5adf.json",
+      "D:\\代码仓库生图\\汇报\\4.21\\create_graph_问答按钮功能抽离_2026-04-21\\output_analysis\\experience_paths\\learn-claude-code-main_e0297555.json",
+      "D:\\代码仓库生图\\汇报\\4.21\\create_graph_问答按钮功能抽离_2026-04-21\\output_analysis\\experience_paths\\AuditLuma-master_b3fa6b68.json",
+      "D:\\代码仓库生图\\汇报\\4.21\\create_graph_问答按钮功能抽离_2026-04-21\\output_analysis\\experience_paths\\CAT-Net-main_8be220b0.json"
+    ]
+  },
+  "priority_libraries": [],
+  "priority_library_count": 0,
+  "requirement": "请基于当前 CAT-Net 的经验库，在 D:/代码仓库生图/汇报/4.21/test/ 下生成一个真实可落地的 Python 命令行 demo 项目。这个项目要演示 CAT-Net 最核心的篡改定位能力：输入一张图像路径后，输出一个简化版的篡改定位结果，并打印关键处理阶段说明。",
+  "matcher_agents": [
+    "project_custodian",
+    "path_matcher",
+    "semantic_matcher",
+    "code_matcher"
+  ],
+  "query_profile": {
+    "scope": "mixed",
+    "broad_hits": [],
+    "specific_hits": []
+  },
+  "constraints_contract": {
+    "version": "constraints.v1",
+    "description": "Step1输出结构化约束对象并向下游传递"
+  },
+  "matched_advisors": [
+    {
+      "rank": 1,
+      "advisor_id": "experience::CAT-Net-main::partition_2::path_2",
+      "partition_id": "partition_2",
+      "advisor_name": "CAT-Net-main:partition_2:获取篡改数据",
+      "project_name": "CAT-Net-main",
+      "project_path": "D:\\catnet\\CAT-Net-main",
+      "what": "该经验库来自项目CAT-Net-main，功能分区“partition_2”，路径“获取篡改数据”，能力描述：从CASIA数据集中获取图像篡改样本，用于后续的篡改检测模型训练或测试。",
+      "how": "[1] 输入需求输入 -> 进入np.array；执行模块处理；得到step_1_output；下一步CASIA.get_tamp。；[2] 输入step_1_output -> 进入CASIA.get_tamp；执行模块处理；得到np.array；下一步END。；约束依据：CFG、DFG、输入输出、np.array、CASIA.get_tamp。",
+      "constraints": [
+        "np.array",
+        "CASIA.get_tamp",
+        "优先复用经验库中的 CFG/DFG/IO 证据，不直接跳过中间路径步骤。",
+        "需要 CFG 约束证据",
+        "需要 DFG 约束证据",
+        "需要输入输出约束"
+      ],
+      "constraints_structured": {
+        "version": "constraints.v1",
+        "types": [
+          "cfg",
+          "dfg",
+          "io_graph",
+          "input_info",
+          "output_info",
+          "constraint_explain"
+        ],
+        "cfg": {
+          "summary": {
+            "exists": true,
+            "node_count": 12,
+            "edge_count": 11
+          },
+          "input_info_keys": [
+            "np.array",
+            "CASIA.get_tamp"
+          ],
+          "output_info_keys": [
+            "np.array",
+            "CASIA.get_tamp"
+          ]
+        },
+        "dfg": {
+          "summary": {
+            "exists": true,
+            "node_count": 20,
+            "edge_count": 22
+          }
+        },
+        "io_graph": {
+          "summary": {
+            "exists": true,
+            "node_count": 5,
+            "edge_count": 4
+          },
+          "inputs": [
+            "np.array",
+            "CASIA.get_tamp"
+          ],
+          "outputs": [
+            "np.array",
+            "CASIA.get_tamp"
+          ]
+        },
+        "input_info": {
+          "np.array": [
+            {
+              "name": "data",
+              "type": "Any"
+            }
+          ],
+          "CASIA.get_tamp": [
+            {
+              "name": "self",
+              "type": "Any"
+            },
+            {
+              "name": "index",
+              "type": "Any"
+            }
+          ]
+        },
+        "output_info": {
+          "np.array": "Any",
+          "CASIA.get_tamp": "Any"
+        },
+        "constraint_explain": {
+          "exists": true,
+          "markdown": "好的，作为资深代码分析专家，我将为你解释这条功能路径的 CFG 和 DFG。\n\n### 路径功能概括\n这条路径的核心功能是：**根据给定的索引，从一个数据集中加载篡改图像及其对应的掩码，并最终转换为张量格式**。具体执行顺序如下：\n1.  方法 `CASIA.get_tamp` 接收一个 `index` 参数。\n2.  根据 `index` 从 `self.tamp_list` 中查找并拼接出篡改图像文件路径 `tamp_path` 和掩码文件路径 `mask_path`。\n3.  检查该索引对应的掩码是否为 `‘None’`，如果是，则将 `mask` 变量设为 `None`。\n4.  如果不是，则打开掩码图像文件，将其转换为灰度数组，并将所有大于0的像素值设为1，进行二值化处理。\n5.  最后，调用 `self._create_tensor` 方法，传入图像路径和掩码，生成并返回最终的张量。\n\n### CFG（控制流图）解释\nCFG 展示了代码执行的**顺序和分支**。在这条路径上，CFG 清晰地描绘了 `CASIA.get_tamp` 方法内部的逻辑流程：\n*   **顺序执行**：从节点1（Entry）开始，依次执行节点2（构建 `tamp_path`）、节点3（构建 `mask_path`），然后到达节点4（条件判断）。\n*   **关键分支**：节点4 `If: self.tamp_list[index][1] == ‘None’` 是核心决策点。\n    *   **绿色边（True）**：如果条件为真，执行节点5，将 `mask` 设为 `None`，然后直接跳转到节点11准备返回。\n    *   **橙色边（False）**：如果条件为假，执行节点7（加载并转换掩码图像）、节点9（二值化掩码），然后也流向节点11。\n*   **汇聚与返回**：无论走哪条分支，最终都会汇聚到节点11 `return self._create_tensor(tamp_path, mask)`，然后通过节点12（Exit）结束方法。\n\n### DFG（数据流图）解释\nDFG 展示了数据（变量、参数）在路径上的**定义、使用和传递关系**。在这条路径上，DFG 揭示了关键数据的生命周期：\n*   **输入数据的消费**：`self` 和 `index` 被多次使用（`use`），用于访问 `self._root_path`、`self.tamp_list` 以及进行条件判断。\n*   **关键变量的生成链**：\n    1.  `tamp_path` 和 `mask_path` 被定义（`def`），它们依赖于 `self` 和 `index`。\n    2.  `mask` 变量在两条分支上被定义（节点11和节点12），其值要么是 `None`，要么是经过 `np.array` 和 `Image.open` 处理后的二值化数组。\n*   **最终输出的数据来源**：返回值由 `self._create_tensor(tamp_path, mask)` 产生，因此它依赖于之前定义好的 `tamp_path` 和 `mask` 这两个关键变量。\n\n### 方法之间的联系\n*   **控制流**：路径显示为 `array -> get_tamp`，但根据图表，`array` 方法并未在 `get_tamp` 的CFG中被显式调用。`np.array` 是 `get_tamp` 内部使用的一个库函数，用于将图像数据转换为NumPy数组。因此，这里的“联系”更可能是数据流层面的。\n*   **数据流**：\n    *   **参数**：`get_tamp` 接收 `self` 和 `index` 作为输入。\n    *   **关键变量**：在 `get_tamp` 内部，`mask` 变量的值可能通过 `np.array(...)` 生成（这调用了 `np.array` 函数）。\n    *   **返回值**：`get_tamp` 的返回值是调用 `self._create_tensor(...)` 的结果，该结果最终作为整个路径的输出。\n\n### 阅读指南\n1.  **先看CFG的入口和分支**：从 `CASIA_get_tamp_node_1` (Entry) 开始，顺着箭头看到节点4的 `If` 判断，这是理解整个方法逻辑走向的关键。\n2.  **关注CFG边的颜色**：绿色边代表条件为 `True` 的分支（掩码为None），橙色边代表 `False` 的分支（需要处理掩码文件）。这能帮你快速区分两种场景。\n3.  **在DFG中追踪关键变量**：重点关注 `tamp_path`、`mask_path` 和 `mask` 这几个变量的节点。看它们如何被定义（`def`），以及最终如何被使用（`use`）来生成返回值。\n4.  **理解“方法”节点**：DFG顶部的 `method_np_array` 和 `method_CASIA_get_tamp` 是容器节点。它们通过虚线连接到其内部的具体数据流节点，表示包含关系。这表明 `np.array` 的功能被内嵌在 `get_tamp` 的数据流中。\n5.  **对照输入/输出集群**：CFG图顶部蓝色椭圆是输入参数，底部绿色椭圆是返回值。这帮你快速定位路径的起点和终点。\n\n### 缩放/定位建议\n由于图结构清晰且规模适中，通常无需特殊缩放。建议的阅读顺序是：\n1.  **整体概览CFG**：从上到下浏览CFG，把握 `get_tamp` 方法的线性流程和唯一的分支结构。\n2.  **聚焦DFG数据链**：在DFG中，可以沿着 `index` -> `tamp_path/mask_path` -> `mask` -> `return ...` 这条主线来理解数据如何流动并最终形成输出。\n3.  **结合查看**：将CFG中的分支逻辑（特别是节点4、5、7、9）与DFG中 `mask` 变量的两个不同定义（节点11和节点12）对应起来，理解不同条件下数据的产生过程。"
+        }
+      },
+      "agent_scores": {
+        "path_matcher": 14.7567,
+        "semantic_matcher": 21.5556,
+        "code_matcher": 2.2963
+      },
+      "fused_score": 74.1491,
+      "base_fused_score": 38.6086,
+      "project_score": 37.7426,
+      "partition_score": 22.7417,
+      "total_hits": 29,
+      "match_reason": "从CASIA数据集中获取图像篡改样本，用于后续的篡改检测模型训练或测试。",
+      "method_call_chain": [
+        "np.array",
+        "CASIA.get_tamp"
+      ],
+      "source_locations": [
+        {
+          "file_path": "Splicing\\data\\dataset_CASIA.py",
+          "symbol": "CASIA.get_tamp",
+          "line": 46
+        }
+      ],
+      "path_refs": [
+        "CAT-Net-main:partition_2:path_2"
+      ],
+      "code_refs": [
+        "np.array",
+        "CASIA.get_tamp"
+      ]
+    },
+    {
+      "rank": 2,
+      "advisor_id": "experience::GitNexus-main::partition_14::path_0",
+      "partition_id": "partition_14",
+      "advisor_name": "GitNexus-main:partition_14:获取仓库信息",
+      "project_name": "GitNexus-main",
+      "project_path": "D:\\代码仓库生图\\GitNexus-main",
+      "what": "该经验库来自项目GitNexus-main，功能分区“partition_14”，路径“获取仓库信息”，能力描述：该路径通过GitNexusDockerEnvironment类的_get_repo_info方法获取代码仓库的基本信息，用于后续的Docker环境配置或操作。",
+      "how": "[1] 输入需求输入 -> 进入GitNexusDockerEnvironment._get_repo_info；执行模块处理；得到step_1_output；下一步_get_repo_info。；[2] 输入step_1_output -> 进入_get_repo_info；执行模块处理；得到step_2_output；下一步commit_result.get.strip。；[3] 输入step_2_output -> 进入commit_result.get.strip；执行模块处理；得到step_3_output；下一步commit_result.get。；[4] 输入step_3_output -> 进入commit_result.get；执行模块处理；得到_get_repo_info；下一步END。；约束依据：CFG、DFG、输入输出、_get_repo_info、commit_result.get.strip。",
+      "constraints": [
+        "_get_repo_info",
+        "commit_result.get.strip",
+        "GitNexusDockerEnvironment._get_repo_info",
+        "commit_result.get",
+        "优先复用经验库中的 CFG/DFG/IO 证据，不直接跳过中间路径步骤。",
+        "需要 CFG 约束证据",
+        "需要 DFG 约束证据",
+        "需要输入输出约束"
+      ],
+      "constraints_structured": {
+        "version": "constraints.v1",
+        "types": [
+          "cfg",
+          "dfg",
+          "io_graph",
+          "input_info",
+          "output_info",
+          "constraint_explain"
+        ],
+        "cfg": {
+          "summary": {
+            "exists": true,
+            "node_count": 12,
+            "edge_count": 11
+          },
+          "input_info_keys": [
+            "_get_repo_info",
+            "commit_result.get.strip",
+            "GitNexusDockerEnvironment._get_repo_info",
+            "commit_result.get"
+          ],
+          "output_info_keys": [
+            "_get_repo_info",
+            "commit_result.get.strip",
+            "GitNexusDockerEnvironment._get_repo_info",
+            "commit_result.get"
+          ]
+        },
+        "dfg": {
+          "summary": {
+            "exists": true,
+            "node_count": 18,
+            "edge_count": 18
+          }
+        },
+        "io_graph": {
+          "summary": {
+            "exists": true,
+            "node_count": 9,
+            "edge_count": 8
+          },
+          "inputs": [
+            "_get_repo_info",
+            "commit_result.get.strip",
+            "GitNexusDockerEnvironment._get_repo_info",
+            "commit_result.get"
+          ],
+          "outputs": [
+            "_get_repo_info",
+            "commit_result.get.strip",
+            "GitNexusDockerEnvironment._get_repo_info",
+            "commit_result.get"
+          ]
+        },
+        "input_info": {
+          "_get_repo_info": [
+            {
+              "name": "self",
+              "type": "Any"
+            }
+          ],
+          "commit_result.get.strip": [
+            {
+              "name": "data",
+              "type": "Any"
+            }
+          ],
+          "GitNexusDockerEnvironment._get_repo_info": [
+            {
+              "name": "self",
+              "type": "Any"
+            }
+          ],
+          "commit_result.get": [
+            {
+              "name": "data",
+              "type": "Any"
+            }
+          ]
+        },
+        "output_info": {
+          "_get_repo_info": "dict",
+          "commit_result.get.strip": "Any",
+          "GitNexusDockerEnvironment._get_repo_info": "dict",
+          "commit_result.get": "Any"
+        },
+        "constraint_explain": {
+          "exists": true,
+          "markdown": "好的，作为资深代码分析专家，我将为你解释这条功能路径的 CFG 和 DFG。\n\n### 这条路径做了什么？\n这条路径的核心功能是**从容器中获取仓库的身份信息**。其执行顺序如下：\n1.  首先，一个名为 `GitNexusDockerEnvironment._get_repo_info` 的方法被调用。\n2.  该方法内部调用了另一个同名的 `_get_repo_info` 方法。\n3.  在第二个 `_get_repo_info` 方法中，它通过 `self.execute` 执行两条命令来分别获取仓库信息和提交信息，并将结果存储在 `repo_result` 和 `commit_result` 中。\n4.  最后，它从这两个结果中提取并清理（`get` 和 `strip`）出 `output` 字段，组合成一个字典并返回。\n\n### CFG（控制流图）含义\nCFG 展示了代码执行的**顺序和分支结构**。在这条路径上，CFG 清晰地呈现了：\n*   **线性执行流**：两个 `_get_repo_info` 方法内部都是严格的顺序执行（节点 1->2->3->4->5->6），没有条件分支或循环。\n*   **方法调用关系**：图中用**红色加粗箭头**明确标出了从 `GitNexusDockerEnvironment._get_repo_info` 的退出节点到另一个 `_get_repo_info` 的入口节点的“调用”边。这直观地展示了第一个方法如何将控制权转移给第二个方法。\n*   **作用域划分**：两个方法被绘制在不同的节点序列中，帮助我们区分不同方法内的逻辑块。\n\n### DFG（数据流图）含义\nDFG 展示了数据（变量、参数、返回值）在程序中的**定义、使用和传递关系**。在这条路径上，DFG 揭示了：\n*   **变量生命周期**：例如，`repo_result` 在节点1被定义（`def`），随后在节点5被使用（`use`）。`commit_result` 同理（节点3定义，节点6使用）。这显示了数据的产生和消费点。\n*   **方法间的数据依赖**：图中有一条从 `method__get_repo_info` 指向 `method_commit_result_get_strip` 的**蓝色虚线箭头**，并标注了参数 `self`。这表明第二个 `_get_repo_info` 方法的执行依赖于传入的 `self` 对象（虽然图中未完整展示 `strip` 和 `get` 的具体数据流，但此边暗示了这种调用依赖）。\n*   **数据聚合**：节点7和节点14的 `dict (use)` 表明，最终返回的字典数据是由前面多个变量（`repo_result`, `commit_result`）的数据流汇聚而成的。\n\n### 方法之间的联系\n这条路径中方法间的联系主要体现在**控制流**和**数据流**两个层面：\n*   **控制流（调用顺序）**：`GitNexusDockerEnvironment._get_repo_info` **调用**了另一个 `_get_repo_info` 方法。这是主要的控制转移。\n*   **数据流**：\n    *   **参数传递**：第一个方法调用第二个方法时，很可能将 `self` 作为隐含的上下文参数传递了过去（图中 DFG 有所体现）。\n    *   **返回值**：第二个 `_get_repo_info` 方法返回的字典，直接作为第一个 `_get_repo_info` 方法的返回值（CFG中未明示，但逻辑如此）。\n    *   **关键变量**：第二个方法内部定义的 `repo_result` 和 `commit_result`（来自 `self.execute` 的返回值），是最终返回字典的数据来源。而 `commit_result.get(‘output’, ‘unknown’).strip()` 则隐含了对 `get` 和 `strip` 方法的调用及数据流动。\n\n### 阅读指南\n1.  **先看 CFG 把握主干**：首先顺着 CFG 中的黑色实线箭头看，理解“先执行 A，再执行 B”的整体流程。特别注意那条**红色的“调用”边**，这是方法衔接的关键。\n2.  **关注节点标签**：CFG 节点标签（如 `_get_repo_info: commit_result = self.execute...`）直接对应代码语句，是理解每步操作的最佳依据。\n3.  **在 DFG 中追踪关键变量**：如果想了解某个数据如何变化，在 DFG 中寻找其 `def`（定义）和 `use`（使用）节点，并跟随它们之间的边。例如，跟踪 `repo_result` 和 `commit_result`。\n4.  **区分方法作用域**：注意 CFG 和 DFG 中节点都归属于不同的方法（通过节点名或 `【方法】` 节点区分）。这有助于避免混淆不同方法中的同名变量。\n5.  **结合输入/输出集群**：图顶部（输入）和底部（输出）的椭圆形节点，标明了整个路径的初始输入和最终产出，帮你建立从“什么进来”到“什么出去”的全局观。\n\n### 缩放/定位建议\n这张图结构清晰，规模适中。为了获得最佳阅读体验：\n*   **从入口开始**：在 CFG 中，定位到 `GitNexusDockerEnvironment__get_repo_info_node_1`（Entry），从这里开始向下阅读。\n*   **聚焦调用边**：找到 CFG 中唯一的红色加粗箭头，它连接了两个方法，是理解路径组合的关键位置。\n*   **分视图查看**：可以分别查看 CFG 和 DFG。先通读 CFG 理解执行步骤，再切换到 DFG 研究你感兴趣的数据（如 `commit_result`）是如何流动的。"
+        }
+      },
+      "agent_scores": {
+        "path_matcher": 13.5478,
+        "semantic_matcher": 20.1452,
+        "code_matcher": 0.16
+      },
+      "fused_score": 66.9108,
+      "base_fused_score": 33.853,
+      "project_score": 35.0853,
+      "partition_score": 21.1706,
+      "total_hits": 25,
+      "match_reason": "该路径通过GitNexusDockerEnvironment类的_get_repo_info方法获取代码仓库的基本信息，用于后续的Docker环境配置或操作。",
+      "method_call_chain": [
+        "GitNexusDockerEnvironment._get_repo_info",
+        "_get_repo_info",
+        "commit_result.get.strip",
+        "commit_result.get"
+      ],
+      "source_locations": [
+        {
+          "file_path": "",
+          "symbol": "GitNexusDockerEnvironment._get_repo_info"
+        },
+        {
+          "file_path": "",
+          "symbol": "_get_repo_info"
+        }
+      ],
+      "path_refs": [
+        "GitNexus-main:partition_14:path_0"
+      ],
+      "code_refs": [
+        "GitNexusDockerEnvironment._get_repo_info",
+        "_get_repo_info",
+        "commit_result.get.strip",
+        "commit_result.get"
+      ]
+    },
+    {
+      "rank": 3,
+      "advisor_id": "experience::CAT-Net-main::partition_11::path_4",
+      "partition_id": "partition_11",
+      "advisor_name": "CAT-Net-main:partition_11:配置参数解析更新",
+      "project_name": "CAT-Net-main",
+      "project_path": "D:\\catnet\\CAT-Net-main",
+      "what": "该经验库来自项目CAT-Net-main，功能分区“partition_11”，路径“配置参数解析更新”，能力描述：该路径首先解析命令行参数，然后根据解析结果更新系统配置，用于动态调整程序运行时的参数设置。",
+      "how": "[1] 输入需求输入 -> 进入parse_args；执行模块处理；得到step_1_output；下一步update_config。；[2] 输入step_1_output -> 进入update_config；执行模块处理；得到step_2_output；下一步cfg.defrost。；[3] 输入step_2_output -> 进入cfg.defrost；执行模块处理；得到cfg.defrost；下一步END。；约束依据：CFG、DFG、输入输出、cfg.defrost、update_config。",
+      "constraints": [
+        "cfg.defrost",
+        "update_config",
+        "parse_args",
+        "优先复用经验库中的 CFG/DFG/IO 证据，不直接跳过中间路径步骤。",
+        "需要 CFG 约束证据",
+        "需要 DFG 约束证据",
+        "需要输入输出约束"
+      ],
+      "constraints_structured": {
+        "version": "constraints.v1",
+        "types": [
+          "cfg",
+          "dfg",
+          "io_graph",
+          "input_info",
+          "output_info",
+          "constraint_explain"
+        ],
+        "cfg": {
+          "summary": {
+            "exists": true,
+            "node_count": 16,
+            "edge_count": 16
+          },
+          "input_info_keys": [
+            "cfg.defrost",
+            "update_config",
+            "parse_args"
+          ],
+          "output_info_keys": [
+            "cfg.defrost",
+            "update_config",
+            "parse_args"
+          ]
+        },
+        "dfg": {
+          "summary": {
+            "exists": true,
+            "node_count": 22,
+            "edge_count": 24
+          }
+        },
+        "io_graph": {
+          "summary": {
+            "exists": true,
+            "node_count": 7,
+            "edge_count": 6
+          },
+          "inputs": [
+            "cfg.defrost",
+            "update_config",
+            "parse_args"
+          ],
+          "outputs": [
+            "cfg.defrost",
+            "update_config",
+            "parse_args"
+          ]
+        },
+        "input_info": {
+          "cfg.defrost": [
+            {
+              "name": "data",
+              "type": "Any"
+            }
+          ],
+          "update_config": [
+            {
+              "name": "cfg",
+              "type": "Any"
+            },
+            {
+              "name": "args",
+              "type": "Any"
+            }
+          ],
+          "parse_args": [
+            {
+              "name": "data",
+              "type": "Any"
+            }
+          ]
+        },
+        "output_info": {
+          "cfg.defrost": "Any",
+          "update_config": "Any",
+          "parse_args": "Any"
+        },
+        "constraint_explain": {
+          "exists": true,
+          "markdown": "好的，作为资深代码分析专家，我将为你解析这条功能路径。\n\n### 这条路径做了什么？\n这条路径是一个典型的**命令行配置解析与更新流程**。它按顺序执行以下操作：\n1.  **`parse_args`**：创建一个命令行参数解析器，定义两个参数（`--cfg` 和 `opts`），然后解析用户输入的命令行参数。\n2.  **`update_config`**：接收一个配置对象 `cfg` 和解析后的参数 `args`。它首先调用 `cfg.defrost()` 解冻配置，然后从 `args.cfg` 指定的文件加载配置，并根据 `args.opts` 提供的列表覆盖配置项，最后调用 `cfg.freeze()` 冻结配置。\n3.  **`cfg.defrost`**：作为 `update_config` 中的一个关键步骤被调用，目的是允许修改配置对象。\n\n### CFG（控制流图）含义\nCFG 展示了代码执行的**顺序和分支**。在这条路径上：\n*   **节点**：代表程序中的基本操作或语句（如变量赋值、函数调用）。\n*   **边**：代表控制流（即下一步执行哪条语句）。绿色边表示条件为 `True` 时的分支。\n*   **关键结构**：\n    *   **顺序执行**：从 `parse_args_node_1` 到 `parse_args_node_8` 以及 `update_config_node_9` 到 `update_config_node_16` 展示了方法内部的线性流程。\n    *   **方法调用**：红色加粗的边 `parse_args_node_6 -> update_config_node_9` 表示 `parse_args` 调用了 `update_config`。\n    *   **方法返回**：紫色虚线边 `update_config_node_16 -> parse_args_node_7` 表示 `update_config` 执行完毕，控制权返回给 `parse_args`。\n    *   **条件分支**：`update_config_node_12` 是一个条件判断节点（`If: args.opts`），它决定了是否执行 `node_13` 的合并操作。\n\n### DFG（数据流图）含义\nDFG 展示了**数据（变量、参数）如何被定义、使用和传递**。在这条路径上：\n*   **节点**：代表数据的定义（`def`）或使用（`use`）。例如，`parser (def)` 表示变量 `parser` 在此处被定义（创建），而 `parser (use)` 表示它在此处被使用。\n*   **边**：代表数据依赖关系，箭头从数据的定义点指向其使用点。标签说明了流动的是哪个变量。\n*   **关键数据流**：\n    *   在 `parse_args` 中，定义的 `args` 变量（`node_7`）被用于调用 `update_config`（`node_11`）。\n    *   在 `update_config` 中，传入的参数 `cfg` 和 `args` 被多次使用，以调用其方法（如 `defrost()`, `merge_from_file`）。\n\n### 方法之间的联系\n*   **控制流联系**：`parse_args` **调用** `update_config`，`update_config` 执行完毕后**返回**到 `parse_args`。`update_config` 内部又**调用**了 `cfg.defrost`。\n*   **数据流联系**：\n    *   `parse_args` 将其内部定义的 `args` 对象作为**参数**传递给 `update_config`。\n    *   `update_config` 接收的 `cfg` 参数（可能来自 `parse_args` 的 `config` 参数）被直接操作，其状态（冻结/解冻、配置值）被改变。`update_config` 的返回值（图中为 `Any`）可能被 `parse_args` 使用或忽略。\n    *   `cfg.defrost` 作为 `cfg` 对象的一个方法被调用，它操作 `cfg` 自身的数据。\n\n### 阅读指南\n1.  **先看 CFG 的整体流程**：从 `parse_args` 的 Entry 节点开始，顺着箭头走到 Exit，理解整个调用链（`parse_args` -> `update_config` -> `defrost`）。\n2.  **关注 CFG 中的彩色边**：\n    *   **红色加粗边**是**方法调用**，这是连接不同方法的关键。\n    *   **紫色虚线边**是**方法返回**，标志着子方法执行结束。\n    *   **绿色边**是**条件为真的分支**，注意 `update_config` 中根据 `args.opts` 是否存在决定是否执行额外合并。\n3.  **在 DFG 中追踪关键变量**：重点关注 `args` 和 `cfg` 这两个核心变量的流向。看 `args` 如何在 `parse_args` 中产生，并流入 `update_config`；看 `cfg` 如何在 `update_config` 中被多次使用（调用其方法）。\n4.  **结合输入/输出摘要**：图中的椭圆形节点（蓝色输入、绿色输出）给出了每个方法的接口摘要，帮助你理解数据从哪里来，最终结果是什么。\n5.  **理解 `defrost` 的角色**：在 DFG 中，`cfg.defrost()` 被抽象为 `【方法】defrost` 节点。在 CFG 中，它体现为 `update_config_node_10` 这个调用节点。它的作用是解锁 `cfg` 对象以便修改。\n\n### 缩放/定位建议\n如果图太大或复杂，建议按以下步骤聚焦：\n1.  **从入口开始**：在 CFG 中，首先定位 `parse_args_node_1` (Entry)，这是整个路径的起点。\n2.  **跟随调用边**：找到红色的“调用”边（`parse_args_node_6 -> update_config_node_9`），它会将你的视线引导至下一个核心方法 `update_config`。\n3.  **分层查看**：可以将 `parse_args` 和 `update_config` 视为两个主要模块。先理解 `parse_args` 如何生成 `args`，再跳转到 `update_config` 看它如何使用 `args` 处理 `cfg`。\n4.  **在 DFG 中按方法过滤**：利用 DFG 中顶层的 `【方法】xxx` 节点。你可以先聚焦 `method_parse_args` 下的数据流，理解 `args` 的生成；再聚焦 `method_update_config`，看 `cfg` 和 `args` 如何被消费。"
+        }
+      },
+      "agent_scores": {
+        "path_matcher": 12.3389,
+        "semantic_matcher": 18.7348,
+        "code_matcher": 2.3363
+      },
+      "fused_score": 67.9683,
+      "base_fused_score": 33.41,
+      "project_score": 37.7426,
+      "partition_score": 21.2306,
+      "total_hits": 25,
+      "match_reason": "该路径首先解析命令行参数，然后根据解析结果更新系统配置，用于动态调整程序运行时的参数设置。",
+      "method_call_chain": [
+        "parse_args",
+        "update_config",
+        "cfg.defrost"
+      ],
+      "source_locations": [
+        {
+          "file_path": "tools\\infer.py",
+          "symbol": "parse_args",
+          "line": 42
+        },
+        {
+          "file_path": "lib\\config\\default.py",
+          "symbol": "update_config",
+          "line": 111
+        }
+      ],
+      "path_refs": [
+        "CAT-Net-main:partition_11:path_4"
+      ],
+      "code_refs": [
+        "parse_args",
+        "update_config",
+        "cfg.defrost"
+      ]
+    },
+    {
+      "rank": 4,
+      "advisor_id": "experience::CAT-Net-main::partition_2::path_2",
+      "partition_id": "partition_2",
+      "advisor_name": "CAT-Net-main:partition_2:获取篡改数据",
+      "project_name": "CAT-Net-main",
+      "project_path": "D:\\catnet\\CAT-Net-main",
+      "what": "该经验库来自项目CAT-Net-main，功能分区“partition_2”，路径“获取篡改数据”，能力描述：从CASIA数据集中获取图像篡改样本，用于后续的篡改检测模型训练或测试。",
+      "how": "[1] 输入需求输入 -> 进入np.array；执行模块处理；得到step_1_output；下一步CASIA.get_tamp。；[2] 输入step_1_output -> 进入CASIA.get_tamp；执行模块处理；得到np.array；下一步END。；约束依据：CFG、DFG、输入输出、np.array、CASIA.get_tamp。",
+      "constraints": [
+        "np.array",
+        "CASIA.get_tamp",
+        "优先复用经验库中的 CFG/DFG/IO 证据，不直接跳过中间路径步骤。",
+        "需要 CFG 约束证据",
+        "需要 DFG 约束证据",
+        "需要输入输出约束"
+      ],
+      "constraints_structured": {
+        "version": "constraints.v1",
+        "types": [
+          "cfg",
+          "dfg",
+          "io_graph",
+          "input_info",
+          "output_info",
+          "constraint_explain"
+        ],
+        "cfg": {
+          "summary": {
+            "exists": true,
+            "node_count": 12,
+            "edge_count": 11
+          },
+          "input_info_keys": [
+            "np.array",
+            "CASIA.get_tamp"
+          ],
+          "output_info_keys": [
+            "np.array",
+            "CASIA.get_tamp"
+          ]
+        },
+        "dfg": {
+          "summary": {
+            "exists": true,
+            "node_count": 20,
+            "edge_count": 22
+          }
+        },
+        "io_graph": {
+          "summary": {
+            "exists": true,
+            "node_count": 5,
+            "edge_count": 4
+          },
+          "inputs": [
+            "np.array",
+            "CASIA.get_tamp"
+          ],
+          "outputs": [
+            "np.array",
+            "CASIA.get_tamp"
+          ]
+        },
+        "input_info": {
+          "np.array": [
+            {
+              "name": "data",
+              "type": "Any"
+            }
+          ],
+          "CASIA.get_tamp": [
+            {
+              "name": "self",
+              "type": "Any"
+            },
+            {
+              "name": "index",
+              "type": "Any"
+            }
+          ]
+        },
+        "output_info": {
+          "np.array": "Any",
+          "CASIA.get_tamp": "Any"
+        },
+        "constraint_explain": {
+          "exists": true,
+          "markdown": "好的，作为资深代码分析专家，我将为你解释这条功能路径的 CFG 和 DFG。\n\n### 路径功能概括\n这条路径的核心功能是：**根据给定的索引，从一个数据集中加载篡改图像及其对应的掩码，并最终转换为张量格式**。具体执行顺序如下：\n1.  方法 `CASIA.get_tamp` 接收一个 `index` 参数。\n2.  根据 `index` 从 `self.tamp_list` 中查找并拼接出篡改图像文件路径 `tamp_path` 和掩码文件路径 `mask_path`。\n3.  检查该索引对应的掩码是否为 `‘None’`，如果是，则将 `mask` 变量设为 `None`。\n4.  如果不是，则打开掩码图像文件，将其转换为灰度数组，并将所有大于0的像素值设为1，进行二值化处理。\n5.  最后，调用 `self._create_tensor` 方法，传入图像路径和掩码，生成并返回最终的张量。\n\n### CFG（控制流图）解释\nCFG 展示了代码执行的**顺序和分支**。在这条路径上，CFG 清晰地描绘了 `CASIA.get_tamp` 方法内部的逻辑流程：\n*   **顺序执行**：从节点1（Entry）开始，依次执行节点2（构建 `tamp_path`）、节点3（构建 `mask_path`），然后到达节点4（条件判断）。\n*   **关键分支**：节点4 `If: self.tamp_list[index][1] == ‘None’` 是核心决策点。\n    *   **绿色边（True）**：如果条件为真，执行节点5，将 `mask` 设为 `None`，然后直接跳转到节点11准备返回。\n    *   **橙色边（False）**：如果条件为假，执行节点7（加载并转换掩码图像）、节点9（二值化掩码），然后也流向节点11。\n*   **汇聚与返回**：无论走哪条分支，最终都会汇聚到节点11 `return self._create_tensor(tamp_path, mask)`，然后通过节点12（Exit）结束方法。\n\n### DFG（数据流图）解释\nDFG 展示了数据（变量、参数）在路径上的**定义、使用和传递关系**。在这条路径上，DFG 揭示了关键数据的生命周期：\n*   **输入数据的消费**：`self` 和 `index` 被多次使用（`use`），用于访问 `self._root_path`、`self.tamp_list` 以及进行条件判断。\n*   **关键变量的生成链**：\n    1.  `tamp_path` 和 `mask_path` 被定义（`def`），它们依赖于 `self` 和 `index`。\n    2.  `mask` 变量在两条分支上被定义（节点11和节点12），其值要么是 `None`，要么是经过 `np.array` 和 `Image.open` 处理后的二值化数组。\n*   **最终输出的数据来源**：返回值由 `self._create_tensor(tamp_path, mask)` 产生，因此它依赖于之前定义好的 `tamp_path` 和 `mask` 这两个关键变量。\n\n### 方法之间的联系\n*   **控制流**：路径显示为 `array -> get_tamp`，但根据图表，`array` 方法并未在 `get_tamp` 的CFG中被显式调用。`np.array` 是 `get_tamp` 内部使用的一个库函数，用于将图像数据转换为NumPy数组。因此，这里的“联系”更可能是数据流层面的。\n*   **数据流**：\n    *   **参数**：`get_tamp` 接收 `self` 和 `index` 作为输入。\n    *   **关键变量**：在 `get_tamp` 内部，`mask` 变量的值可能通过 `np.array(...)` 生成（这调用了 `np.array` 函数）。\n    *   **返回值**：`get_tamp` 的返回值是调用 `self._create_tensor(...)` 的结果，该结果最终作为整个路径的输出。\n\n### 阅读指南\n1.  **先看CFG的入口和分支**：从 `CASIA_get_tamp_node_1` (Entry) 开始，顺着箭头看到节点4的 `If` 判断，这是理解整个方法逻辑走向的关键。\n2.  **关注CFG边的颜色**：绿色边代表条件为 `True` 的分支（掩码为None），橙色边代表 `False` 的分支（需要处理掩码文件）。这能帮你快速区分两种场景。\n3.  **在DFG中追踪关键变量**：重点关注 `tamp_path`、`mask_path` 和 `mask` 这几个变量的节点。看它们如何被定义（`def`），以及最终如何被使用（`use`）来生成返回值。\n4.  **理解“方法”节点**：DFG顶部的 `method_np_array` 和 `method_CASIA_get_tamp` 是容器节点。它们通过虚线连接到其内部的具体数据流节点，表示包含关系。这表明 `np.array` 的功能被内嵌在 `get_tamp` 的数据流中。\n5.  **对照输入/输出集群**：CFG图顶部蓝色椭圆是输入参数，底部绿色椭圆是返回值。这帮你快速定位路径的起点和终点。\n\n### 缩放/定位建议\n由于图结构清晰且规模适中，通常无需特殊缩放。建议的阅读顺序是：\n1.  **整体概览CFG**：从上到下浏览CFG，把握 `get_tamp` 方法的线性流程和唯一的分支结构。\n2.  **聚焦DFG数据链**：在DFG中，可以沿着 `index` -> `tamp_path/mask_path` -> `mask` -> `return ...` 这条主线来理解数据如何流动并最终形成输出。\n3.  **结合查看**：将CFG中的分支逻辑（特别是节点4、5、7、9）与DFG中 `mask` 变量的两个不同定义（节点11和节点12）对应起来，理解不同条件下数据的产生过程。"
+        }
+      },
+      "agent_scores": {
+        "path_matcher": 14.7567,
+        "semantic_matcher": 21.5556,
+        "code_matcher": 2.2963
+      },
+      "fused_score": 66.3005,
+      "base_fused_score": 38.6086,
+      "project_score": 28.7059,
+      "partition_score": 18.3133,
+      "total_hits": 29,
+      "match_reason": "从CASIA数据集中获取图像篡改样本，用于后续的篡改检测模型训练或测试。",
+      "method_call_chain": [
+        "np.array",
+        "CASIA.get_tamp"
+      ],
+      "source_locations": [
+        {
+          "file_path": "Splicing\\data\\dataset_CASIA.py",
+          "symbol": "CASIA.get_tamp",
+          "line": 46
+        }
+      ],
+      "path_refs": [
+        "CAT-Net-main:partition_2:path_2"
+      ],
+      "code_refs": [
+        "np.array",
+        "CASIA.get_tamp"
+      ]
+    },
+    {
+      "rank": 5,
+      "advisor_id": "experience::CAT-Net-main::partition_7::path_0",
+      "partition_id": "partition_7",
+      "advisor_name": "CAT-Net-main:partition_7:前向传播测试",
+      "project_name": "CAT-Net-main",
+      "project_path": "D:\\catnet\\CAT-Net-main",
+      "what": "该经验库来自项目CAT-Net-main，功能分区“partition_7”，路径“前向传播测试”，能力描述：执行神经网络模型的前向传播过程测试，验证模型在给定输入下的正向计算流程和输出结果。",
+      "how": "[1] 输入需求输入 -> 进入self.mock_loss.assert_called_once_with；执行模块处理；得到step_1_output；下一步test_forward_pass。；[2] 输入step_1_output -> 进入test_forward_pass；执行模块处理；得到self.mock_loss.assert_called_once_with；下一步END。；约束依据：CFG、DFG、输入输出、self.mock_loss.assert_called_once_with、test_forward_pass。",
+      "constraints": [
+        "self.mock_loss.assert_called_once_with",
+        "test_forward_pass",
+        "优先复用经验库中的 CFG/DFG/IO 证据，不直接跳过中间路径步骤。",
+        "需要 CFG 约束证据",
+        "需要 DFG 约束证据",
+        "需要输入输出约束"
+      ],
+      "constraints_structured": {
+        "version": "constraints.v1",
+        "types": [
+          "cfg",
+          "dfg",
+          "io_graph",
+          "input_info",
+          "output_info",
+          "constraint_explain"
+        ],
+        "cfg": {
+          "summary": {
+            "exists": true,
+            "node_count": 10,
+            "edge_count": 9
+          },
+          "input_info_keys": [
+            "self.mock_loss.assert_called_once_with",
+            "test_forward_pass"
+          ],
+          "output_info_keys": [
+            "self.mock_loss.assert_called_once_with",
+            "test_forward_pass"
+          ]
+        },
+        "dfg": {
+          "summary": {
+            "exists": true,
+            "node_count": 25,
+            "edge_count": 23
+          }
+        },
+        "io_graph": {
+          "summary": {
+            "exists": true,
+            "node_count": 5,
+            "edge_count": 4
+          },
+          "inputs": [
+            "self.mock_loss.assert_called_once_with",
+            "test_forward_pass"
+          ],
+          "outputs": [
+            "self.mock_loss.assert_called_once_with",
+            "test_forward_pass"
+          ]
+        },
+        "input_info": {
+          "self.mock_loss.assert_called_once_with": [
+            {
+              "name": "data",
+              "type": "Any"
+            }
+          ],
+          "test_forward_pass": [
+            {
+              "name": "self",
+              "type": "Any"
+            }
+          ]
+        },
+        "output_info": {
+          "self.mock_loss.assert_called_once_with": "Any",
+          "test_forward_pass": "Any"
+        },
+        "constraint_explain": {
+          "exists": true,
+          "markdown": "好的，作为资深代码分析专家，我将为你解释这条功能路径的 CFG 和 DFG。\n\n### 路径功能概括\n这条路径描述了一个单元测试 `test_forward_pass` 的执行流程。它主要做了以下几件事：\n1.  调用被测的 `full_model` 方法，获取 `loss` 和 `outputs`。\n2.  验证 `mock_model` 是否被正确调用了一次。\n3.  **调用 `mock_loss.assert_called_once_with`**，验证 `mock_loss` 是否被正确调用了一次。\n4.  对 `loss` 和 `outputs` 进行一系列断言，检查其类型、形状和值是否符合预期。\n\n### CFG（控制流图）含义\nCFG 展示了 `test_forward_pass` 方法内部语句的**执行顺序**。它是一个线性的、无分支的流程：\n*   **入口 (`Entry`)** -> **执行步骤 (Node 2-9)** -> **出口 (`Exit`)**。\n*   图中的箭头清晰地表明了控制流：从第1步（注释）开始，依次执行调用、断言等操作，直到方法结束。\n*   关键节点是 `test_forward_pass_node_5`，它对应着 `self.mock_loss.assert_called_once_with(...)` 的调用，这是路径中明确提到的另一个方法。\n\n### DFG（数据流图）含义\nDFG 展示了 `test_forward_pass` 方法内部**数据（变量、对象）的依赖和使用关系**。\n*   图中有一个顶层方法节点 `【方法】test_forward_pass`，它通过虚线“包含”了其内部所有数据的使用节点。\n*   数据节点（如 `self (use)`, `loss (use)`, `torch (use)`）表示在方法执行过程中，这些变量或模块在何处被**使用**。\n*   当前的 DFG 图**只展示了数据的使用点**，但**缺少了关键的数据定义和流动边**。例如，`loss` 和 `outputs` 在 `node_3` 被定义，然后在后续的断言节点中被使用，但图中没有显示这种“定义->使用”的依赖边。这使得当前的 DFG 信息不完整，主要用于展示方法内部存在哪些数据实体。\n\n### 方法之间的联系\n这条路径上两个方法 `assert_called_once_with` 和 `test_forward_pass` 之间的联系是：\n*   **控制流**：`test_forward_pass` **调用**了 `self.mock_loss.assert_called_once_with`。这是一种直接的调用关系，`assert_called_once_with` 执行完毕后会返回到 `test_forward_pass` 的下一行继续执行。\n*   **数据流**：`test_forward_pass` 将 `self.mock_outputs` 作为**参数**传递给 `assert_called_once_with` 方法（对应其输入 `data: Any`）。`assert_called_once_with` 的**返回值**（可能是一个 None 或断言结果）被 `test_forward_pass` 忽略或用于隐式断言。\n\n### 阅读指南\n1.  **先看 CFG 掌握流程**：由于路径简单且线性，首先阅读 CFG 可以快速理解 `test_forward_pass` 测试的完整步骤。\n2.  **定位关键调用**：在 CFG 中，找到标签为 `self.mock_loss.assert_called_once_with` 的节点（`test_forward_pass_node_5`），这就是两个方法发生交互的精确位置。\n3.  **理解 DFG 的局限性**：注意当前的 DFG 图没有数据流动边，它主要告诉你方法里用到了 `self`、`loss`、`outputs`、`torch` 这些数据实体。要分析数据如何流动，需要更完整的 DFG（包含 `def` 定义边）。\n4.  **对照输入输出摘要**：结合摘要，`assert_called_once_with` 的输入 `data` 对应着 CFG 节点 5 中调用时的参数 `self.mock_outputs`。\n\n### 缩放/定位建议\n这张图并不大，结构清晰。\n*   **CFG**：从上到下线性阅读即可。入口在顶部，出口在底部。\n*   **DFG**：由于节点较多且排列密集，可以**先聚焦于顶部的两个方法节点** `method_test_forward_pass` 和 `method_self_mock_loss_assert_called_once_with`，理解这是两个独立的方法单元。然后观察 `method_test_forward_pass` 下方密集的点状线，这表示该方法内部使用了大量数据节点。"
+        }
+      },
+      "agent_scores": {
+        "path_matcher": 13.5478,
+        "semantic_matcher": 17.3244,
+        "code_matcher": 2.2963
+      },
+      "fused_score": 65.7623,
+      "base_fused_score": 33.1685,
+      "project_score": 37.7426,
+      "partition_score": 18.2083,
+      "total_hits": 25,
+      "match_reason": "执行神经网络模型的前向传播过程测试，验证模型在给定输入下的正向计算流程和输出结果。",
+      "method_call_chain": [
+        "self.mock_loss.assert_called_once_with",
+        "test_forward_pass"
+      ],
+      "source_locations": [
+        {
+          "file_path": "lib\\utils\\test\\test_utils.py",
+          "symbol": "test_forward_pass",
+          "line": 57
+        }
+      ],
+      "path_refs": [
+        "CAT-Net-main:partition_7:path_0"
+      ],
+      "code_refs": [
+        "self.mock_loss.assert_called_once_with",
+        "test_forward_pass"
+      ]
+    },
+    {
+      "rank": 6,
+      "advisor_id": "experience::CAT-Net-main::partition_7::path_2",
+      "partition_id": "partition_7",
+      "advisor_name": "CAT-Net-main:partition_7:前向传播测试",
+      "project_name": "CAT-Net-main",
+      "project_path": "D:\\catnet\\CAT-Net-main",
+      "what": "该经验库来自项目CAT-Net-main，功能分区“partition_7”，路径“前向传播测试”，能力描述：该路径用于测试神经网络模型的前向传播过程，验证输入数据经过网络各层后的输出结果是否符合预期。",
+      "how": "[1] 输入需求输入 -> 进入test_forward_pass；执行模块处理；得到step_1_output；下一步self.mock_loss.assert_called_once_with。；[2] 输入step_1_output -> 进入self.mock_loss.assert_called_once_with；执行模块处理；得到self.mock_loss.assert_called_once_with；下一步END。；约束依据：CFG、DFG、输入输出、self.mock_loss.assert_called_once_with、test_forward_pass。",
+      "constraints": [
+        "self.mock_loss.assert_called_once_with",
+        "test_forward_pass",
+        "优先复用经验库中的 CFG/DFG/IO 证据，不直接跳过中间路径步骤。",
+        "需要 CFG 约束证据",
+        "需要 DFG 约束证据",
+        "需要输入输出约束"
+      ],
+      "constraints_structured": {
+        "version": "constraints.v1",
+        "types": [
+          "cfg",
+          "dfg",
+          "io_graph",
+          "input_info",
+          "output_info",
+          "constraint_explain"
+        ],
+        "cfg": {
+          "summary": {
+            "exists": true,
+            "node_count": 10,
+            "edge_count": 9
+          },
+          "input_info_keys": [
+            "self.mock_loss.assert_called_once_with",
+            "test_forward_pass"
+          ],
+          "output_info_keys": [
+            "self.mock_loss.assert_called_once_with",
+            "test_forward_pass"
+          ]
+        },
+        "dfg": {
+          "summary": {
+            "exists": true,
+            "node_count": 25,
+            "edge_count": 23
+          }
+        },
+        "io_graph": {
+          "summary": {
+            "exists": true,
+            "node_count": 5,
+            "edge_count": 4
+          },
+          "inputs": [
+            "self.mock_loss.assert_called_once_with",
+            "test_forward_pass"
+          ],
+          "outputs": [
+            "self.mock_loss.assert_called_once_with",
+            "test_forward_pass"
+          ]
+        },
+        "input_info": {
+          "self.mock_loss.assert_called_once_with": [
+            {
+              "name": "data",
+              "type": "Any"
+            }
+          ],
+          "test_forward_pass": [
+            {
+              "name": "self",
+              "type": "Any"
+            }
+          ]
+        },
+        "output_info": {
+          "self.mock_loss.assert_called_once_with": "Any",
+          "test_forward_pass": "Any"
+        },
+        "constraint_explain": {
+          "exists": true,
+          "markdown": "好的，作为资深代码分析专家，我将为你解释这条功能路径的 CFG 和 DFG。\n\n### 路径功能概括\n这条路径描述了一个单元测试 `test_forward_pass` 的执行流程。它主要做了以下几件事：\n1.  **调用被测对象**：执行 `self.full_model` 的前向传播，获取 `loss` 和 `outputs`。\n2.  **验证 Mock 调用**：检查 `self.mock_model` 和 `self.mock_loss` 是否被正确调用了一次，并传入了预期的参数。\n3.  **断言结果**：对 `loss` 的类型、形状、数值以及 `outputs` 的张量内容进行一系列断言，确保它们符合预期。\n\n### CFG（控制流图）含义\nCFG 展示了代码执行的**顺序和分支结构**。在这条路径上，CFG 呈现为一个**线性的、无分支的序列**。\n*   **节点**：每个方框代表一个基本操作块，例如方法入口、赋值语句、方法调用或断言。\n*   **边**：箭头表示控制流，即“下一步执行哪里”。从 `node_1` 到 `node_10` 的箭头清晰地展示了测试用例从头到尾的执行步骤。\n*   **关键节点**：`node_5` (`self.mock_loss.assert_called_once_with`) 是路径中明确指出的第二个方法调用点，它验证 Mock 对象 `mock_loss` 的调用情况。\n\n### DFG（数据流图）含义\nDFG 展示了数据（变量、参数）在程序中的**定义、使用和传递关系**。在这条路径的 DFG 中：\n*   **节点**：主要分为两类：\n    1.  **方法节点**（如 `【方法】test_forward_pass`）：代表整个方法的作用域。\n    2.  **数据使用节点**（如 `self (use)`, `loss (use)`）：表示在方法内部某个位置**使用**了某个变量。\n*   **边**：虚线箭头表示“包含”关系，即方法包含了这些数据的使用点。**当前提供的 DFG 主要展示了 `test_forward_pass` 方法内部使用了哪些变量（如 `self`, `loss`, `torch`, `outputs`），但尚未清晰地展示出数据是如何在这些使用点之间流动的，也缺少与 `assert_called_once_with` 方法之间的数据传递细节。**\n\n### 方法之间的联系\n*   **控制流**：`test_forward_pass` **调用**了 `self.mock_loss.assert_called_once_with`。调用顺序在 CFG 的 `node_5` 体现。\n*   **数据流**：\n    *   **参数传递**：`test_forward_pass` 将 `self.mock_outputs` 作为参数传递给 `assert_called_once_with` 方法（对应 CFG `node_5` 的标签）。\n    *   **关键变量**：`loss` 和 `outputs` 由 `self.full_model` 调用产生，随后 `loss` 被用于多个断言，`outputs` 则用于与 `self.mock_outputs` 比较，并作为参数传递给 Mock 验证。\n\n### 阅读指南\n1.  **先看 CFG 掌握主干**：CFG 结构简单，是理解执行顺序的最佳起点。从 `Entry` 节点开始，顺着箭头看到 `Exit`。\n2.  **关注 CFG 节点标签**：标签（如 `self.mock_loss.assert_called_once_with(...)`) 直接描述了代码行为，比节点 ID 更有意义。\n3.  **识别输入/输出**：在 CFG 图中，蓝色椭圆是输入参数，绿色椭圆是返回值。注意它们目前没有与执行节点相连，这表示图是路径的抽象表示，而非完整程序图。\n4.  **理解 DFG 的局限性**：当前 DFG 主要列出了变量被“使用”的位置，但缺乏“定义”节点和变量之间的流动边。要分析数据流，需结合 CFG 节点标签来推断。\n5.  **定位关键交互**：要理解方法间联系，重点看 CFG 中 `node_5`，它包含了跨方法调用 `assert_called_once_with` 及传递的参数 `self.mock_outputs`。\n\n### 缩放/定位建议\n此图规模较小，结构清晰，无需特殊缩放。建议的阅读顺序是：\n1.  **整体俯瞰 CFG**：从左至右（或从上至下，取决于渲染方向）快速浏览所有节点的标签，对测试步骤形成整体印象。\n2.  **聚焦调用点**：将视线定位到 CFG 中间的 `node_5`，这是两个方法发生交互的核心位置。\n3.  **对照查看 DFG**：在 DFG 中，找到 `【方法】test_forward_pass` 节点，查看其包含的众多 `self (use)` 节点，这对应了测试方法中频繁使用 `self` 上的属性（如 `self.mock_loss`, `self.inputs` 等）这一事实。"
+        }
+      },
+      "agent_scores": {
+        "path_matcher": 13.5478,
+        "semantic_matcher": 17.3244,
+        "code_matcher": 2.2963
+      },
+      "fused_score": 65.7623,
+      "base_fused_score": 33.1685,
+      "project_score": 37.7426,
+      "partition_score": 18.2083,
+      "total_hits": 25,
+      "match_reason": "该路径用于测试神经网络模型的前向传播过程，验证输入数据经过网络各层后的输出结果是否符合预期。",
+      "method_call_chain": [
+        "test_forward_pass",
+        "self.mock_loss.assert_called_once_with"
+      ],
+      "source_locations": [
+        {
+          "file_path": "lib\\utils\\test\\test_utils.py",
+          "symbol": "test_forward_pass",
+          "line": 57
+        }
+      ],
+      "path_refs": [
+        "CAT-Net-main:partition_7:path_2"
+      ],
+      "code_refs": [
+        "test_forward_pass",
+        "self.mock_loss.assert_called_once_with"
+      ]
+    },
+    {
+      "rank": 7,
+      "advisor_id": "experience::CAT-Net-main::partition_11::path_0",
+      "partition_id": "partition_11",
+      "advisor_name": "CAT-Net-main:partition_11:配置参数更新",
+      "project_name": "CAT-Net-main",
+      "project_path": "D:\\catnet\\CAT-Net-main",
+      "what": "该经验库来自项目CAT-Net-main，功能分区“partition_11”，路径“配置参数更新”，能力描述：该路径负责更新系统配置并解析命令行参数，用于动态调整程序运行时的设置和选项。",
+      "how": "[1] 输入需求输入 -> 进入cfg.defrost；执行模块处理；得到step_1_output；下一步update_config。；[2] 输入step_1_output -> 进入update_config；执行模块处理；得到step_2_output；下一步parse_args。；[3] 输入step_2_output -> 进入parse_args；执行模块处理；得到cfg.defrost；下一步END。；约束依据：CFG、DFG、输入输出、cfg.defrost、update_config。",
+      "constraints": [
+        "cfg.defrost",
+        "update_config",
+        "parse_args",
+        "优先复用经验库中的 CFG/DFG/IO 证据，不直接跳过中间路径步骤。",
+        "需要 CFG 约束证据",
+        "需要 DFG 约束证据",
+        "需要输入输出约束"
+      ],
+      "constraints_structured": {
+        "version": "constraints.v1",
+        "types": [
+          "cfg",
+          "dfg",
+          "io_graph",
+          "input_info",
+          "output_info",
+          "constraint_explain"
+        ],
+        "cfg": {
+          "summary": {
+            "exists": true,
+            "node_count": 16,
+            "edge_count": 15
+          },
+          "input_info_keys": [
+            "cfg.defrost",
+            "update_config",
+            "parse_args"
+          ],
+          "output_info_keys": [
+            "cfg.defrost",
+            "update_config",
+            "parse_args"
+          ]
+        },
+        "dfg": {
+          "summary": {
+            "exists": true,
+            "node_count": 22,
+            "edge_count": 24
+          }
+        },
+        "io_graph": {
+          "summary": {
+            "exists": true,
+            "node_count": 7,
+            "edge_count": 6
+          },
+          "inputs": [
+            "cfg.defrost",
+            "update_config",
+            "parse_args"
+          ],
+          "outputs": [
+            "cfg.defrost",
+            "update_config",
+            "parse_args"
+          ]
+        },
+        "input_info": {
+          "cfg.defrost": [
+            {
+              "name": "data",
+              "type": "Any"
+            }
+          ],
+          "update_config": [
+            {
+              "name": "cfg",
+              "type": "Any"
+            },
+            {
+              "name": "args",
+              "type": "Any"
+            }
+          ],
+          "parse_args": [
+            {
+              "name": "data",
+              "type": "Any"
+            }
+          ]
+        },
+        "output_info": {
+          "cfg.defrost": "Any",
+          "update_config": "Any",
+          "parse_args": "Any"
+        },
+        "constraint_explain": {
+          "exists": true,
+          "markdown": "好的，作为资深代码分析专家，我将为你解释这条功能路径的 CFG 和 DFG。\n\n### 路径功能概括\n这条路径描述了一个典型的配置加载和更新流程：\n1.  **`parse_args`** 首先执行，它创建命令行参数解析器，定义了 `--cfg` 和 `opts` 参数，并解析用户输入。\n2.  接着，它调用 **`update_config`** 方法，传入一个配置对象和解析后的参数。\n3.  在 **`update_config`** 内部，首先调用配置对象的 **`defrost`** 方法（推测是解除配置的“冻结”状态，使其可修改）。\n4.  然后，根据传入的 `args`，依次从配置文件（`args.cfg`）和命令行选项（`args.opts`）合并配置。\n5.  最后，调用 `cfg.freeze()` 锁定配置，并返回。\n\n### CFG（控制流图）含义\nCFG 展示了代码执行的**顺序和分支**。在这条路径上：\n*   **节点**：代表程序中的基本操作或语句块（如函数入口、方法调用、条件判断）。\n*   **边**：箭头表示控制流的转移方向。\n*   **关键结构**：\n    *   **顺序执行**：例如 `parse_args` 中从节点9到节点13的直线连接。\n    *   **方法调用**：红色加粗的边 `update_config_node_8 -> parse_args_node_9` 表示 `parse_args` 内部调用了 `update_config`。**注意**：图中此边的方向（从被调用者指向调用者）在逻辑上可能反了，通常应是调用者指向被调用者的入口。这里可能表示返回或流程衔接。\n    *   **条件分支**：`update_config_node_4` 是一个条件判断（`If: args.opts`），绿色边指向条件为真时执行的节点5。\n\n### DFG（数据流图）含义\nDFG 展示了**数据（变量、参数）如何被定义和使用**。在这条路径上：\n*   **节点**：代表数据的定义（`def`）或使用（`use`）点。\n*   **边**：箭头表示数据从定义点流向使用点，标签是传递的变量名。\n*   **关键数据流**：\n    *   **`parser` 变量**：在节点8定义后，在节点10、12、15被多次使用来添加参数和解析。\n    *   **`args` 变量**：在节点14定义（通过 `parser.parse_args()`），随后在节点18、19被使用（作为参数传递给 `update_config`）。\n    *   **方法级容器**：`method_parse_args` 和 `method_update_config` 作为容器，用虚线包含了其内部的数据流节点，显示了数据的归属范围。\n\n### 方法之间的联系\n*   **控制流联系**：`parse_args` **调用** `update_config`。执行顺序是 `parse_args` 开始 -> 调用 `update_config` -> `update_config` 执行完毕返回 -> `parse_args` 继续执行并返回。\n*   **数据流联系**：\n    *   **参数传递**：`parse_args` 将其内部的 `config` 和 `args` 变量作为参数，传递给 `update_config` 的 `cfg` 和 `args` 形参。\n    *   **返回值**：`update_config` 的返回值（图中未明确显示流向）可能被 `parse_args` 使用或忽略；`parse_args` 最终返回解析得到的 `args` 对象。\n    *   **关键变量**：`args` 对象是核心数据载体，在 `parse_args` 中生成，并贯穿到 `update_config` 中指导配置的合并。\n\n### 阅读指南\n1.  **先看 CFG 的整体流程**：从 `parse_args_node_9` (Entry) 开始，按箭头走到 `parse_args_node_16` (Exit)，理解整个程序的执行骨架。\n2.  **关注红色的“调用”边**：在 CFG 中，红色加粗的边 `update_config_node_8 -> parse_args_node_9` 是方法间调用的关键。虽然方向可能需结合代码逻辑理解，但它明确指出了两个方法间的控制转移。\n3.  **在 DFG 中追踪关键变量**：重点关注 `args` 和 `parser` 的数据流链条。例如，跟着 `args` 从定义点 `parse_args_dfg_node_14` 出发，看它流向哪里（节点18, 19），这揭示了参数如何传递。\n4.  **结合输入/输出摘要**：查看顶部“输入参数”和“返回值”椭圆节点，它们标明了整个路径的起点和终点数据，帮助你建立全局输入输出视角。\n5.  **注意条件分支**：在 CFG 中，`update_config_node_4` 是一个分支点，它检查 `args.opts` 是否存在，这决定了是否会执行 `cfg.merge_from_list(args.opts)`。\n\n### 缩放/定位建议\n此图规模适中，但若需清晰查看：\n*   **CFG**：建议从 `parse_args` 的入口 (`parse_args_node_9`) 开始，这是整个路径的起点。然后水平向右（TB 布局下向下）查看其主流程，直到遇到红色调用边，再跳转到 `update_config` 的流程。\n*   **DFG**：采用从左到右 (LR) 的布局。建议先定位两个大的方法容器节点 `method_parse_args` 和 `method_update_config`，然后在每个容器内，从左向右寻找变量的定义点（如 `parse_args_dfg_node_8`, `parse_args_dfg_node_14`），并顺着实线箭头追踪其使用。"
+        }
+      },
+      "agent_scores": {
+        "path_matcher": 11.13,
+        "semantic_matcher": 17.3244,
+        "code_matcher": 2.3363
+      },
+      "fused_score": 65.349,
+      "base_fused_score": 30.7907,
+      "project_score": 37.7426,
+      "partition_score": 21.2306,
+      "total_hits": 23,
+      "match_reason": "该路径负责更新系统配置并解析命令行参数，用于动态调整程序运行时的设置和选项。",
+      "method_call_chain": [
+        "cfg.defrost",
+        "update_config",
+        "parse_args"
+      ],
+      "source_locations": [
+        {
+          "file_path": "lib\\config\\default.py",
+          "symbol": "update_config",
+          "line": 111
+        },
+        {
+          "file_path": "tools\\infer.py",
+          "symbol": "parse_args",
+          "line": 42
+        }
+      ],
+      "path_refs": [
+        "CAT-Net-main:partition_11:path_0"
+      ],
+      "code_refs": [
+        "cfg.defrost",
+        "update_config",
+        "parse_args"
+      ]
+    },
+    {
+      "rank": 8,
+      "advisor_id": "experience::CAT-Net-main::partition_11::path_1",
+      "partition_id": "partition_11",
+      "advisor_name": "CAT-Net-main:partition_11:配置更新主流程",
+      "project_name": "CAT-Net-main",
+      "project_path": "D:\\catnet\\CAT-Net-main",
+      "what": "该经验库来自项目CAT-Net-main，功能分区“partition_11”，路径“配置更新主流程”，能力描述：该路径首先更新系统配置，然后执行主程序逻辑，完成配置初始化后的核心功能运行。",
+      "how": "[1] 输入需求输入 -> 进入cfg.defrost；执行模块处理；得到step_1_output；下一步update_config。；[2] 输入step_1_output -> 进入update_config；执行模块处理；得到step_2_output；下一步main。；[3] 输入step_2_output -> 进入main；执行模块处理；得到cfg.defrost；下一步END。；约束依据：CFG、DFG、输入输出、cfg.defrost、update_config。",
+      "constraints": [
+        "cfg.defrost",
+        "update_config",
+        "main",
+        "优先复用经验库中的 CFG/DFG/IO 证据，不直接跳过中间路径步骤。",
+        "需要 CFG 约束证据",
+        "需要 DFG 约束证据",
+        "需要输入输出约束"
+      ],
+      "constraints_structured": {
+        "version": "constraints.v1",
+        "types": [
+          "cfg",
+          "dfg",
+          "io_graph",
+          "input_info",
+          "output_info",
+          "constraint_explain"
+        ],
+        "cfg": {
+          "summary": {
+            "exists": true,
+            "node_count": 69,
+            "edge_count": 69
+          },
+          "input_info_keys": [
+            "cfg.defrost",
+            "update_config",
+            "main"
+          ],
+          "output_info_keys": [
+            "cfg.defrost",
+            "update_config",
+            "main"
+          ]
+        },
+        "dfg": {
+          "summary": {
+            "exists": true,
+            "node_count": 117,
+            "edge_count": 157
+          }
+        },
+        "io_graph": {
+          "summary": {
+            "exists": true,
+            "node_count": 7,
+            "edge_count": 6
+          },
+          "inputs": [
+            "cfg.defrost",
+            "update_config",
+            "main"
+          ],
+          "outputs": [
+            "cfg.defrost",
+            "update_config",
+            "main"
+          ]
+        },
+        "input_info": {
+          "cfg.defrost": [
+            {
+              "name": "data",
+              "type": "Any"
+            }
+          ],
+          "update_config": [
+            {
+              "name": "cfg",
+              "type": "Any"
+            },
+            {
+              "name": "args",
+              "type": "Any"
+            }
+          ],
+          "main": [
+            {
+              "name": "data",
+              "type": "Any"
+            }
+          ]
+        },
+        "output_info": {
+          "cfg.defrost": "Any",
+          "update_config": "Any",
+          "main": "Any"
+        },
+        "constraint_explain": {
+          "exists": true,
+          "markdown": "好的，作为资深代码分析专家，我将为你解释这条功能路径的 CFG 和 DFG。\n\n### 这条路径做了什么？\n这条路径描述了一个深度学习模型测试流程的配置与执行。其执行顺序为：\n1.  **配置初始化 (`main`)**：程序入口，创建命令行参数 `args`。\n2.  **配置更新 (`update_config`)**：`main` 调用此函数，传入配置对象 `config` 和参数 `args`。该函数解冻配置、从文件和命令行选项合并配置，最后重新冻结配置。\n3.  **测试流程 (`main`)**：使用更新后的配置，加载数据集、构建模型、加载预训练权重，然后进入一个循环，对测试集中的每张图片进行推理，并将预测结果（热力图）保存为图像文件。\n\n### CFG（控制流图）含义\nCFG 展示了代码执行的**顺序和分支**。在这条路径上：\n*   **节点**：代表代码中的基本块或关键操作（如函数调用、条件判断、循环）。\n*   **边**：箭头表示控制流的转移方向。**绿色边**通常表示条件判断为 `True` 的分支，**橙色边**表示 `False` 的分支。\n*   **结构**：图清晰地展示了 `main` 函数是主体，其中调用了 `update_config` 函数（通过红色的“调用”边连接）。在 `main` 内部，可以看到多个 `If` 条件分支（例如选择损失函数、检查模型文件）和一个 `While` 循环（用于遍历数据集）。\n\n### DFG（数据流图）含义\nDFG 展示了数据（变量、参数）在程序中的**定义、使用和传递**关系。在这条路径上：\n*   **节点**：代表数据的定义 (`def`) 或使用 (`use`)。\n*   **边**：箭头表示数据依赖关系，即一个变量的值如何流向另一个变量或操作。标签通常是被传递的变量名。\n*   **关键数据流**：\n    *   **配置对象 (`config`)**：从 `main` 传入 `update_config`，在 `update_config` 中被修改（`defrost`, `merge_from_file`, `merge_from_list`, `freeze`），然后流回 `main` 并被后续几乎所有步骤使用（如设置 CUDA、构建模型、加载数据等）。\n    *   **模型 (`model`)**：其构建依赖于 `config`，经过 `FullModel` 包装、加载 `checkpoint` 的权重、最终被 `DataParallel` 封装。\n    *   **预测数据 (`pred`)**：在推理循环中产生，经过一系列变换（`squeeze`, `softmax`, `numpy`），最终用于生成热力图并保存。\n\n### 方法之间的联系\n*   **控制流联系**：`main` 函数按顺序执行，在 `main_node_11` 处**调用** `update_config` 函数。`update_config` 执行完毕后，控制流**返回**到 `main` 函数并继续执行后续语句。\n*   **数据流联系**：\n    *   **参数传递**：`main` 将 `config` 和 `args` 作为参数传递给 `update_config`。\n    *   **关键变量**：`config` 对象是联系两个方法的核心。`main` 定义并初始化它，传递给 `update_config` 进行修改，修改后的 `config` 再流回 `main` 并主导整个测试流程。`update_config` 没有显式的返回值，它通过修改传入的 `config` 对象来产生效果（引用传递）。\n\n### 阅读指南\n1.  **先看 CFG 的整体结构**：从 `main_node_9 (Entry)` 开始，顺着箭头看主流程，注意红色的“调用”边指向 `update_config`，理解函数调用关系。\n2.  **关注 CFG 中的关键分支**：注意 `main_node_18` (选择损失函数)、`main_node_24` (检查模型文件) 和 `main_node_38` (主循环) 这几个条件节点，它们决定了程序的不同执行路径。\n3.  **在 DFG 中追踪核心变量**：要理解数据如何流动，请重点追踪 `config`、`model` 和 `pred` 这几个变量。在 DFG 中查找以它们为标签的边。\n4.  **结合 CFG 和 DFG 理解循环**：在 CFG 中找到 `main_node_38` (While循环)，在 DFG 中可以看到循环体内产生的数据（如 `pred`, `filename`, `filepath`）如何被定义和使用，但不会流回循环条件，这符合一次迭代的语义。\n5.  **识别输入与输出**：在 CFG 图顶部和底部的虚线框内，分别列出了输入参数和返回值，这有助于理解整个路径的接口。\n\n### 缩放/定位建议\n由于图较大，建议采取以下策略查看：\n*   **分层查看**：首先在 CFG 中聚焦 `main` 函数到 `update_config` 的调用和返回（`main_node_9` 到 `main_node_12` 附近），理解入口和配置阶段。\n*   **聚焦功能模块**：将图分为几个模块查看：\n    1.  **配置模块**：`main` 开始部分 + 整个 `update_config`。\n    2.  **初始化模块**：`main` 中加载数据集、模型、损失函数的部分（`main_node_15` 到 `main_node_34`）。\n    3.  **推理循环模块**：`main` 中的 `While` 循环部分（`main_node_38` 及之后节点）。\n*   **利用搜索**：如果查看工具支持，可以搜索关键词如 `“config”`、`“model”`、`“pred”` 来快速定位 DFG 中相关的数据流节点。\n*   **从 DFG 的方法节点开始**：DFG 顶部的 `【方法】` 节点（如 `method_main`）是很好的起点，可以查看每个方法内部包含了哪些数据操作。"
+        }
+      },
+      "agent_scores": {
+        "path_matcher": 11.13,
+        "semantic_matcher": 17.3244,
+        "code_matcher": 2.3363
+      },
+      "fused_score": 65.349,
+      "base_fused_score": 30.7907,
+      "project_score": 37.7426,
+      "partition_score": 21.2306,
+      "total_hits": 23,
+      "match_reason": "该路径首先更新系统配置，然后执行主程序逻辑，完成配置初始化后的核心功能运行。",
+      "method_call_chain": [
+        "cfg.defrost",
+        "update_config",
+        "main"
+      ],
+      "source_locations": [
+        {
+          "file_path": "lib\\config\\default.py",
+          "symbol": "update_config",
+          "line": 111
+        },
+        {
+          "file_path": "tools\\infer.py",
+          "symbol": "main",
+          "line": 60
+        }
+      ],
+      "path_refs": [
+        "CAT-Net-main:partition_11:path_1"
+      ],
+      "code_refs": [
+        "cfg.defrost",
+        "update_config",
+        "main"
+      ]
+    },
+    {
+      "rank": 9,
+      "advisor_id": "experience::CAT-Net-main::partition_2::path_3",
+      "partition_id": "partition_2",
+      "advisor_name": "CAT-Net-main:partition_2:创建张量",
+      "project_name": "CAT-Net-main",
+      "project_path": "D:\\catnet\\CAT-Net-main",
+      "what": "该经验库来自项目CAT-Net-main，功能分区“partition_2”，路径“创建张量”，能力描述：该路径负责创建张量对象，是数据处理和模型计算的基础操作，用于初始化神经网络中的多维数组数据结构。",
+      "how": "[1] 输入需求输入 -> 进入np.array；执行模块处理；得到step_1_output；下一步_create_tensor。；[2] 输入step_1_output -> 进入_create_tensor；执行模块处理；得到np.array；下一步END。；约束依据：CFG、DFG、输入输出、np.array、_create_tensor。",
+      "constraints": [
+        "np.array",
+        "_create_tensor",
+        "优先复用经验库中的 CFG/DFG/IO 证据，不直接跳过中间路径步骤。",
+        "需要 CFG 约束证据",
+        "需要 DFG 约束证据",
+        "需要输入输出约束"
+      ],
+      "constraints_structured": {
+        "version": "constraints.v1",
+        "types": [
+          "cfg",
+          "dfg",
+          "io_graph",
+          "input_info",
+          "output_info",
+          "constraint_explain"
+        ],
+        "cfg": {
+          "summary": {
+            "exists": true,
+            "node_count": 99,
+            "edge_count": 98
+          },
+          "input_info_keys": [
+            "np.array",
+            "_create_tensor"
+          ],
+          "output_info_keys": [
+            "np.array",
+            "_create_tensor"
+          ]
+        },
+        "dfg": {
+          "summary": {
+            "exists": true,
+            "node_count": 144,
+            "edge_count": 188
+          }
+        },
+        "io_graph": {
+          "summary": {
+            "exists": true,
+            "node_count": 5,
+            "edge_count": 4
+          },
+          "inputs": [
+            "np.array",
+            "_create_tensor"
+          ],
+          "outputs": [
+            "np.array",
+            "_create_tensor"
+          ]
+        },
+        "input_info": {
+          "np.array": [
+            {
+              "name": "data",
+              "type": "Any"
+            }
+          ],
+          "_create_tensor": [
+            {
+              "name": "self",
+              "type": "Any"
+            },
+            {
+              "name": "im_path",
+              "type": "Any"
+            },
+            {
+              "name": "mask",
+              "type": "Any"
+            }
+          ]
+        },
+        "output_info": {
+          "np.array": "Any",
+          "_create_tensor": "Any"
+        },
+        "constraint_explain": {
+          "exists": true,
+          "markdown": "好的，作为资深代码分析专家，我将为你解析这条功能路径的 CFG 和 DFG。\n\n### 这条路径“做了什么”？\n这条路径的核心是 `_create_tensor` 方法，它负责将一张 JPEG 图像路径 (`im_path`) 和可选的掩码 (`mask`) 处理成深度学习模型所需的张量格式。其执行顺序如下：\n1.  **加载与预处理**：从路径读取图像，转换为 RGB 数组，并获取其高宽 (`h`, `w`)。\n2.  **条件性提取 JPEG 元数据**：如果配置需要，则调用 `self._get_jpeg_info` 提取 DCT 系数和量化表。\n3.  **处理掩码与裁剪**：确保掩码存在，并根据配置（如 `self._crop_size`）计算裁剪尺寸，可能对图像和掩码进行填充或随机裁剪。\n4.  **构建特征张量**：根据 `self._blocks` 配置，将 RGB 图像、DCT 系数、DCT 体积等不同特征转换为 PyTorch 张量，并拼接起来。\n5.  **返回结果**：返回一个元组，包含拼接后的特征张量、处理后的掩码张量，以及可选的量化表张量。\n\n### CFG（控制流图）含义\nCFG 展示了代码执行的**顺序和分支逻辑**。在这条路径上，CFG 清晰地描绘了 `_create_tensor` 方法内部的决策流程。\n*   **节点**：代表一个基本代码块（如赋值、条件判断、循环入口）。\n*   **边**：代表控制流的转移。**绿色边**通常表示条件判断为 `True` 的分支，**橙色边**表示 `False` 的分支，黑色边表示顺序执行。\n*   **关键分支**：图中有多个 `If` 节点，它们决定了是否提取 JPEG 信息、如何计算裁剪尺寸、是否进行随机裁剪、以及最终构建哪些特征张量（RGB, DCTcoef, DCTvol）。这些分支共同定义了该方法的多种行为模式。\n\n### DFG（数据流图）含义\nDFG 展示了数据（变量）在程序中的**定义、使用和依赖关系**。\n*   **节点**：代表变量的定义 (`def`) 或使用 (`use`)。\n*   **边**：从变量的定义点指向其使用点，表示数据流动。\n*   **关键数据流**：\n    *   **输入流动**：`im_path` 被用于加载图像和提取 JPEG 信息。`self` 对象被频繁使用，以访问其属性（如 `_blocks`, `_crop_size`, `DCT_channels`）和方法（`_get_jpeg_info`）。\n    *   **核心处理链**：\n        1.  `img_RGB` 由 `im_path` 加载得到，其形状 (`h`, `w`) 决定了后续 `crop_size` 的计算。\n        2.  `crop_size` 的值（可能来自计算、`None` 或 `self._crop_size`）控制着是否对 `img_RGB` 和 `mask` 进行填充 (`temp`) 和裁剪。\n        3.  如果配置需要，`DCT_coef` 和 `qtables` 从 `self._get_jpeg_info(im_path)` 获得，并可能参与后续的填充和裁剪。\n        4.  最终，处理好的 `img_RGB`、`DCT_coef` 等被转换为 `t_RGB`、`t_DCT_coef`、`t_DCT_vol` 等张量。\n    *   **输出组装**：这些张量根据 `self._blocks` 的配置被选择性地加入 `img_block` 列表，最后通过 `torch.cat` 合并成最终的 `tensor` 返回。\n\n### 方法之间的联系\n这条路径主要涉及单个方法 `_create_tensor` 的内部逻辑。其“联系”主要体现在：\n*   **控制流**：方法内部通过多个条件分支 (`if`) 和循环 (`for`) 组织逻辑，并可能调用另一个方法 `self._get_jpeg_info`（图中节点6/7）。\n*   **数据流**：\n    *   **参数流入**：`self`（对象实例）、`im_path`（图像路径）、`mask`（可选掩码）是核心输入。\n    *   **内部调用**：`self._get_jpeg_info(im_path)` 的返回值 (`DCT_coef`, `qtables`) 是后续数据处理的关键来源。\n    *   **属性依赖**：方法严重依赖 `self` 的属性（如 `_blocks`, `_crop_size`, `_grid_crop`, `DCT_channels`）来决策和计算。\n    *   **返回值**：最终输出是一个元组 `(tensor, mask_tensor, ...)`，其中 `tensor` 是融合了多种图像特征表示的张量。\n\n### 阅读指南\n1.  **从入口和出口开始**：首先定位 CFG 中的 `Entry` 节点和 `Exit` 节点，以及 DFG 中的输入参数（蓝色椭圆）和返回值（绿色椭圆），把握整体脉络。\n2.  **关注关键决策点**：在 CFG 中，重点查看带有 `If:` 标签的节点（如节点5, 8, 11, 15, 20, 36等）。理解这些条件判断（依赖于 `self._blocks` 等）如何将执行流导向不同的处理分支。\n3.  **追踪核心变量**：在 DFG 中，沿着 `img_RGB`、`mask`、`crop_size`、`DCT_coef`、`tensor` 这几个核心变量的定义-使用链进行查看，可以快速理解主要的数据变换过程。\n4.  **注意颜色编码**：在 CFG 中，利用边的颜色快速区分分支（绿真/橙假）。在 DFG 中，注意区分“定义”节点和“使用”节点。\n5.  **理解循环结构**：CFG 中节点41、61、74等代表了循环。DFG 中对应的 `range` 和循环变量 `i` 的使用展示了循环内的数据操作。\n6.  **方法调用是数据源**：注意 DFG 中 `self._get_jpeg_info` 虽然没有独立节点，但其产出 `DCT_coef` 和 `qtables` 是后续许多操作的数据起点。\n\n### 缩放/定位建议\n由于图较大，建议采取以下策略：\n*   **分层展开**：不要试图一次性理解全图。先看 CFG 的主干（从 Entry 到 Exit 的主要路径），忽略一些细节分支。\n*   **聚焦子任务**：根据“阅读指南”，每次只追踪一个关键变量（如 `crop_size` 是如何确定的）或一个功能模块（如“裁剪与填充”部分，对应节点20-34附近）。\n*   **利用集群**：CFG 图中顶部和底部的 `cluster_inputs` 和 `cluster_outputs` 集群框起了输入输出，可以作为视觉锚点。\n*   **工具辅助**：如果是在支持交互的图形查看器中，可以搜索特定节点标签（如 `“crop_size”`）进行快速定位。"
+        }
+      },
+      "agent_scores": {
+        "path_matcher": 11.13,
+        "semantic_matcher": 15.9141,
+        "code_matcher": 2.2963
+      },
+      "fused_score": 64.8809,
+      "base_fused_score": 29.3404,
+      "project_score": 37.7426,
+      "partition_score": 22.7417,
+      "total_hits": 22,
+      "match_reason": "该路径负责创建张量对象，是数据处理和模型计算的基础操作，用于初始化神经网络中的多维数组数据结构。",
+      "method_call_chain": [
+        "np.array",
+        "_create_tensor"
+      ],
+      "source_locations": [
+        {
+          "file_path": "Splicing\\data\\AbstractDataset.py",
+          "symbol": "_create_tensor",
+          "line": 103
+        }
+      ],
+      "path_refs": [
+        "CAT-Net-main:partition_2:path_3"
+      ],
+      "code_refs": [
+        "np.array",
+        "_create_tensor"
+      ]
+    },
+    {
+      "rank": 10,
+      "advisor_id": "experience::CAT-Net-main::partition_2::path_4",
+      "partition_id": "partition_2",
+      "advisor_name": "CAT-Net-main:partition_2:创建张量数据集",
+      "project_name": "CAT-Net-main",
+      "project_path": "D:\\catnet\\CAT-Net-main",
+      "what": "该经验库来自项目CAT-Net-main，功能分区“partition_2”，路径“创建张量数据集”，能力描述：该方法用于创建抽象数据集中的张量表示，为后续数据处理和模型训练准备基础数据结构。",
+      "how": "[1] 输入需求输入 -> 进入np.array；执行模块处理；得到step_1_output；下一步AbstractDataset._create_tensor。；[2] 输入step_1_output -> 进入AbstractDataset._create_tensor；执行模块处理；得到np.array；下一步END。；约束依据：CFG、DFG、输入输出、np.array、AbstractDataset._create_tensor。",
+      "constraints": [
+        "np.array",
+        "AbstractDataset._create_tensor",
+        "优先复用经验库中的 CFG/DFG/IO 证据，不直接跳过中间路径步骤。",
+        "需要 CFG 约束证据",
+        "需要 DFG 约束证据",
+        "需要输入输出约束"
+      ],
+      "constraints_structured": {
+        "version": "constraints.v1",
+        "types": [
+          "cfg",
+          "dfg",
+          "io_graph",
+          "input_info",
+          "output_info",
+          "constraint_explain"
+        ],
+        "cfg": {
+          "summary": {
+            "exists": true,
+            "node_count": 99,
+            "edge_count": 98
+          },
+          "input_info_keys": [
+            "np.array",
+            "AbstractDataset._create_tensor"
+          ],
+          "output_info_keys": [
+            "np.array",
+            "AbstractDataset._create_tensor"
+          ]
+        },
+        "dfg": {
+          "summary": {
+            "exists": true,
+            "node_count": 144,
+            "edge_count": 188
+          }
+        },
+        "io_graph": {
+          "summary": {
+            "exists": true,
+            "node_count": 5,
+            "edge_count": 4
+          },
+          "inputs": [
+            "np.array",
+            "AbstractDataset._create_tensor"
+          ],
+          "outputs": [
+            "np.array",
+            "AbstractDataset._create_tensor"
+          ]
+        },
+        "input_info": {
+          "np.array": [
+            {
+              "name": "data",
+              "type": "Any"
+            }
+          ],
+          "AbstractDataset._create_tensor": [
+            {
+              "name": "self",
+              "type": "Any"
+            },
+            {
+              "name": "im_path",
+              "type": "Any"
+            },
+            {
+              "name": "mask",
+              "type": "Any"
+            }
+          ]
+        },
+        "output_info": {
+          "np.array": "Any",
+          "AbstractDataset._create_tensor": "Any"
+        },
+        "constraint_explain": {
+          "exists": true,
+          "markdown": "## 路径功能概括\n这条路径的核心功能是 `AbstractDataset._create_tensor` 方法，它负责将一张图像文件（`im_path`）及其可选的掩码（`mask`）处理成神经网络可用的张量格式。其执行顺序如下：\n1.  **加载与初始化**：从路径读取图像，转换为RGB数组，并获取其高宽。根据实例配置（`self._blocks`），可能还会提取JPEG图像的DCT系数和量化表。\n2.  **掩码与裁剪处理**：检查并初始化掩码。根据实例的裁剪设置（`self._crop_size`, `self._grid_crop`）计算目标裁剪尺寸，并可能对图像和掩码进行填充或随机裁剪。\n3.  **特征块构建**：根据 `self._blocks` 中指定的特征类型（如 `RGB`, `DCTcoef`, `DCTvol`），将处理后的图像数据转换为对应的PyTorch张量（例如，RGB张量、DCT系数张量、DCT体积张量）。\n4.  **结果组装与返回**：将所需的特征张量拼接成一个总张量，并与处理后的掩码张量（以及可能的量化表张量）一同返回。\n\n## CFG（控制流图）含义\nCFG展示了方法 `_create_tensor` **内部代码的执行顺序和分支逻辑**。图中的每个节点代表一个基本代码块（如赋值、条件判断、循环入口），边代表控制流的转移。\n\n*   **关键节点**：`Entry` 是入口，`Exit` 是出口。大量以 `If:` 开头的节点（如 `node_5`, `node_8`, `node_15`）是条件分支点，决定了程序走向。\n*   **关键边**：边上的 `label=\"True\"`（绿色）和 `label=\"False\"`（橙色）清晰地标明了条件判断的结果路径。例如，`node_5` 的判断结果决定了是否会调用 `self._get_jpeg_info` 来获取DCT数据。\n*   **结构特点**：图中有明显的条件嵌套（如关于裁剪的判断）和循环结构（如 `node_41`, `node_61` 处理DCT通道），清晰地描绘了数据处理流程中的各种可能路径。\n\n## DFG（数据流图）含义\nDFG展示了方法 `_create_tensor` **内部数据的产生、消费和依赖关系**。它不关心执行顺序，只关心“哪个数据从哪里来，被谁使用”。\n\n*   **关键数据节点**：以 `(def)` 标记的节点是数据的定义点（如 `img_RGB (def)`, `crop_size (def)`），以 `(use)` 标记的节点是数据的使用点。\n*   **关键数据边**：边代表了数据的流动。例如，`img_RGB` 在节点2被定义（从图像文件加载），随后在节点30被使用（用于填充操作），最后在节点82被使用（转换为RGB张量）。\n*   **核心数据流**：\n    1.  **输入流**：`im_path`, `self`, `mask` 作为源头流入。\n    2.  **处理流**：`img_RGB`, `mask`, `DCT_coef` 等核心变量经过一系列变换（填充、裁剪、转换）。\n    3.  **输出流**：最终数据汇聚到 `tensor`, `mask`（张量形式）, `qtables` 等，作为返回值。\n\n## 方法之间的联系\n这条路径描述的是**单个方法 `_create_tensor` 的内部细节**。根据提供的摘要，存在一个潜在的“array -> _create_tensor”调用链，但图中并未展示 `array` 的具体内容。\n\n*   **控制流联系**：如果 `array` 是一个调用者，那么它的执行会**调用** `_create_tensor` 方法，并在后者执行完毕后**返回**。\n*   **数据流联系**：\n    *   `array` 可能为 `_create_tensor` 提供输入参数 `data`（尽管图中未体现 `data` 在 `_create_tensor` 内的使用）。\n    *   `_create_tensor` 的返回值（`tensor`, `mask_tensor`, `qtables_tensor`）会**返回给**调用者 `array`。\n\n## 阅读指南\n1.  **从入口和出口把握全局**：首先定位CFG的 `_create_tensor: Entry` 和 `Exit` 节点，以及DFG中的输入参数（蓝色椭圆）和返回值（绿色椭圆），了解数据从哪里来到哪里去。\n2.  **跟随关键条件分支**：在CFG中，重点关注 `node_5`（决定是否提取DCT）、`node_15`（决定裁剪尺寸计算方式）、`node_46`（决定是否进行随机裁剪）这几个主要分支，它们决定了程序的核心逻辑流。\n3.  **追踪核心变量的生命周期**：在DFG中，选择 `img_RGB`、`mask`、`DCT_coef`、`tensor` 这几个核心变量，顺着它们的边（箭头）查看其如何被定义、修改和最终使用，可以快速理解数据处理主线。\n4.  **注意循环结构**：CFG中的 `node_41` 和 `node_61` 是循环节点，对应DFG中与 `i`、`range` 相关的数据流，它们表示对多个DCT通道进行批处理。\n5.  **结合CFG和DFG理解条件数据流**：例如，CFG中 `node_5` 为True的分支，对应DFG中 `DCT_coef` 和 `qtables` 数据的产生。将两者结合，就知道在什么条件下会产生哪些数据。\n\n## 缩放/定位建议\n由于图较大，建议：\n1.  **从CFG入口开始**：在可视化工具中，首先搜索并聚焦到 `“AbstractDataset__create_tensor_node_1”`（Entry节点），然后按照向下的控制流逐步展开查看。\n2.  **分层折叠/展开**：如果工具支持，可以先将复杂的条件判断块（如从`node_11`到`node_20`关于`crop_size`的判断链）或循环块折叠起来，先看主干，再深入细节。\n3.  **在DFG中搜索关键变量**：直接搜索 `“img_RGB”`、`“tensor”` 等关键变量名，定位到其定义和使用的节点，以此为中心观察其上下游数据流。\n4.  **高亮特定路径**：根据你的分析目标（例如，只想看包含DCT处理的路径），可以在CFG中手动高亮或追踪从 `node_5`（True分支）开始到 `node_98`（返回量化表）的所有节点和边。"
+        }
+      },
+      "agent_scores": {
+        "path_matcher": 11.13,
+        "semantic_matcher": 15.9141,
+        "code_matcher": 2.2963
+      },
+      "fused_score": 64.8809,
+      "base_fused_score": 29.3404,
+      "project_score": 37.7426,
+      "partition_score": 22.7417,
+      "total_hits": 22,
+      "match_reason": "该方法用于创建抽象数据集中的张量表示，为后续数据处理和模型训练准备基础数据结构。",
+      "method_call_chain": [
+        "np.array",
+        "AbstractDataset._create_tensor"
+      ],
+      "source_locations": [
+        {
+          "file_path": "Splicing\\data\\AbstractDataset.py",
+          "symbol": "AbstractDataset._create_tensor",
+          "line": 103
+        }
+      ],
+      "path_refs": [
+        "CAT-Net-main:partition_2:path_4"
+      ],
+      "code_refs": [
+        "np.array",
+        "AbstractDataset._create_tensor"
+      ]
+    },
+    {
+      "rank": 11,
+      "advisor_id": "experience::CAT-Net-main::partition_2::path_0",
+      "partition_id": "partition_2",
+      "advisor_name": "CAT-Net-main:partition_2:获取时间戳",
+      "project_name": "CAT-Net-main",
+      "project_path": "D:\\catnet\\CAT-Net-main",
+      "what": "该经验库来自项目CAT-Net-main，功能分区“partition_2”，路径“获取时间戳”，能力描述：从arbitrary对象中获取时间戳信息，用于系统时间同步或数据标记。",
+      "how": "[1] 输入需求输入 -> 进入os.remove；执行模块处理；得到step_1_output；下一步arbitrary.get_tamp。；[2] 输入step_1_output -> 进入arbitrary.get_tamp；执行模块处理；得到os.remove；下一步END。；约束依据：CFG、DFG、输入输出、os.remove、arbitrary.get_tamp。",
+      "constraints": [
+        "os.remove",
+        "arbitrary.get_tamp",
+        "优先复用经验库中的 CFG/DFG/IO 证据，不直接跳过中间路径步骤。",
+        "需要 CFG 约束证据",
+        "需要 DFG 约束证据",
+        "需要输入输出约束"
+      ],
+      "constraints_structured": {
+        "version": "constraints.v1",
+        "types": [
+          "cfg",
+          "dfg",
+          "io_graph",
+          "input_info",
+          "output_info",
+          "constraint_explain"
+        ],
+        "cfg": {
+          "summary": {
+            "exists": true,
+            "node_count": 16,
+            "edge_count": 15
+          },
+          "input_info_keys": [
+            "os.remove",
+            "arbitrary.get_tamp"
+          ],
+          "output_info_keys": [
+            "os.remove",
+            "arbitrary.get_tamp"
+          ]
+        },
+        "dfg": {
+          "summary": {
+            "exists": true,
+            "node_count": 24,
+            "edge_count": 31
+          }
+        },
+        "io_graph": {
+          "summary": {
+            "exists": true,
+            "node_count": 5,
+            "edge_count": 4
+          },
+          "inputs": [
+            "os.remove",
+            "arbitrary.get_tamp"
+          ],
+          "outputs": [
+            "os.remove",
+            "arbitrary.get_tamp"
+          ]
+        },
+        "input_info": {
+          "os.remove": [
+            {
+              "name": "data",
+              "type": "Any"
+            }
+          ],
+          "arbitrary.get_tamp": [
+            {
+              "name": "self",
+              "type": "Any"
+            },
+            {
+              "name": "index",
+              "type": "Any"
+            }
+          ]
+        },
+        "output_info": {
+          "os.remove": "Any",
+          "arbitrary.get_tamp": "Any"
+        },
+        "constraint_explain": {
+          "exists": true,
+          "markdown": "## 这条路径做了什么？\n这条路径的核心功能是：**根据索引获取一个图像文件，并将其转换为张量（tensor）**。具体执行顺序如下：\n1.  `get_tamp` 方法接收 `self` 和 `index` 作为输入。\n2.  根据 `index` 从 `self.tamp_list` 中获取对应的图像文件路径 `tamp_path`。\n3.  检查该图像文件的格式是否为 `JPEG`。\n4.  **如果格式不是 JPEG**：则创建一个临时的 JPEG 文件，调用 `self._create_tensor` 方法将其转换为张量，然后**调用 `os.remove` 删除这个临时文件**。\n5.  **如果格式是 JPEG**：则直接调用 `self._create_tensor` 方法将原文件转换为张量。\n6.  最终，方法返回转换得到的张量 `tensors`。\n\n## CFG（控制流图）含义\nCFG 展示了代码执行的**顺序和分支**。\n*   **节点**：代表 `get_tamp` 方法中的基本操作块（如赋值、函数调用、条件判断）。\n*   **边**：代表控制流的走向。**绿色边** (`True`) 表示条件为真时执行的路径，**橙色边** (`False`) 表示条件为假时执行的路径。\n*   **关键路径**：图中有两条主要路径，由节点 `arbitrary_get_tamp_node_4` 处的 `If` 语句分支决定。\n    *   **非JPEG路径** (`True`): `node_4` -> `node_5` -> `node_7` -> `node_9` -> `node_11` -> ... 这条路径包含了创建临时文件和后续的 `os.remove` 调用。\n    *   **JPEG路径** (`False`): `node_4` -> `node_13` -> ... 这条路径直接处理原文件。\n\n## DFG（数据流图）含义\nDFG 展示了**数据（变量）是如何被定义、使用和传递**的。\n*   **节点**：代表变量的**定义** (`def`) 或**使用** (`use`)。\n*   **边**：代表数据依赖关系，箭头从“定义”指向“使用”，边上的标签是传递的变量名。\n*   **关键数据流**：\n    *   `tamp_path`：在节点5被定义（从`self.tamp_list[index]`获取），随后在打开图像、转换格式等操作中被多次使用。\n    *   `temp_jpg`：在节点10被定义（生成临时文件名），随后用于保存图像、创建张量，并最终作为参数传递给 `os.remove` 方法（节点18）。\n    *   `tensors`：在节点14或节点19被定义（由 `_create_tensor` 方法返回），最终在节点22被使用（作为返回值）。\n\n## 方法之间的联系\n这条路径上方法间的联系主要体现在 **`get_tamp` 方法内部对 `os.remove` 的调用**。\n*   **控制流**：`os.remove` 是 `get_tamp` 方法在特定分支（处理非JPEG图像时）中的一个**顺序调用**。执行完 `os.remove` 后，控制流返回 `get_tamp` 方法继续执行。\n*   **数据流**：`get_tamp` 方法内部定义的局部变量 `temp_jpg`（临时JPEG文件路径）作为**参数**传递给 `os.remove` 方法。`os.remove` 的返回值在此上下文中未被使用。\n\n## 阅读指南\n1.  **先看CFG的入口和分支**：从 `arbitrary_get_tamp_node_1` (Entry) 开始，顺着箭头看到第一个关键决策点 `arbitrary_get_tamp_node_4` (If语句)。理解绿色和橙色边分别代表的分支。\n2.  **在CFG中定位 `os.remove`**：`os.remove` 调用出现在节点11和12。通过回溯其前驱节点（如node_9, node_7, node_5），可以清楚看到它只发生在“非JPEG”处理分支中。\n3.  **在DFG中追踪 `temp_jpg`**：找到节点 `arbitrary_get_tamp_dfg_node_10` (temp_jpg的定义)，然后顺着它发出的边（标签为 `temp_jpg`），可以清晰地看到它如何被用于 `save`、`_create_tensor`，并最终流向 `os.remove`（节点18）。\n4.  **结合两图理解完整逻辑**：用CFG把握“何时”会删除文件（非JPEG分支），用DFG把握“删除的是什么文件”（`temp_jpg` 变量），两图结合即可完整理解 `os.remove` 调用的上下文和目的。\n\n## 缩放/定位建议\n*   **CFG图**：如果图显得拥挤，可以重点关注从 `arbitrary_get_tamp_node_4` 分叉出去的两条纵向“链条”。可以暂时忽略另一条分支，逐个链条阅读。\n*   **DFG图**：该图采用从左到右 (`LR`) 的布局。建议从最左侧的变量定义节点（如 `arbitrary_get_tamp_dfg_node_5`、`_dfg_node_10`）开始，向右追踪数据流，这样符合阅读习惯。\n*   **通用技巧**：在可视化工具中，可以优先搜索或高亮显示包含 `remove` 或 `temp_jpg` 的节点，快速定位核心操作和相关数据流。"
+        }
+      },
+      "agent_scores": {
+        "path_matcher": 9.9211,
+        "semantic_matcher": 15.9141,
+        "code_matcher": 2.2963
+      },
+      "fused_score": 63.672,
+      "base_fused_score": 28.1315,
+      "project_score": 37.7426,
+      "partition_score": 22.7417,
+      "total_hits": 21,
+      "match_reason": "从arbitrary对象中获取时间戳信息，用于系统时间同步或数据标记。",
+      "method_call_chain": [
+        "os.remove",
+        "arbitrary.get_tamp"
+      ],
+      "source_locations": [
+        {
+          "file_path": "Splicing\\data\\dataset_arbitrary.py",
+          "symbol": "arbitrary.get_tamp",
+          "line": 30
+        }
+      ],
+      "path_refs": [
+        "CAT-Net-main:partition_2:path_0"
+      ],
+      "code_refs": [
+        "os.remove",
+        "arbitrary.get_tamp"
+      ]
+    },
+    {
+      "rank": 12,
+      "advisor_id": "experience::CAT-Net-main::partition_2::path_1",
+      "partition_id": "partition_2",
+      "advisor_name": "CAT-Net-main:partition_2:获取时间戳",
+      "project_name": "CAT-Net-main",
+      "project_path": "D:\\catnet\\CAT-Net-main",
+      "what": "该经验库来自项目CAT-Net-main，功能分区“partition_2”，路径“获取时间戳”，能力描述：从arbitrary对象中获取时间戳信息，用于系统时间同步或数据标记。",
+      "how": "[1] 输入需求输入 -> 进入arbitrary.get_tamp；执行模块处理；得到step_1_output；下一步os.remove。；[2] 输入step_1_output -> 进入os.remove；执行模块处理；得到os.remove；下一步END。；约束依据：CFG、DFG、输入输出、os.remove、arbitrary.get_tamp。",
+      "constraints": [
+        "os.remove",
+        "arbitrary.get_tamp",
+        "优先复用经验库中的 CFG/DFG/IO 证据，不直接跳过中间路径步骤。",
+        "需要 CFG 约束证据",
+        "需要 DFG 约束证据",
+        "需要输入输出约束"
+      ],
+      "constraints_structured": {
+        "version": "constraints.v1",
+        "types": [
+          "cfg",
+          "dfg",
+          "io_graph",
+          "input_info",
+          "output_info",
+          "constraint_explain"
+        ],
+        "cfg": {
+          "summary": {
+            "exists": true,
+            "node_count": 16,
+            "edge_count": 15
+          },
+          "input_info_keys": [
+            "os.remove",
+            "arbitrary.get_tamp"
+          ],
+          "output_info_keys": [
+            "os.remove",
+            "arbitrary.get_tamp"
+          ]
+        },
+        "dfg": {
+          "summary": {
+            "exists": true,
+            "node_count": 24,
+            "edge_count": 31
+          }
+        },
+        "io_graph": {
+          "summary": {
+            "exists": true,
+            "node_count": 5,
+            "edge_count": 4
+          },
+          "inputs": [
+            "os.remove",
+            "arbitrary.get_tamp"
+          ],
+          "outputs": [
+            "os.remove",
+            "arbitrary.get_tamp"
+          ]
+        },
+        "input_info": {
+          "os.remove": [
+            {
+              "name": "data",
+              "type": "Any"
+            }
+          ],
+          "arbitrary.get_tamp": [
+            {
+              "name": "self",
+              "type": "Any"
+            },
+            {
+              "name": "index",
+              "type": "Any"
+            }
+          ]
+        },
+        "output_info": {
+          "os.remove": "Any",
+          "arbitrary.get_tamp": "Any"
+        },
+        "constraint_explain": {
+          "exists": true,
+          "markdown": "好的，作为资深代码分析专家，我将为你解析这条功能路径的 CFG 和 DFG。\n\n### 路径功能概括\n这条路径的核心功能是：**根据索引获取一个图像文件，将其转换为张量（tensor）并返回**。具体执行顺序如下：\n1.  `get_tamp` 方法根据传入的 `index`，从 `self.tamp_list` 中获取对应的文件路径 `tamp_path`。\n2.  打开该路径的图像文件，并检查其格式是否为 `JPEG`。\n3.  **如果格式不是 JPEG**：则创建一个临时的 JPEG 文件，将原图转换并保存至此临时文件，然后基于此临时文件创建张量，最后**调用 `os.remove` 删除这个临时文件**。\n4.  **如果格式是 JPEG**：则直接基于原文件路径 `tamp_path` 创建张量。\n5.  最终，方法返回创建好的张量 `tensors`。\n\n### CFG（控制流图）解释\nCFG 展示了代码执行的**顺序和分支**。\n*   **节点**：代表一个基本代码块（如赋值、函数调用、条件判断）。\n*   **边**：代表控制流的转移。**绿色边**通常表示条件判断为 `True` 的分支，**橙色边**表示 `False` 的分支。\n*   **在本路径中**：CFG 清晰地描绘了 `get_tamp` 方法内部的逻辑流。关键分支在节点 `arbitrary_get_tamp_node_4`（判断 `im.format != 'JPEG'`）。根据判断结果，程序会走两条不同的路径：一条（绿色）涉及创建、使用和删除临时文件；另一条（橙色）直接处理原文件。两条路径最终在返回节点 `arbitrary_get_tamp_node_15` 汇合。\n\n### DFG（数据流图）解释\nDFG 展示了数据（变量、参数）在程序中的**定义、使用和传递关系**。\n*   **节点**：代表数据的定义（`def`，如 `tamp_path (def)`）或使用（`use`，如 `tamp_path (use)`）。\n*   **边**：代表数据从定义点流向使用点，边上的标签是变量名。\n*   **在本路径中**：DFG 揭示了关键变量的生命周期。例如：\n    *   `tamp_path` 在节点5定义后，被后续多个节点（7，12，20）使用。\n    *   `temp_jpg` 在节点10定义（当需要转换格式时），随后用于保存图像（节点13）、创建张量（节点15），并最终作为参数传递给 `os.remove`（节点18）以被删除。\n    *   最终返回的 `tensors` 在节点14或19定义，在节点22使用（作为返回值）。\n\n### 方法之间的联系\n这条路径中两个方法 `get_tamp` 和 `os.remove` 的联系体现在：\n*   **控制流**：`os.remove` 是 `get_tamp` 方法内部的一个**调用**。它只在特定分支（需要转换图像格式时）被执行，执行完毕后控制流返回 `get_tamp` 继续执行。\n*   **数据流**：`get_tamp` 方法内部定义的局部变量 `temp_jpg`（临时JPEG文件路径）作为**参数**传递给 `os.remove` 方法。`os.remove` 的返回值在此上下文中未被使用，其作用是产生删除文件的副作用。\n\n### 阅读指南\n1.  **先看CFG把握主干**：从 `arbitrary_get_tamp_node_1` (Entry) 开始，顺着箭头看主流程，重点关注节点4的分支，理解程序的两条可能路径。\n2.  **关注CFG中的颜色**：绿色边 (`True`) 指向的是“需要转换格式”的复杂分支；橙色边 (`False`) 指向的是直接处理JPEG的简单分支。\n3.  **在DFG中追踪关键变量**：结合CFG的分支，在DFG中重点追踪 `temp_jpg` 这个变量。可以看到它只在绿色分支被定义（节点10），并最终流向 `os.remove` 方法。\n4.  **定位方法调用**：在DFG中，`method_arbitrary_get_tamp` 到 `method_os_remove` 的蓝色虚线箭头，明确标示了方法间的调用及参数（`temp_jpg`）传递关系。这是理解两个方法如何协作的关键。\n5.  **对照输入输出**：图顶部的“输入参数”集群和底部的“返回值”集群，标明了整个路径的起点和终点数据。\n\n### 缩放/定位建议\n如果图形过大导致查看困难，建议：\n*   **聚焦入口**：首先定位并放大 `arbitrary_get_tamp_node_1` (Entry) 及其直接后继节点，这是理解逻辑的起点。\n*   **分层查看**：CFG 本质是 `get_tamp` 一个方法的展开。可以先忽略 `os.remove` 的具体内部节点（图中未展开），将其视为一个黑盒操作，重点理解它在 `get_tamp` 流程中的调用时机和参数。\n*   **隔离分支**：可以分别查看从节点4出发的绿色路径和橙色路径，化整为零，降低复杂度。"
+        }
+      },
+      "agent_scores": {
+        "path_matcher": 9.9211,
+        "semantic_matcher": 15.9141,
+        "code_matcher": 2.2963
+      },
+      "fused_score": 63.672,
+      "base_fused_score": 28.1315,
+      "project_score": 37.7426,
+      "partition_score": 22.7417,
+      "total_hits": 21,
+      "match_reason": "从arbitrary对象中获取时间戳信息，用于系统时间同步或数据标记。",
+      "method_call_chain": [
+        "arbitrary.get_tamp",
+        "os.remove"
+      ],
+      "source_locations": [
+        {
+          "file_path": "Splicing\\data\\dataset_arbitrary.py",
+          "symbol": "arbitrary.get_tamp",
+          "line": 30
+        }
+      ],
+      "path_refs": [
+        "CAT-Net-main:partition_2:path_1"
+      ],
+      "code_refs": [
+        "arbitrary.get_tamp",
+        "os.remove"
+      ]
+    }
+  ],
+  "match_count": 12,
+  "matching_explanation": {
+    "policy": "project_partition_path_hierarchical_fusion",
+    "notes": [
+      "先做 project-level 管家筛选，再进入 partition/path 细化",
+      "三匹配分数仍保留（path/semantic/code），但不再允许零命中靠证据分硬抬",
+      "按需求粒度和分数分布动态决定匹配数量（不再固定Top3）"
+    ]
+  }
+}

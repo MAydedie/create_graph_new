@@ -1,0 +1,189 @@
+{
+  "version": "advisor.lab.v2",
+  "step": "generate_code",
+  "generated_at": "2026-04-21T11:37:18.955841Z",
+  "run_id": "single_run",
+  "question_id": "q00",
+  "input_files": {
+    "step1_match": "D:\\代码仓库生图\\汇报\\4.21\\create_graph_问答按钮功能抽离_2026-04-21\\advisor_consultant_lab\\runtime\\step1_match_result.json",
+    "step2_analysis": "D:\\代码仓库生图\\汇报\\4.21\\create_graph_问答按钮功能抽离_2026-04-21\\advisor_consultant_lab\\runtime\\step2_analysis.json",
+    "step3_design": "D:\\代码仓库生图\\汇报\\4.21\\create_graph_问答按钮功能抽离_2026-04-21\\advisor_consultant_lab\\runtime\\step3_design.json"
+  },
+  "codegen_profile": {
+    "mode": "file_level_code",
+    "scenario": "generic_refactor",
+    "target_repo_root": "D:\\catnet\\CAT-Net-main",
+    "provider": "template_fallback",
+    "fallback_used": true
+  },
+  "opencode": {
+    "status": "error",
+    "reason": "opencode_runtime_error: [WinError 2] 系统找不到指定的文件。",
+    "session_id": "",
+    "validation_commands": [],
+    "stderr_tail": "",
+    "stdout_tail": ""
+  },
+  "codegen_basis": {
+    "analysis_summary": "进入系统设计阶段，复用该顾问的 how 与 constraints。",
+    "design_goal": "请基于当前 CAT-Net 的经验库，在 D:/代码仓库生图/汇报/4.21/test/ 下生成一个真实可落地的 Python 命令行 demo 项目。这个项目要演示 CAT-Net 最核心的篡改定位能力：输入一张图像路径后，输出一个简化版的篡改定位结果，并打印关键处理阶段说明。",
+    "constraint_types": [
+      "cfg",
+      "dfg",
+      "io_graph",
+      "input_info",
+      "output_info",
+      "constraint_explain"
+    ],
+    "constraints_structured_summary": {
+      "types": [
+        "cfg",
+        "dfg",
+        "io_graph",
+        "input_info",
+        "output_info",
+        "constraint_explain"
+      ],
+      "has_cfg": true,
+      "has_dfg": true,
+      "has_io_graph": true,
+      "cfg_node_count": 12,
+      "dfg_node_count": 20,
+      "io_node_count": 5,
+      "has_constraint_explain": true
+    }
+  },
+  "source_targets": [
+    {
+      "advisor_id": "experience::CAT-Net-main::partition_2::path_2",
+      "advisor_name": "CAT-Net-main:partition_2:获取篡改数据",
+      "project_name": "CAT-Net-main",
+      "project_path": "D:\\catnet\\CAT-Net-main",
+      "source_targets": [
+        "Splicing\\data\\dataset_CASIA.py:46"
+      ]
+    },
+    {
+      "advisor_id": "experience::GitNexus-main::partition_14::path_0",
+      "advisor_name": "GitNexus-main:partition_14:获取仓库信息",
+      "project_name": "GitNexus-main",
+      "project_path": "D:\\代码仓库生图\\GitNexus-main",
+      "source_targets": [
+        "GitNexusDockerEnvironment._get_repo_info",
+        "_get_repo_info"
+      ]
+    },
+    {
+      "advisor_id": "experience::CAT-Net-main::partition_11::path_4",
+      "advisor_name": "CAT-Net-main:partition_11:配置参数解析更新",
+      "project_name": "CAT-Net-main",
+      "project_path": "D:\\catnet\\CAT-Net-main",
+      "source_targets": [
+        "tools\\infer.py:42",
+        "lib\\config\\default.py:111"
+      ]
+    },
+    {
+      "advisor_id": "experience::CAT-Net-main::partition_7::path_0",
+      "advisor_name": "CAT-Net-main:partition_7:前向传播测试",
+      "project_name": "CAT-Net-main",
+      "project_path": "D:\\catnet\\CAT-Net-main",
+      "source_targets": [
+        "lib\\utils\\test\\test_utils.py:57"
+      ]
+    },
+    {
+      "advisor_id": "experience::CAT-Net-main::partition_7::path_2",
+      "advisor_name": "CAT-Net-main:partition_7:前向传播测试",
+      "project_name": "CAT-Net-main",
+      "project_path": "D:\\catnet\\CAT-Net-main",
+      "source_targets": [
+        "lib\\utils\\test\\test_utils.py:57"
+      ]
+    },
+    {
+      "advisor_id": "experience::CAT-Net-main::partition_11::path_0",
+      "advisor_name": "CAT-Net-main:partition_11:配置参数更新",
+      "project_name": "CAT-Net-main",
+      "project_path": "D:\\catnet\\CAT-Net-main",
+      "source_targets": [
+        "lib\\config\\default.py:111",
+        "tools\\infer.py:42"
+      ]
+    },
+    {
+      "advisor_id": "experience::CAT-Net-main::partition_11::path_1",
+      "advisor_name": "CAT-Net-main:partition_11:配置更新主流程",
+      "project_name": "CAT-Net-main",
+      "project_path": "D:\\catnet\\CAT-Net-main",
+      "source_targets": [
+        "lib\\config\\default.py:111",
+        "tools\\infer.py:60"
+      ]
+    },
+    {
+      "advisor_id": "experience::CAT-Net-main::partition_2::path_3",
+      "advisor_name": "CAT-Net-main:partition_2:创建张量",
+      "project_name": "CAT-Net-main",
+      "project_path": "D:\\catnet\\CAT-Net-main",
+      "source_targets": [
+        "Splicing\\data\\AbstractDataset.py:103"
+      ]
+    },
+    {
+      "advisor_id": "experience::CAT-Net-main::partition_2::path_4",
+      "advisor_name": "CAT-Net-main:partition_2:创建张量数据集",
+      "project_name": "CAT-Net-main",
+      "project_path": "D:\\catnet\\CAT-Net-main",
+      "source_targets": [
+        "Splicing\\data\\AbstractDataset.py:103"
+      ]
+    }
+  ],
+  "source_advisor_count": 9,
+  "implementation_targets": [
+    {
+      "file_path": "app/refactor/plan.py",
+      "purpose": "通用改造入口（默认场景）",
+      "language": "python",
+      "anchor_targets": [
+        "Splicing\\data\\dataset_CASIA.py:46",
+        "GitNexusDockerEnvironment._get_repo_info",
+        "_get_repo_info",
+        "tools\\infer.py:42",
+        "lib\\config\\default.py:111",
+        "lib\\utils\\test\\test_utils.py:57",
+        "tools\\infer.py:60",
+        "Splicing\\data\\AbstractDataset.py:103"
+      ]
+    }
+  ],
+  "generated_code_blocks": [
+    {
+      "file_path": "app/refactor/plan.py",
+      "language": "python",
+      "purpose": "通用改造入口（默认场景）",
+      "code": "def build_refactor_plan(requirement: str, source_targets: list[str], constraint_types: list[str]) -> dict:\n    return {\n        \"requirement\": requirement,\n        \"source_targets\": source_targets,\n        \"constraint_types\": constraint_types,\n        \"next_actions\": [\"extract modules\", \"define interfaces\", \"implement tests\"],\n    }\n"
+    }
+  ],
+  "generated_patch_blocks": [
+    {
+      "artifact_id": "patch::app/refactor/plan.py",
+      "file_path": "app/refactor/plan.py",
+      "base_file_path": "app/refactor/plan.py",
+      "base_file_resolved": "D:\\catnet\\CAT-Net-main\\app\\refactor\\plan.py",
+      "base_exists": false,
+      "patch_mode": "file_level_code",
+      "patch_type": "unified_diff_proposal",
+      "target_operation": "add_candidate",
+      "diff_format": "unified_diff",
+      "apply_strategy": "apply_add_file",
+      "is_apply_ready": true,
+      "summary": "add_candidate for app/refactor/plan.py",
+      "hunk_count": 2,
+      "patch_text": "--- a/app/refactor/plan.py\n+++ b/app/refactor/plan.py\n@@ -0,0 +1,7 @@\n+def build_refactor_plan(requirement: str, source_targets: list[str], constraint_types: list[str]) -> dict:\n+    return {\n+        \"requirement\": requirement,\n+        \"source_targets\": source_targets,\n+        \"constraint_types\": constraint_types,\n+        \"next_actions\": [\"extract modules\", \"define interfaces\", \"implement tests\"],\n+    }\n",
+      "apply_patch_snippet": "*** Begin Patch\n*** Add File: app/refactor/plan.py\n+def build_refactor_plan(requirement: str, source_targets: list[str], constraint_types: list[str]) -> dict:\n+    return {\n+        \"requirement\": requirement,\n+        \"source_targets\": source_targets,\n+        \"constraint_types\": constraint_types,\n+        \"next_actions\": [\"extract modules\", \"define interfaces\", \"implement tests\"],\n+    }\n*** End Patch\n"
+    }
+  ],
+  "generated_code_skeleton": "# app/refactor/plan.py\ndef build_refactor_plan(requirement: str, source_targets: list[str], constraint_types: list[str]) -> dict:\n    return {\n        \"requirement\": requirement,\n        \"source_targets\": source_targets,\n        \"constraint_types\": constraint_types,\n        \"next_actions\": [\"extract modules\", \"define interfaces\", \"implement tests\"],\n    }"
+}

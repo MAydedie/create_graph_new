@@ -1,0 +1,32 @@
+{
+  "generatedAt": "2026-04-21 22:09:56",
+  "files": {
+    "extraction": "D:\\代码仓库生图\\汇报\\4.21\\create_graph_问答按钮功能抽离_2026-04-21\\output_analysis\\experience_paths\\CAT-Net-main_2d8849b3.json",
+    "original": "D:\\代码仓库生图\\create_graph\\output_analysis\\experience_paths\\CAT-Net-main_2d8849b3.json",
+    "cat_baseline": "D:\\代码仓库生图\\借鉴项目\\CAT-Net-main\\经验库\\experience_paths\\CAT-Net-main_2d8849b3.json"
+  },
+  "exists": {
+    "extraction": true,
+    "original": true,
+    "cat_baseline": true
+  },
+  "totals": {
+    "extraction": 262,
+    "original": 263,
+    "cat_baseline": 262
+  },
+  "hashes": {
+    "extraction": "d78f468f61a540705ea50d3e828a4ece1386954e1f0296c783f3ab40235e6bc5",
+    "original": "38a6c6acad26c61c19778f88e9d499101a08bcbbb675453d9edbba263f0aa941",
+    "cat_baseline": "de3807c3b9b5eeb2ef932a0623868837738e2e9399752e5ecf929acfdeb6f5b8"
+  },
+  "strict_equal": {
+    "original_vs_extraction": false
+  },
+  "approx_similarity": {
+    "total_paths_ratio": 0.9961977186311787,
+    "partition_distribution_similarity": 0.9980952380952381,
+    "approx_ok": true,
+    "rule": "Relaxed acceptance: structure and totals close enough (>=95%)"
+  }
+}

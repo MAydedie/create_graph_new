@@ -1,0 +1,1053 @@
+{
+  "version": "0.1",
+  "project_path": "D:\\代码仓库生图\\create_graph\\tests",
+  "project_name": "tests",
+  "analysis_timestamp": "2026-03-19T18:26:10.864378",
+  "total_paths": 10,
+  "partitions": [
+    {
+      "partition_id": "partition_13",
+      "partition_name": "partition_13",
+      "total_paths": 5,
+      "paths": [
+        {
+          "leaf_node": "EntryPointIdentifierGenerator",
+          "path_index": 2,
+          "path": [
+            "EntryPointIdentifierGenerator",
+            "_supplement_demo_partition_analysis",
+            "create_demo_partition_step6_5_4"
+          ],
+          "input_info": {},
+          "output_info": {},
+          "path_name": "路径 3",
+          "path_description": "包含 3 个方法的调用链",
+          "cfg": null,
+          "dfg": null,
+          "io_graph": {
+            "nodes": [
+              {
+                "id": "input_0",
+                "label": "输入: data",
+                "type": "Any"
+              },
+              {
+                "id": "method_0",
+                "label": "EntryPointIdentifierGenerator",
+                "type": "操作节点"
+              },
+              {
+                "id": "method_1",
+                "label": "_supplement_demo_partition_analysis",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_0",
+                "label": "中间数据: Any",
+                "type": "Any"
+              },
+              {
+                "id": "method_2",
+                "label": "create_demo_partition_step6_5_4",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_1",
+                "label": "中间数据: Any",
+                "type": "Any"
+              },
+              {
+                "id": "output_final",
+                "label": "最终输出: tuple[bool, str]",
+                "type": "tuple[bool, str]"
+              }
+            ],
+            "edges": [
+              {
+                "source": "input_0",
+                "target": "method_0",
+                "label": "输入"
+              },
+              {
+                "source": "method_0",
+                "target": "intermediate_0",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_0",
+                "target": "method_1",
+                "label": "输入"
+              },
+              {
+                "source": "method_1",
+                "target": "intermediate_1",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_1",
+                "target": "method_2",
+                "label": "输入"
+              },
+              {
+                "source": "method_2",
+                "target": "output_final",
+                "label": "输出"
+              }
+            ]
+          },
+          "dataflow_mermaid": null,
+          "semantics": {
+            "semantic_label": "analysis: EntryPointIdentifierGenerator / _supplement_demo_partition_analysis / create_demo_partition_step6_5_4",
+            "description": "从 EntryPointIdentifierGenerator 到 create_demo_partition_step6_5_4 的调用链，包含 3 个方法",
+            "functional_domain": "analysis",
+            "keywords": [
+              "EntryPointIdentifierGenerator",
+              "_supplement_demo_partition_analysis",
+              "create_demo_partition_step6_5_4"
+            ]
+          },
+          "cfg_dfg_explain_md": null,
+          "function_chain": [
+            "EntryPointIdentifierGenerator",
+            "_supplement_demo_partition_analysis",
+            "create_demo_partition_step6_5_4"
+          ]
+        },
+        {
+          "leaf_node": "FunctionCallGraphGenerator",
+          "path_index": 2,
+          "path": [
+            "FunctionCallGraphGenerator",
+            "_supplement_demo_partition_analysis",
+            "create_demo_partition_step6_5_4"
+          ],
+          "input_info": {},
+          "output_info": {},
+          "path_name": "路径 3",
+          "path_description": "包含 3 个方法的调用链",
+          "cfg": null,
+          "dfg": null,
+          "io_graph": {
+            "nodes": [
+              {
+                "id": "input_0",
+                "label": "输入: data",
+                "type": "Any"
+              },
+              {
+                "id": "method_0",
+                "label": "FunctionCallGraphGenerator",
+                "type": "操作节点"
+              },
+              {
+                "id": "method_1",
+                "label": "_supplement_demo_partition_analysis",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_0",
+                "label": "中间数据: Any",
+                "type": "Any"
+              },
+              {
+                "id": "method_2",
+                "label": "create_demo_partition_step6_5_4",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_1",
+                "label": "中间数据: Any",
+                "type": "Any"
+              },
+              {
+                "id": "output_final",
+                "label": "最终输出: tuple[bool, str]",
+                "type": "tuple[bool, str]"
+              }
+            ],
+            "edges": [
+              {
+                "source": "input_0",
+                "target": "method_0",
+                "label": "输入"
+              },
+              {
+                "source": "method_0",
+                "target": "intermediate_0",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_0",
+                "target": "method_1",
+                "label": "输入"
+              },
+              {
+                "source": "method_1",
+                "target": "intermediate_1",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_1",
+                "target": "method_2",
+                "label": "输入"
+              },
+              {
+                "source": "method_2",
+                "target": "output_final",
+                "label": "输出"
+              }
+            ]
+          },
+          "dataflow_mermaid": null,
+          "semantics": {
+            "semantic_label": "analysis: FunctionCallGraphGenerator / _supplement_demo_partition_analysis / create_demo_partition_step6_5_4",
+            "description": "从 FunctionCallGraphGenerator 到 create_demo_partition_step6_5_4 的调用链，包含 3 个方法",
+            "functional_domain": "analysis",
+            "keywords": [
+              "FunctionCallGraphGenerator",
+              "_supplement_demo_partition_analysis",
+              "create_demo_partition_step6_5_4"
+            ]
+          },
+          "cfg_dfg_explain_md": null,
+          "function_chain": [
+            "FunctionCallGraphGenerator",
+            "_supplement_demo_partition_analysis",
+            "create_demo_partition_step6_5_4"
+          ]
+        },
+        {
+          "leaf_node": "FunctionCallHypergraphGenerator",
+          "path_index": 2,
+          "path": [
+            "FunctionCallHypergraphGenerator",
+            "_supplement_demo_partition_analysis",
+            "create_demo_partition_step6_5_4"
+          ],
+          "input_info": {},
+          "output_info": {},
+          "path_name": "路径 3",
+          "path_description": "包含 3 个方法的调用链",
+          "cfg": null,
+          "dfg": null,
+          "io_graph": {
+            "nodes": [
+              {
+                "id": "input_0",
+                "label": "输入: data",
+                "type": "Any"
+              },
+              {
+                "id": "method_0",
+                "label": "FunctionCallHypergraphGenerator",
+                "type": "操作节点"
+              },
+              {
+                "id": "method_1",
+                "label": "_supplement_demo_partition_analysis",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_0",
+                "label": "中间数据: Any",
+                "type": "Any"
+              },
+              {
+                "id": "method_2",
+                "label": "create_demo_partition_step6_5_4",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_1",
+                "label": "中间数据: Any",
+                "type": "Any"
+              },
+              {
+                "id": "output_final",
+                "label": "最终输出: tuple[bool, str]",
+                "type": "tuple[bool, str]"
+              }
+            ],
+            "edges": [
+              {
+                "source": "input_0",
+                "target": "method_0",
+                "label": "输入"
+              },
+              {
+                "source": "method_0",
+                "target": "intermediate_0",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_0",
+                "target": "method_1",
+                "label": "输入"
+              },
+              {
+                "source": "method_1",
+                "target": "intermediate_1",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_1",
+                "target": "method_2",
+                "label": "输入"
+              },
+              {
+                "source": "method_2",
+                "target": "output_final",
+                "label": "输出"
+              }
+            ]
+          },
+          "dataflow_mermaid": null,
+          "semantics": {
+            "semantic_label": "analysis: FunctionCallHypergraphGenerator / _supplement_demo_partition_analysis / create_demo_partition_step6_5_4",
+            "description": "从 FunctionCallHypergraphGenerator 到 create_demo_partition_step6_5_4 的调用链，包含 3 个方法",
+            "functional_domain": "analysis",
+            "keywords": [
+              "FunctionCallHypergraphGenerator",
+              "_supplement_demo_partition_analysis",
+              "create_demo_partition_step6_5_4"
+            ]
+          },
+          "cfg_dfg_explain_md": null,
+          "function_chain": [
+            "FunctionCallHypergraphGenerator",
+            "_supplement_demo_partition_analysis",
+            "create_demo_partition_step6_5_4"
+          ]
+        },
+        {
+          "leaf_node": "call_graph_generator.generate_partition_call_graph",
+          "path_index": 2,
+          "path": [
+            "call_graph_generator.generate_partition_call_graph",
+            "_supplement_demo_partition_analysis",
+            "create_demo_partition_step6_5_4"
+          ],
+          "input_info": {},
+          "output_info": {},
+          "path_name": "路径 3",
+          "path_description": "包含 3 个方法的调用链",
+          "cfg": null,
+          "dfg": null,
+          "io_graph": {
+            "nodes": [
+              {
+                "id": "input_0",
+                "label": "输入: data",
+                "type": "Any"
+              },
+              {
+                "id": "method_0",
+                "label": "generate_partition_call_graph",
+                "type": "操作节点"
+              },
+              {
+                "id": "method_1",
+                "label": "_supplement_demo_partition_analysis",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_0",
+                "label": "中间数据: Any",
+                "type": "Any"
+              },
+              {
+                "id": "method_2",
+                "label": "create_demo_partition_step6_5_4",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_1",
+                "label": "中间数据: Any",
+                "type": "Any"
+              },
+              {
+                "id": "output_final",
+                "label": "最终输出: tuple[bool, str]",
+                "type": "tuple[bool, str]"
+              }
+            ],
+            "edges": [
+              {
+                "source": "input_0",
+                "target": "method_0",
+                "label": "输入"
+              },
+              {
+                "source": "method_0",
+                "target": "intermediate_0",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_0",
+                "target": "method_1",
+                "label": "输入"
+              },
+              {
+                "source": "method_1",
+                "target": "intermediate_1",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_1",
+                "target": "method_2",
+                "label": "输入"
+              },
+              {
+                "source": "method_2",
+                "target": "output_final",
+                "label": "输出"
+              }
+            ]
+          },
+          "dataflow_mermaid": null,
+          "semantics": {
+            "semantic_label": "analysis: generate_partition_call_graph / _supplement_demo_partition_analysis / create_demo_partition_step6_5_4",
+            "description": "从 generate_partition_call_graph 到 create_demo_partition_step6_5_4 的调用链，包含 3 个方法",
+            "functional_domain": "analysis",
+            "keywords": [
+              "generate_partition_call_graph",
+              "_supplement_demo_partition_analysis",
+              "create_demo_partition_step6_5_4"
+            ]
+          },
+          "cfg_dfg_explain_md": null,
+          "function_chain": [
+            "call_graph_generator.generate_partition_call_graph",
+            "_supplement_demo_partition_analysis",
+            "create_demo_partition_step6_5_4"
+          ]
+        },
+        {
+          "leaf_node": "call_graph_result.get",
+          "path_index": 0,
+          "path": [
+            "call_graph_result.get",
+            "_supplement_demo_partition_analysis",
+            "create_demo_partition_step6_5_4"
+          ],
+          "input_info": {},
+          "output_info": {},
+          "path_name": "路径 1",
+          "path_description": "包含 3 个方法的调用链",
+          "cfg": null,
+          "dfg": null,
+          "io_graph": {
+            "nodes": [
+              {
+                "id": "input_0",
+                "label": "输入: data",
+                "type": "Any"
+              },
+              {
+                "id": "method_0",
+                "label": "get",
+                "type": "操作节点"
+              },
+              {
+                "id": "method_1",
+                "label": "_supplement_demo_partition_analysis",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_0",
+                "label": "中间数据: Any",
+                "type": "Any"
+              },
+              {
+                "id": "method_2",
+                "label": "create_demo_partition_step6_5_4",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_1",
+                "label": "中间数据: Any",
+                "type": "Any"
+              },
+              {
+                "id": "output_final",
+                "label": "最终输出: tuple[bool, str]",
+                "type": "tuple[bool, str]"
+              }
+            ],
+            "edges": [
+              {
+                "source": "input_0",
+                "target": "method_0",
+                "label": "输入"
+              },
+              {
+                "source": "method_0",
+                "target": "intermediate_0",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_0",
+                "target": "method_1",
+                "label": "输入"
+              },
+              {
+                "source": "method_1",
+                "target": "intermediate_1",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_1",
+                "target": "method_2",
+                "label": "输入"
+              },
+              {
+                "source": "method_2",
+                "target": "output_final",
+                "label": "输出"
+              }
+            ]
+          },
+          "dataflow_mermaid": null,
+          "semantics": {
+            "semantic_label": "analysis: get / _supplement_demo_partition_analysis / create_demo_partition_step6_5_4",
+            "description": "从 get 到 create_demo_partition_step6_5_4 的调用链，包含 3 个方法",
+            "functional_domain": "analysis",
+            "keywords": [
+              "get",
+              "_supplement_demo_partition_analysis",
+              "create_demo_partition_step6_5_4"
+            ]
+          },
+          "cfg_dfg_explain_md": null,
+          "function_chain": [
+            "call_graph_result.get",
+            "_supplement_demo_partition_analysis",
+            "create_demo_partition_step6_5_4"
+          ]
+        }
+      ]
+    },
+    {
+      "partition_id": "partition_3",
+      "partition_name": "partition_3",
+      "total_paths": 5,
+      "paths": [
+        {
+          "leaf_node": "enumerate",
+          "path_index": 0,
+          "path": [
+            "enumerate",
+            "generate_charts",
+            "generate_report"
+          ],
+          "input_info": {},
+          "output_info": {},
+          "path_name": "路径 1",
+          "path_description": "包含 3 个方法的调用链",
+          "cfg": null,
+          "dfg": null,
+          "io_graph": {
+            "nodes": [
+              {
+                "id": "input_0",
+                "label": "输入: data",
+                "type": "Any"
+              },
+              {
+                "id": "method_0",
+                "label": "enumerate",
+                "type": "操作节点"
+              },
+              {
+                "id": "method_1",
+                "label": "generate_charts",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_0",
+                "label": "中间数据: Any",
+                "type": "Any"
+              },
+              {
+                "id": "method_2",
+                "label": "generate_report",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_1",
+                "label": "中间数据: str",
+                "type": "str"
+              },
+              {
+                "id": "output_final",
+                "label": "最终输出: str",
+                "type": "str"
+              }
+            ],
+            "edges": [
+              {
+                "source": "input_0",
+                "target": "method_0",
+                "label": "输入"
+              },
+              {
+                "source": "method_0",
+                "target": "intermediate_0",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_0",
+                "target": "method_1",
+                "label": "输入"
+              },
+              {
+                "source": "method_1",
+                "target": "intermediate_1",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_1",
+                "target": "method_2",
+                "label": "输入"
+              },
+              {
+                "source": "method_2",
+                "target": "output_final",
+                "label": "输出"
+              }
+            ]
+          },
+          "dataflow_mermaid": null,
+          "semantics": {
+            "semantic_label": "general: enumerate / generate_charts / generate_report",
+            "description": "从 enumerate 到 generate_report 的调用链，包含 3 个方法",
+            "functional_domain": "general",
+            "keywords": [
+              "enumerate",
+              "generate_charts",
+              "generate_report"
+            ]
+          },
+          "cfg_dfg_explain_md": null,
+          "function_chain": [
+            "enumerate",
+            "generate_charts",
+            "generate_report"
+          ]
+        },
+        {
+          "leaf_node": "list",
+          "path_index": 0,
+          "path": [
+            "list",
+            "generate_charts",
+            "generate_report"
+          ],
+          "input_info": {},
+          "output_info": {},
+          "path_name": "路径 1",
+          "path_description": "包含 3 个方法的调用链",
+          "cfg": null,
+          "dfg": null,
+          "io_graph": {
+            "nodes": [
+              {
+                "id": "input_0",
+                "label": "输入: data",
+                "type": "Any"
+              },
+              {
+                "id": "method_0",
+                "label": "list",
+                "type": "操作节点"
+              },
+              {
+                "id": "method_1",
+                "label": "generate_charts",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_0",
+                "label": "中间数据: Any",
+                "type": "Any"
+              },
+              {
+                "id": "method_2",
+                "label": "generate_report",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_1",
+                "label": "中间数据: str",
+                "type": "str"
+              },
+              {
+                "id": "output_final",
+                "label": "最终输出: str",
+                "type": "str"
+              }
+            ],
+            "edges": [
+              {
+                "source": "input_0",
+                "target": "method_0",
+                "label": "输入"
+              },
+              {
+                "source": "method_0",
+                "target": "intermediate_0",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_0",
+                "target": "method_1",
+                "label": "输入"
+              },
+              {
+                "source": "method_1",
+                "target": "intermediate_1",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_1",
+                "target": "method_2",
+                "label": "输入"
+              },
+              {
+                "source": "method_2",
+                "target": "output_final",
+                "label": "输出"
+              }
+            ]
+          },
+          "dataflow_mermaid": null,
+          "semantics": {
+            "semantic_label": "general: list / generate_charts / generate_report",
+            "description": "从 list 到 generate_report 的调用链，包含 3 个方法",
+            "functional_domain": "general",
+            "keywords": [
+              "list",
+              "generate_charts",
+              "generate_report"
+            ]
+          },
+          "cfg_dfg_explain_md": null,
+          "function_chain": [
+            "list",
+            "generate_charts",
+            "generate_report"
+          ]
+        },
+        {
+          "leaf_node": "round",
+          "path_index": 0,
+          "path": [
+            "round",
+            "generate_charts",
+            "generate_report"
+          ],
+          "input_info": {},
+          "output_info": {},
+          "path_name": "路径 1",
+          "path_description": "包含 3 个方法的调用链",
+          "cfg": null,
+          "dfg": null,
+          "io_graph": {
+            "nodes": [
+              {
+                "id": "input_0",
+                "label": "输入: data",
+                "type": "Any"
+              },
+              {
+                "id": "method_0",
+                "label": "round",
+                "type": "操作节点"
+              },
+              {
+                "id": "method_1",
+                "label": "generate_charts",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_0",
+                "label": "中间数据: Any",
+                "type": "Any"
+              },
+              {
+                "id": "method_2",
+                "label": "generate_report",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_1",
+                "label": "中间数据: str",
+                "type": "str"
+              },
+              {
+                "id": "output_final",
+                "label": "最终输出: str",
+                "type": "str"
+              }
+            ],
+            "edges": [
+              {
+                "source": "input_0",
+                "target": "method_0",
+                "label": "输入"
+              },
+              {
+                "source": "method_0",
+                "target": "intermediate_0",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_0",
+                "target": "method_1",
+                "label": "输入"
+              },
+              {
+                "source": "method_1",
+                "target": "intermediate_1",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_1",
+                "target": "method_2",
+                "label": "输入"
+              },
+              {
+                "source": "method_2",
+                "target": "output_final",
+                "label": "输出"
+              }
+            ]
+          },
+          "dataflow_mermaid": null,
+          "semantics": {
+            "semantic_label": "general: round / generate_charts / generate_report",
+            "description": "从 round 到 generate_report 的调用链，包含 3 个方法",
+            "functional_domain": "general",
+            "keywords": [
+              "round",
+              "generate_charts",
+              "generate_report"
+            ]
+          },
+          "cfg_dfg_explain_md": null,
+          "function_chain": [
+            "round",
+            "generate_charts",
+            "generate_report"
+          ]
+        },
+        {
+          "leaf_node": "sum",
+          "path_index": 0,
+          "path": [
+            "sum",
+            "generate_charts",
+            "generate_report"
+          ],
+          "input_info": {},
+          "output_info": {},
+          "path_name": "路径 1",
+          "path_description": "包含 3 个方法的调用链",
+          "cfg": null,
+          "dfg": null,
+          "io_graph": {
+            "nodes": [
+              {
+                "id": "input_0",
+                "label": "输入: data",
+                "type": "Any"
+              },
+              {
+                "id": "method_0",
+                "label": "sum",
+                "type": "操作节点"
+              },
+              {
+                "id": "method_1",
+                "label": "generate_charts",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_0",
+                "label": "中间数据: Any",
+                "type": "Any"
+              },
+              {
+                "id": "method_2",
+                "label": "generate_report",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_1",
+                "label": "中间数据: str",
+                "type": "str"
+              },
+              {
+                "id": "output_final",
+                "label": "最终输出: str",
+                "type": "str"
+              }
+            ],
+            "edges": [
+              {
+                "source": "input_0",
+                "target": "method_0",
+                "label": "输入"
+              },
+              {
+                "source": "method_0",
+                "target": "intermediate_0",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_0",
+                "target": "method_1",
+                "label": "输入"
+              },
+              {
+                "source": "method_1",
+                "target": "intermediate_1",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_1",
+                "target": "method_2",
+                "label": "输入"
+              },
+              {
+                "source": "method_2",
+                "target": "output_final",
+                "label": "输出"
+              }
+            ]
+          },
+          "dataflow_mermaid": null,
+          "semantics": {
+            "semantic_label": "general: sum / generate_charts / generate_report",
+            "description": "从 sum 到 generate_report 的调用链，包含 3 个方法",
+            "functional_domain": "general",
+            "keywords": [
+              "sum",
+              "generate_charts",
+              "generate_report"
+            ]
+          },
+          "cfg_dfg_explain_md": null,
+          "function_chain": [
+            "sum",
+            "generate_charts",
+            "generate_report"
+          ]
+        },
+        {
+          "leaf_node": "keys",
+          "path_index": 0,
+          "path": [
+            "keys",
+            "generate_charts",
+            "generate_report"
+          ],
+          "input_info": {},
+          "output_info": {},
+          "path_name": "路径 1",
+          "path_description": "包含 3 个方法的调用链",
+          "cfg": null,
+          "dfg": null,
+          "io_graph": {
+            "nodes": [
+              {
+                "id": "input_0",
+                "label": "输入: data",
+                "type": "Any"
+              },
+              {
+                "id": "method_0",
+                "label": "keys",
+                "type": "操作节点"
+              },
+              {
+                "id": "method_1",
+                "label": "generate_charts",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_0",
+                "label": "中间数据: Any",
+                "type": "Any"
+              },
+              {
+                "id": "method_2",
+                "label": "generate_report",
+                "type": "操作节点"
+              },
+              {
+                "id": "intermediate_1",
+                "label": "中间数据: str",
+                "type": "str"
+              },
+              {
+                "id": "output_final",
+                "label": "最终输出: str",
+                "type": "str"
+              }
+            ],
+            "edges": [
+              {
+                "source": "input_0",
+                "target": "method_0",
+                "label": "输入"
+              },
+              {
+                "source": "method_0",
+                "target": "intermediate_0",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_0",
+                "target": "method_1",
+                "label": "输入"
+              },
+              {
+                "source": "method_1",
+                "target": "intermediate_1",
+                "label": "输出"
+              },
+              {
+                "source": "intermediate_1",
+                "target": "method_2",
+                "label": "输入"
+              },
+              {
+                "source": "method_2",
+                "target": "output_final",
+                "label": "输出"
+              }
+            ]
+          },
+          "dataflow_mermaid": null,
+          "semantics": {
+            "semantic_label": "general: keys / generate_charts / generate_report",
+            "description": "从 keys 到 generate_report 的调用链，包含 3 个方法",
+            "functional_domain": "general",
+            "keywords": [
+              "keys",
+              "generate_charts",
+              "generate_report"
+            ]
+          },
+          "cfg_dfg_explain_md": null,
+          "function_chain": [
+            "keys",
+            "generate_charts",
+            "generate_report"
+          ]
+        }
+      ]
+    }
+  ]
+}

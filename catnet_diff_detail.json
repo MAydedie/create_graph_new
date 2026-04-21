@@ -1,0 +1,174 @@
+{
+  "orig_total": 263,
+  "ext_total": 262,
+  "missing_count": 258,
+  "extra_count": 257,
+  "missing_sample": [
+    [
+      "partition_0",
+      [
+        "t.strip.split",
+        "open",
+        "arbitrary.__init__",
+        "super"
+      ],
+      "对象初始化"
+    ],
+    [
+      "partition_0",
+      [
+        "self._make_branches",
+        "HighResolutionModule.__init__"
+      ],
+      "结构路径 1"
+    ],
+    [
+      "partition_0",
+      [
+        "t.strip.split",
+        "Djpeg.__init__"
+      ],
+      "结构路径 10"
+    ],
+    [
+      "partition_0",
+      [
+        "t.strip.split",
+        "IMD2020.__init__"
+      ],
+      "结构路径 11"
+    ],
+    [
+      "partition_0",
+      [
+        "t.strip.split",
+        "CASIA.__init__"
+      ],
+      "结构路径 12"
+    ],
+    [
+      "partition_0",
+      [
+        "HighResolutionModule.__init__",
+        "self._make_branches"
+      ],
+      "结构路径 2"
+    ],
+    [
+      "partition_0",
+      [
+        "self._check_branches",
+        "HighResolutionModule.__init__"
+      ],
+      "结构路径 3"
+    ],
+    [
+      "partition_0",
+      [
+        "HighResolutionModule.__init__",
+        "self._check_branches"
+      ],
+      "结构路径 4"
+    ],
+    [
+      "partition_0",
+      [
+        "self._check_branches",
+        "CrossEntropy.__init__",
+        "self.register_parameter",
+        "arbitrary.__init__"
+      ],
+      "结构路径 5"
+    ],
+    [
+      "partition_0",
+      [
+        "glob.glob",
+        "arbitrary.__init__"
+      ],
+      "结构路径 6"
+    ]
+  ],
+  "extra_sample": [
+    [
+      "partition_0",
+      [
+        "f.readlines",
+        "CASIA.__init__"
+      ],
+      "结构路径 1"
+    ],
+    [
+      "partition_0",
+      [
+        "IMD2020.__init__",
+        "f.readlines"
+      ],
+      "结构路径 10"
+    ],
+    [
+      "partition_0",
+      [
+        "tampCOCO.__init__",
+        "f.readlines"
+      ],
+      "结构路径 11"
+    ],
+    [
+      "partition_0",
+      [
+        "super",
+        "CASIA.__init__"
+      ],
+      "结构路径 12"
+    ],
+    [
+      "partition_0",
+      [
+        "f.readlines",
+        "compRAISE.__init__"
+      ],
+      "结构路径 2"
+    ],
+    [
+      "partition_0",
+      [
+        "f.readlines",
+        "IMD2020.__init__"
+      ],
+      "结构路径 3"
+    ],
+    [
+      "partition_0",
+      [
+        "f.readlines",
+        "tampCOCO.__init__"
+      ],
+      "结构路径 4"
+    ],
+    [
+      "partition_0",
+      [
+        "f.readlines",
+        "FantasticReality.__init__"
+      ],
+      "结构路径 5"
+    ],
+    [
+      "partition_0",
+      [
+        "f.readlines",
+        "Djpeg.__init__"
+      ],
+      "结构路径 6"
+    ],
+    [
+      "partition_0",
+      [
+        "CASIA.__init__",
+        "f.readlines"
+      ],
+      "结构路径 7"
+    ]
+  ]
+}

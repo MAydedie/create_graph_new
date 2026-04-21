@@ -1,0 +1,12 @@
+{
+  "overview_status": 200,
+  "entry_count": 1,
+  "selected_sample": [
+    "create_graph_50055b0f.json"
+  ],
+  "conversation_session_id": "1f823ed79cd44f178545b959f5dffb6b",
+  "conversation_next_step": "start_multi_agent",
+  "handoff_prioritized_libraries": [
+    "create_graph_50055b0f.json"
+  ]
+}

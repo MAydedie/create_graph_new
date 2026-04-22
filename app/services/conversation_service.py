@@ -706,9 +706,16 @@ def _fallback_clarification_payload(user_query: str, project_path: str, decision
                 continue
             label = str(item.get("label") or "").strip()
             description = str(item.get("description") or "").strip()
+            prompt_fragment = str(item.get("promptFragment") or "").strip()
+            option_id = str(item.get("id") or "").strip()
             if not label:
                 continue
-            options.append({"label": label, "description": description or label})
+            option_payload = {"label": label, "description": description or label}
+            if prompt_fragment:
+                option_payload["promptFragment"] = prompt_fragment
+            if option_id:
+                option_payload["id"] = option_id
+            options.append(option_payload)
 
     if not options:
         raw_missing_slots = decision.get("missing_slots")
@@ -726,10 +733,13 @@ def _fallback_clarification_payload(user_query: str, project_path: str, decision
             {"label": "补充约束条件", "description": "告诉我性能、风格、测试等约束"},
         ]
 
-    question = str(clarification.get("prompt") or "").strip() or (
-        f"我理解你在处理一个代码任务，但当前信息不足。\n"
-        f"请在以下候选方向中选择，或者直接补充你的真实需求。"
-    )
+    question = str(clarification.get("prompt") or "").strip() or "Need more task details before code generation. Please choose a direction below or add the missing details directly."
+    round_value = max(1, _safe_int(clarification.get("round"), 1))
+    max_rounds = max(round_value, _safe_int(clarification.get("maxRounds"), round_value))
+    structured_fields_raw = clarification.get("structuredFields")
+    structured_fields = [item for item in structured_fields_raw if isinstance(item, dict)] if isinstance(structured_fields_raw, list) else []
+    inferred_intent = str(decision.get("inferred_intent") or clarification.get("inferredIntent") or "").strip()
+    allow_freeform = bool(clarification.get("allowFreeform", True))
 
     return {
         "questionId": uuid4().hex,
@@ -737,13 +747,20 @@ def _fallback_clarification_payload(user_query: str, project_path: str, decision
         "header": "需求澄清",
         "options": options,
         "multiple": False,
-        "custom": True,
+        "custom": allow_freeform,
+        "allowFreeform": allow_freeform,
         "source": "fallback",
         "projectPath": project_path,
         "reason": str(decision.get("reason") or "需要进一步澄清"),
+        "round": round_value,
+        "maxRounds": max_rounds,
+        "clarityLevel": str(clarification.get("clarityLevel") or decision.get("clarity_level") or "ambiguous"),
+        "inferredIntent": inferred_intent,
+        "structuredFields": structured_fields,
+        "terminal": bool(clarification.get("terminal", False)),
+        "originalQuery": str(clarification.get("originalQuery") or user_query).strip() or user_query,
         "createdAt": _utcnow_iso(),
     }
-
 
 def _llm_generate_clarification(
     user_query: str,
@@ -809,12 +826,28 @@ def _llm_generate_clarification(
             continue
         label = str(item.get("label") or "").strip()
         description = str(item.get("description") or "").strip()
+        prompt_fragment = str(item.get("promptFragment") or "").strip()
+        option_id = str(item.get("id") or "").strip()
         if not label:
             continue
-        normalized_options.append({"label": label, "description": description or label})
+        option_payload = {"label": label, "description": description or label}
+        if prompt_fragment:
+            option_payload["promptFragment"] = prompt_fragment
+        if option_id:
+            option_payload["id"] = option_id
+        normalized_options.append(option_payload)
 
     if not normalized_options:
         return None
+
+    clarification_raw = decision.get("clarification")
+    clarification: Dict[str, Any] = dict(clarification_raw) if isinstance(clarification_raw, dict) else {}
+    round_value = max(1, _safe_int(clarification.get("round"), 1))
+    max_rounds = max(round_value, _safe_int(clarification.get("maxRounds"), round_value))
+    structured_fields_raw = clarification.get("structuredFields")
+    structured_fields = [item for item in structured_fields_raw if isinstance(item, dict)] if isinstance(structured_fields_raw, list) else []
+    inferred_intent = str(decision.get("inferred_intent") or clarification.get("inferredIntent") or "").strip()
+    allow_freeform = bool(payload.get("custom", clarification.get("allowFreeform", True)))
 
     return {
         "questionId": uuid4().hex,
@@ -822,10 +855,18 @@ def _llm_generate_clarification(
         "header": str(payload.get("header") or "需求澄清").strip() or "需求澄清",
         "options": normalized_options,
         "multiple": bool(payload.get("multiple", False)),
-        "custom": bool(payload.get("custom", True)),
+        "custom": allow_freeform,
+        "allowFreeform": allow_freeform,
         "source": "llm",
         "projectPath": project_path,
         "reason": str(payload.get("reason") or decision.get("reason") or "需要进一步澄清"),
+        "round": round_value,
+        "maxRounds": max_rounds,
+        "clarityLevel": str(clarification.get("clarityLevel") or decision.get("clarity_level") or "ambiguous"),
+        "inferredIntent": inferred_intent,
+        "structuredFields": structured_fields,
+        "terminal": bool(clarification.get("terminal", False)),
+        "originalQuery": str(clarification.get("originalQuery") or user_query).strip() or user_query,
         "createdAt": _utcnow_iso(),
     }
 
@@ -973,6 +1014,13 @@ def _normalize_action_decision(
 
     llm_decision = _llm_decide_next_action(user_query, conversation_id, project_path, heuristic_decision, llm_config=llm_config)
     if isinstance(llm_decision, dict):
+        heuristic_task_mode = str(heuristic_decision.get("task_mode") or "").strip()
+        llm_task_mode = str(llm_decision.get("task_mode") or "").strip()
+        if heuristic_task_mode == "write_new_code" and llm_task_mode == "modify_existing":
+            llm_decision = {
+                **llm_decision,
+                "task_mode": "write_new_code",
+            }
         return llm_decision
 
     route = str(heuristic_decision.get("route") or "modify_existing")
@@ -996,7 +1044,212 @@ def _normalize_action_decision(
     }
 
 
+_GRAPH_ANCHOR_STOPWORDS = {
+    "the", "and", "for", "from", "with", "that", "this", "into", "when", "then", "true", "false",
+    "none", "null", "code", "file", "path", "line", "user", "query", "data", "item", "list",
+    "dict", "self", "class", "def", "return", "graph", "node", "edge", "hits", "result", "results",
+    "service", "app", "src", "python", "json", "type", "label", "score", "sources",
+}
+
+
+def _graph_anchor_tokens_from_text(text: str) -> List[str]:
+    normalized = re.sub(r"([a-z])([A-Z])", r"\1 \2", str(text or ""))
+    normalized = re.sub(r"[^0-9a-zA-Z_./\\-]+", " ", normalized)
+    tokens = re.findall(r"[A-Za-z_][A-Za-z0-9_]{2,}|[A-Za-z0-9]{3,}", normalized)
+    return [token for token in tokens if token and token.lower() not in _GRAPH_ANCHOR_STOPWORDS]
+
+
+def _extract_anchor_terms_from_code_hits(code_hits: List[Dict[str, Any]], limit: int = 8) -> List[str]:
+    ranked_terms: List[str] = []
+    for item in code_hits[:4]:
+        if not isinstance(item, dict):
+            continue
+        values = [
+            item.get("label"),
+            item.get("id"),
+            item.get("file"),
+            item.get("file_path"),
+            item.get("snippet"),
+        ]
+        for value in values:
+            ranked_terms.extend(_graph_anchor_tokens_from_text(str(value or "")))
+    return _dedupe_keep_order(ranked_terms, limit=limit)
+
+
+def _parse_graph_nodes(graph_data: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    nodes: Dict[str, Dict[str, Any]] = {}
+    for raw_node in graph_data.get("nodes", []):
+        if not isinstance(raw_node, dict):
+            continue
+        raw_node_data = raw_node.get("data")
+        node_data: Dict[str, Any] = raw_node_data if isinstance(raw_node_data, dict) else raw_node
+        node_id = str(node_data.get("id") or raw_node.get("id") or "").strip()
+        if not node_id:
+            continue
+        nodes[node_id] = {
+            "id": node_id,
+            "label": str(node_data.get("label") or node_data.get("name") or node_id).strip(),
+            "file": str(node_data.get("file") or node_data.get("file_path") or "").strip(),
+            "type": str(node_data.get("type") or "").strip(),
+            "full_name": str(node_data.get("full_name") or "").strip(),
+            "raw": node_data,
+        }
+    return nodes
+
+
+def _parse_graph_edges(graph_data: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
+    adjacency: Dict[str, List[Dict[str, Any]]] = {}
+    for raw_edge in graph_data.get("edges", []):
+        if not isinstance(raw_edge, dict):
+            continue
+        raw_edge_data = raw_edge.get("data")
+        edge_data: Dict[str, Any] = raw_edge_data if isinstance(raw_edge_data, dict) else raw_edge
+        source = str(edge_data.get("source") or raw_edge.get("source") or "").strip()
+        target = str(edge_data.get("target") or raw_edge.get("target") or "").strip()
+        if not source or not target:
+            continue
+        relation = str(edge_data.get("type") or edge_data.get("relation") or edge_data.get("label") or "RELATED").strip() or "RELATED"
+        step = edge_data.get("step")
+        edge_payload = {"source": source, "target": target, "relation": relation, "step": step}
+        adjacency.setdefault(source, []).append(edge_payload)
+        adjacency.setdefault(target, []).append(edge_payload)
+    return adjacency
+
+
+def _detect_seed_nodes_from_code_hits(
+    code_hits: List[Dict[str, Any]],
+    graph_nodes: Dict[str, Dict[str, Any]],
+    limit: int = 6,
+) -> List[str]:
+    seeds: List[str] = []
+    for hit in code_hits[:6]:
+        if not isinstance(hit, dict):
+            continue
+        file_hint = str(hit.get("file") or hit.get("file_path") or "").replace("\\", "/").strip().lower()
+        label_hint = str(hit.get("label") or hit.get("id") or "").strip().lower()
+        token_hints = {token.lower() for token in _graph_anchor_tokens_from_text(label_hint)}
+        for node_id, node in graph_nodes.items():
+            node_file = str(node.get("file") or "").replace("\\", "/").strip().lower()
+            node_label = str(node.get("label") or node_id).strip().lower()
+            node_full_name = str(node.get("full_name") or "").strip().lower()
+            file_match = bool(file_hint and node_file and (file_hint.endswith(node_file) or node_file.endswith(file_hint) or file_hint in node_file or node_file in file_hint))
+            label_match = bool(label_hint and (label_hint == node_label or label_hint in node_label or label_hint in node_full_name))
+            token_match = bool(token_hints and any(token in node_label or token in node_full_name for token in token_hints))
+            if file_match or label_match or token_match:
+                seeds.append(node_id)
+    return _dedupe_keep_order(seeds, limit=limit)
+
+
+def _build_anchor_graph_highlights(
+    graph_data: Dict[str, Any],
+    code_hits: List[Dict[str, Any]],
+    graph_search_payload: Optional[Dict[str, Any]] = None,
+    limit: int = 6,
+) -> List[Dict[str, Any]]:
+    graph_nodes = _parse_graph_nodes(graph_data)
+    if not graph_nodes:
+        return []
+    adjacency = _parse_graph_edges(graph_data)
+    seed_nodes = _detect_seed_nodes_from_code_hits(code_hits, graph_nodes, limit=6)
+    if not seed_nodes:
+        return []
+
+    ranked_node_ids: List[str] = list(seed_nodes)
+    if isinstance(graph_search_payload, dict):
+        for item in _build_retrieval_highlights(graph_search_payload, limit=limit):
+            node_id = str(item.get("id") or "").strip()
+            if node_id:
+                ranked_node_ids.append(node_id)
+
+    visited_hops: Dict[str, int] = {node_id: 0 for node_id in seed_nodes}
+    queue: List[str] = list(seed_nodes)
+    while queue:
+        current = queue.pop(0)
+        current_hop = visited_hops.get(current, 0)
+        if current_hop >= 2:
+            continue
+        for edge in adjacency.get(current, []):
+            neighbor = str(edge.get("target") if edge.get("source") == current else edge.get("source") or "").strip()
+            if not neighbor or neighbor in visited_hops:
+                continue
+            visited_hops[neighbor] = current_hop + 1
+            ranked_node_ids.append(neighbor)
+            queue.append(neighbor)
+
+    highlights: List[Dict[str, Any]] = []
+    for node_id in _dedupe_keep_order(ranked_node_ids, limit=limit * 3):
+        node = graph_nodes.get(node_id)
+        if not isinstance(node, dict):
+            continue
+        node_edges = adjacency.get(node_id, [])[:4]
+        graph_context: List[Dict[str, Any]] = []
+        for edge in node_edges:
+            neighbor = str(edge.get("target") if edge.get("source") == node_id else edge.get("source") or "").strip()
+            neighbor_node = graph_nodes.get(neighbor, {})
+            graph_context.append(
+                {
+                    "type": "neighbor_relation",
+                    "relation": str(edge.get("relation") or "RELATED"),
+                    "target_id": neighbor,
+                    "target_label": str(neighbor_node.get("label") or neighbor),
+                    "step": edge.get("step"),
+                    "hop": visited_hops.get(node_id, 0),
+                }
+            )
+
+        score = max(0.05, 1.0 - (0.18 * visited_hops.get(node_id, 0)))
+        file_path = str(node.get("file") or "").strip()
+        label = str(node.get("label") or node_id).strip()
+        highlights.append(
+            {
+                "id": node_id,
+                "label": label,
+                "file": file_path,
+                "file_path": file_path,
+                "score": score,
+                "sources": ["graph_anchor_expansion"],
+                "graph_context": graph_context,
+                "anchorSeed": node_id in seed_nodes,
+                "anchorHop": visited_hops.get(node_id, 0),
+                "line": node.get("raw", {}).get("line") if isinstance(node.get("raw"), dict) else None,
+                "lineStart": node.get("raw", {}).get("line") if isinstance(node.get("raw"), dict) else None,
+            }
+        )
+        if len(highlights) >= limit:
+            break
+    return highlights
+
+
 def _build_retrieval_highlights(search_payload: Dict[str, Any], limit: int = 5) -> List[Dict[str, Any]]:
+    flat_hits = search_payload.get("flat_hits")
+    highlights: List[Dict[str, Any]] = []
+    if isinstance(flat_hits, list):
+        for item in flat_hits[:limit]:
+            if not isinstance(item, dict):
+                continue
+            file_path = str(item.get("file_path") or item.get("file") or "")
+            sources_value = item.get("sources")
+            if not isinstance(sources_value, list):
+                source_text = str(item.get("source") or "").strip()
+                sources_value = [part for part in source_text.split("+") if part] if source_text else []
+            line_value = item.get("line") if item.get("line") is not None else item.get("line_start")
+            highlights.append(
+                {
+                    "id": str(item.get("node_id") or item.get("id") or ""),
+                    "label": str(item.get("label") or item.get("node_id") or ""),
+                    "file": file_path,
+                    "file_path": file_path,
+                    "score": item.get("score"),
+                    "sources": sources_value,
+                    "line": line_value,
+                    "lineStart": line_value,
+                    "graph_context": item.get("graph_context") if isinstance(item.get("graph_context"), list) else [],
+                    "rank": item.get("rank"),
+                }
+            )
+        if highlights:
+            return highlights
+
     results = search_payload.get("hybrid_results")
     if not isinstance(results, list):
         return []
@@ -1009,8 +1262,12 @@ def _build_retrieval_highlights(search_payload: Dict[str, Any], limit: int = 5) 
                 "id": str(item.get("id") or ""),
                 "label": str(item.get("label") or ""),
                 "file": str(item.get("file") or ""),
+                "file_path": str(item.get("file") or item.get("file_path") or ""),
                 "score": item.get("score"),
                 "sources": item.get("sources") if isinstance(item.get("sources"), list) else [],
+                "line": item.get("line") if item.get("line") is not None else item.get("line_start"),
+                "lineStart": item.get("line") if item.get("line") is not None else item.get("line_start"),
+                "graph_context": item.get("graph_context") if isinstance(item.get("graph_context"), list) else [],
             }
         )
     return highlights
@@ -1345,6 +1602,10 @@ def _run_retrieval_tool(
     code_hits_raw = code_result.get("hits")
     code_hits: List[Dict[str, Any]] = [item for item in code_hits_raw if isinstance(item, dict)] if isinstance(code_hits_raw, list) else []
     code_highlights = _build_codebase_highlights(code_hits, limit=6)
+    anchor_terms = _extract_anchor_terms_from_code_hits(code_hits, limit=8)
+    augmented_query = user_query
+    if anchor_terms:
+        augmented_query = f"{user_query} {' '.join(anchor_terms)}".strip()
 
     graph_data: Optional[Dict[str, Any]] = None
     graph_search_payload: Optional[Dict[str, Any]] = None
@@ -1360,6 +1621,7 @@ def _run_retrieval_tool(
         graph_data = data_accessor.get_main_analysis(project_path)
 
     graph_highlights: List[Dict[str, Any]] = []
+    anchor_graph_highlights: List[Dict[str, Any]] = []
     if callable(progress_hook):
         progress_hook("graph_aug", {"message": "开始图谱增强检索"})
     if isinstance(graph_data, dict):
@@ -1368,13 +1630,20 @@ def _run_retrieval_tool(
                 14.0,
                 run_hybrid_shadow,
                 graph_data=graph_data,
-                query=user_query,
+                query=augmented_query,
                 top_k=8,
                 enable_graph_context=True,
             )
             if isinstance(graph_search_payload_raw, dict):
                 graph_search_payload = graph_search_payload_raw
                 graph_highlights = _build_retrieval_highlights(graph_search_payload_raw, limit=6)
+                anchor_graph_highlights = _build_anchor_graph_highlights(
+                    graph_data,
+                    code_hits,
+                    graph_search_payload=graph_search_payload_raw,
+                    limit=6,
+                )
+                graph_highlights = _merge_highlights(graph_highlights, anchor_graph_highlights, limit=8)
             else:
                 graph_search_payload = None
         except FuturesTimeoutError:
@@ -1410,7 +1679,12 @@ def _run_retrieval_tool(
         "search": {
             "mode": "codebase_first_with_graph_augmentation",
             "code": code_result,
-            "graph": graph_search_payload,
+            "graph": {
+                **(graph_search_payload or {}),
+                "anchor_terms": anchor_terms,
+                "anchor_query": augmented_query,
+                "anchor_highlights": anchor_graph_highlights,
+            } if graph_search_payload or anchor_terms or anchor_graph_highlights else graph_search_payload,
         },
         "highlights": highlights,
     }
@@ -1724,6 +1998,111 @@ def _post_turn_housekeeping(
     return {
         "keyFacts": key_facts,
         "compaction": snapshot,
+    }
+
+
+def _should_try_inline_codegen(task_mode: str) -> bool:
+    return task_mode == "write_new_code"
+
+
+def _build_inline_codegen_answer(result: Dict[str, Any]) -> str:
+    solution_packet = _as_dict(result.get("solution_packet"))
+    output_protocol = _as_dict(result.get("output_protocol")) or _as_dict(solution_packet.get("output_protocol"))
+    analysis = _as_dict(output_protocol.get("analysis")) or _as_dict(solution_packet.get("analysis"))
+    selected_path = _as_dict(analysis.get("selected_path"))
+    function_chain = _as_string_list(selected_path.get("function_chain"))
+
+    lines: List[str] = []
+    summary = str(
+        analysis.get("summary")
+        or result.get("message")
+        or result.get("summary")
+        or ""
+    ).strip()
+    if summary:
+        lines.append(summary)
+
+    if function_chain:
+        lines.append(f"主路径: {' -> '.join(function_chain)}")
+
+    selection_mode = str(analysis.get("selection_mode") or "").strip()
+    if selection_mode:
+        lines.append(f"命中模式: {selection_mode}")
+
+    selection_reason = str(analysis.get("selection_reason") or "").strip()
+    if selection_reason:
+        lines.append(f"命中原因: {selection_reason}")
+
+    for item in _as_string_list(analysis.get("key_reasoning")):
+        if item not in lines:
+            lines.append(item)
+
+    output_write = _as_dict(result.get("output_write")) or _as_dict(solution_packet.get("output_write"))
+    written_count = _safe_int(output_write.get("writtenCount"), 0)
+    failed_count = _safe_int(output_write.get("failedCount"), 0)
+    output_root = str(output_write.get("outputRoot") or "").strip()
+    if written_count or failed_count:
+        lines.append(f"输出写入结果：成功 {written_count}，失败 {failed_count}")
+    if output_root:
+        lines.append(f"输出目录：{output_root}")
+
+    return "\n".join(lines) or "已完成内联代码生成，可直接查看方案与代码片段。"
+
+
+def _try_inline_codegen_result(
+    *,
+    conversation_id: str,
+    project_path: str,
+    user_query: str,
+    task_mode: str,
+    partition_id: Optional[str],
+    selected_node: Optional[Dict[str, Any]],
+    clarification_context: Optional[Dict[str, Any]],
+    output_root: Optional[str],
+    auto_apply_output: bool,
+    opencode_enabled: Optional[bool],
+) -> Dict[str, Any]:
+    from app.services import multi_agent_service as mas
+
+    session_payload = mas._create_multi_agent_session(
+        project_path,
+        user_query,
+        task_mode,
+        clarification_context or {},
+        swarm_enabled=True,
+        conversation_id=conversation_id,
+        output_root=output_root,
+        auto_apply_output=bool(auto_apply_output),
+        opencode_enabled=opencode_enabled,
+    )
+    session_id = str(session_payload.get("sessionId") or "").strip()
+    if not session_id:
+        raise RuntimeError("内联代码生成未创建有效的 multi-agent 会话")
+
+    mas._run_multi_agent_session(
+        session_id,
+        project_path,
+        user_query,
+        task_mode,
+        partition_id,
+        selected_node or {},
+        clarification_context or {},
+        True,
+        output_root,
+        bool(auto_apply_output),
+    )
+
+    final_payload = data_accessor.get_multi_agent_session(session_id)
+    if not isinstance(final_payload, dict):
+        raise RuntimeError("内联代码生成未返回会话结果")
+    if str(final_payload.get("status") or "").strip() != "completed":
+        raise RuntimeError(str(final_payload.get("error") or "内联代码生成失败"))
+
+    result_raw = final_payload.get("result")
+    result = dict(result_raw) if isinstance(result_raw, dict) else {}
+    return {
+        "session": session_payload,
+        "result": result,
     }
 
 
@@ -2156,7 +2535,124 @@ def _run_conversation_turn(
             "clarification_context": clarification_context or {},
             "output_root": output_root,
             "auto_apply_output": bool(auto_apply_output),
+            "opencode_enabled": bool(opencode_enabled) if opencode_enabled is not None else None,
+            "opencodeEnabled": bool(opencode_enabled) if opencode_enabled is not None else None,
         }
+        if auto_start_multi_agent and _should_try_inline_codegen(task_mode):
+            try:
+                _update_conversation_session(session_id, stage="inline_codegen", message="正在执行内联代码生成")
+                inline_payload = _try_inline_codegen_result(
+                    conversation_id=conversation_id,
+                    project_path=project_path,
+                    user_query=user_query,
+                    task_mode=task_mode,
+                    partition_id=partition_id,
+                    selected_node=selected_node,
+                    clarification_context=clarification_context,
+                    output_root=output_root,
+                    auto_apply_output=bool(auto_apply_output),
+                    opencode_enabled=opencode_enabled,
+                )
+                inline_session = _as_dict(inline_payload.get("session"))
+                inline_result = _as_dict(inline_payload.get("result"))
+                solution_packet = _as_dict(inline_result.get("solution_packet"))
+                output_protocol = _as_dict(inline_result.get("output_protocol")) or _as_dict(solution_packet.get("output_protocol"))
+                evidence_verdict = _as_dict(inline_result.get("evidence_verdict"))
+                opencode_kernel = _as_dict(inline_result.get("opencode_kernel")) or _as_dict(solution_packet.get("opencode_kernel"))
+                swarm_packet = _as_dict(inline_result.get("swarm_packet"))
+                output_write = _as_dict(inline_result.get("output_write")) or _as_dict(solution_packet.get("output_write"))
+                if not output_write:
+                    output_write = _as_dict(output_protocol.get("output_write"))
+
+                requires_materialized_output = bool(output_root and auto_apply_output)
+                has_materialized_output = bool(
+                    str(output_write.get("outputRoot") or "").strip()
+                    or int(output_write.get("writtenCount") or 0) > 0
+                ) if isinstance(output_write, dict) else False
+                if requires_materialized_output and not has_materialized_output:
+                    raise RuntimeError("INLINE_MISSING_OUTPUT_WRITE")
+
+                answer = _build_inline_codegen_answer(inline_result)
+                generation = {
+                    "mode": "conversation_inline_multi_agent",
+                    "used_llm": bool(opencode_kernel) or bool(swarm_packet.get("llm_enabled")),
+                    "error": None,
+                    "fallback": False,
+                    "multiAgentSessionId": inline_session.get("sessionId"),
+                }
+
+                data_accessor.append_conversation_message(
+                    conversation_id,
+                    {
+                        "role": "assistant",
+                        "content": answer,
+                        "createdAt": _utcnow_iso(),
+                    },
+                )
+                data_accessor.append_conversation_part(
+                    conversation_id,
+                    {
+                        "type": "assistant_text",
+                        "content": answer,
+                        "metadata": {
+                            "mode": "inline_codegen",
+                            "multiAgentSessionId": inline_session.get("sessionId"),
+                            "outputWrite": output_write,
+                            "hasSolution": bool(solution_packet),
+                        },
+                    },
+                )
+                _emit_conversation_event(
+                    conversation_id,
+                    "task.handoff.inline_completed",
+                    {
+                        "sessionId": session_id,
+                        "multiAgentSessionId": inline_session.get("sessionId"),
+                    },
+                )
+
+                housekeeping = _post_turn_housekeeping(
+                    conversation_id,
+                    user_query=user_query,
+                    project_path=project_path,
+                    action=action,
+                    task_mode=task_mode,
+                    reason=decision_reason,
+                    clarification_context=clarification_context,
+                )
+                result = {
+                    "conversationId": conversation_id,
+                    "intentGuess": task_mode,
+                    "nextStep": "send_chat",
+                    "safeToCodegen": True,
+                    "confidence": confidence,
+                    "reason": decision_reason,
+                    "taskMode": task_mode,
+                    "projectPath": project_path,
+                    "answer": answer,
+                    "solution_packet": solution_packet,
+                    "output_protocol": output_protocol,
+                    "evidence_verdict": evidence_verdict,
+                    "generation": generation,
+                    "opencode_kernel": opencode_kernel,
+                    "swarm_packet": swarm_packet,
+                    "memory": housekeeping.get("keyFacts"),
+                    "compaction": housekeeping.get("compaction"),
+                }
+                _finalize_conversation_session(session_id, result)
+                return
+            except Exception as exc:
+                handoff["inlineAttempted"] = True
+                handoff["inlineError"] = str(exc)
+                _emit_conversation_event(
+                    conversation_id,
+                    "task.handoff.inline_failed",
+                    {
+                        "sessionId": session_id,
+                        "error": str(exc),
+                    },
+                )
+                _update_conversation_session(session_id, stage="handoff", message="内联代码生成失败，回退到执行链")
         if auto_start_multi_agent:
             try:
                 from app.services import multi_agent_service as mas

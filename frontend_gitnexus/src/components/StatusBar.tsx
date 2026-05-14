@@ -1,7 +1,7 @@
 import { useAppState } from '../hooks/useAppState';
 
 export const StatusBar = () => {
-  const { graph, progress } = useAppState();
+  const { graph } = useAppState();
 
   const nodeCount = graph?.nodes.length ?? 0;
   const edgeCount = graph?.relationships.length ?? 0;
@@ -24,25 +24,7 @@ export const StatusBar = () => {
 
   return (
     <footer className="flex items-center justify-between px-5 py-2 bg-deep border-t border-dashed border-border-subtle text-[11px] text-text-muted">
-      {/* Left - Status */}
-      <div className="flex items-center gap-4">
-        {progress && progress.phase !== 'complete' ? (
-          <>
-            <div className="w-28 h-1 bg-elevated rounded-full overflow-hidden">
-              <div
-                className="h-full bg-gradient-to-r from-accent to-node-interface rounded-full transition-all duration-300"
-                style={{ width: `${progress.percent}%` }}
-              />
-            </div>
-            <span>{progress.message}</span>
-          </>
-        ) : (
-          <div className="flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 bg-node-function rounded-full" />
-            <span>就绪</span>
-          </div>
-        )}
-      </div>
+      <div />
 
       {/* Right - Stats */}
       <div className="flex items-center gap-3">

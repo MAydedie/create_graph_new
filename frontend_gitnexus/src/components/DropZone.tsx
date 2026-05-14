@@ -107,7 +107,7 @@ const [pathProgress, setPathProgress] = useState<{
   message: string;
 }>({ phase: '', progress: 0, message: '' });
 const pathCancelRef = useRef(false);
-const [analysisMode, setAnalysisMode] = useState<'experience' | 'quick'>('quick');
+const [analysisMode, setAnalysisMode] = useState<'experience' | 'quick'>('experience');
 const [experienceOutputRoot, setExperienceOutputRoot] = useState(() => localStorage.getItem(EXPERIENCE_OUTPUT_ROOT_STORAGE_KEY) || '');
 const [historicalRepos, setHistoricalRepos] = useState<RepoSummary[]>([]);
 const [historyLoading, setHistoryLoading] = useState(false);
@@ -512,371 +512,18 @@ return (
       </section>
 
       <div className="relative w-full max-w-5xl mx-auto">
-        <div className="mb-5 rounded-2xl border border-border-default bg-surface/85 p-5">
-          <div className="text-[11px] uppercase tracking-[0.2em] text-text-muted">create_graph 工作台入口</div>
-          <h1 className="mt-2 text-2xl font-semibold text-text-primary">先选模式：快速代码分析 / 训练专属经验库</h1>
-          <p className="mt-2 text-sm leading-6 text-text-secondary">
-            经验库训练会在后台同步执行主图谱与功能层级，耗时较长；快速模式可先进入图谱，但经验库未完成时问答/代码生成效果会偏弱。
-          </p>
-
-          <div className="mt-4 grid gap-3 md:grid-cols-2">
-            <button
-              type="button"
-              onClick={() => { setAnalysisMode('experience'); setActiveTab('path'); setError(null); }}
-              className={`rounded-xl border p-4 text-left transition-colors ${analysisMode === 'experience' ? 'border-accent bg-accent/10' : 'border-border-subtle bg-elevated/30 hover:bg-elevated/50'}`}
-            >
-              <div className="text-sm font-semibold text-text-primary">训练专属经验库</div>
-              <div className="mt-1 text-xs leading-6 text-text-secondary">完整分析（主图谱 + 功能层级 + 功能路径），耗时较长但后续问答更强。</div>
-            </button>
-            <button
-              type="button"
-              onClick={() => { setAnalysisMode('quick'); setActiveTab('path'); setError(null); }}
-              className={`rounded-xl border p-4 text-left transition-colors ${analysisMode === 'quick' ? 'border-accent bg-accent/10' : 'border-border-subtle bg-elevated/30 hover:bg-elevated/50'}`}
-            >
-              <div className="text-sm font-semibold text-text-primary">快速代码分析</div>
-              <div className="mt-1 text-xs leading-6 text-text-secondary">优先快速进入图谱，经验库在后台继续构建；未完成时问答/代码生成会弱化。</div>
-            </button>
-          </div>
-
-          <div className="mt-4 rounded-xl border border-amber-300/30 bg-amber-200/10 px-3 py-2 text-xs text-amber-100">
-            {analysisMode === 'experience'
-              ? '当前为经验库训练模式：将等待完整训练完成后进入工作区。'
-              : '当前为快速模式：达到主图谱就绪即进入工作区，经验库会继续在后台构建。'}
-          </div>
-        </div>
-
-        <div className="mb-5 rounded-2xl border border-border-default bg-surface/75 p-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="text-xs font-medium uppercase tracking-[0.18em] text-text-muted">历史经验库项目</div>
-              <div className="mt-1 text-xs text-text-secondary">点击可直接快速打开；展示名为“LLM语义名 · 路径”。</div>
-            </div>
-            <button
-              type="button"
-              onClick={async () => {
-                setHistoryLoading(true);
-                try {
-                  const repos = await fetchRepos(normalizeServerUrl(window.location.origin));
-                  setHistoricalRepos(Array.isArray(repos) ? repos : []);
-                } catch {
-                  setHistoricalRepos([]);
-                } finally {
-                  setHistoryLoading(false);
-                }
-              }}
-              className="px-3 py-1.5 rounded-md border border-border-subtle text-xs text-text-secondary hover:text-text-primary hover:bg-elevated"
-            >
-              刷新列表
-            </button>
-          </div>
-
-          <div className="mt-3 grid gap-2">
-            {historyLoading ? (
-              <div className="text-xs text-text-muted">正在加载历史项目...</div>
-            ) : historicalRepos.length === 0 ? (
-              <div className="text-xs text-text-muted">暂无历史经验库项目。</div>
-            ) : (
-              historicalRepos.slice(0, 8).map((repo) => (
-                <button
-                  key={`${repo.name}-${repo.path}`}
-                  type="button"
-                  onClick={() => handleOpenHistoricalRepo(repo)}
-                  disabled={openingRepoIdentity === (repo.path || repo.name)}
-                  className="w-full rounded-lg border border-border-subtle bg-elevated/25 px-3 py-2 text-left hover:bg-elevated/55 disabled:opacity-60"
-                >
-                  <div className="text-sm text-text-primary truncate">{repo.displayName || `${repo.name} · ${repo.path}`}</div>
-                  <div className="mt-1 text-[11px] text-text-muted truncate">{repo.path}</div>
-                </button>
-              ))
-            )}
-          </div>
-        </div>
-
-      {/* Tab Switcher */}
-      {!HIDE_REDUNDANT_ENTRY_TABS && (
-      <div className="flex mb-4 bg-surface border border-border-default rounded-xl p-1 shadow-sm">
-        <button
-          type="button"
-          onClick={() => { setActiveTab('zip'); setError(null); }}
-          className={`
-            flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg
-            text-sm font-medium transition-all duration-200
-            ${activeTab === 'zip'
-               ? 'bg-accent text-white shadow-sm'
-              : 'text-text-secondary hover:text-text-primary hover:bg-elevated'
-            }
-          `}
-        >
-          <FileArchive className="w-4 h-4" />
-          ZIP 上传
-        </button>
-        <button
-          type="button"
-          onClick={() => { setActiveTab('github'); setError(null); }}
-          className={`
-            flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg
-            text-sm font-medium transition-all duration-200
-            ${activeTab === 'github'
-               ? 'bg-accent text-white shadow-sm'
-              : 'text-text-secondary hover:text-text-primary hover:bg-elevated'
-            }
-          `}
-        >
-          <Github className="w-4 h-4" />
-          GitHub 仓库
-        </button>
-        <button
-          type="button"
-          onClick={() => { setActiveTab('server'); setError(null); }}
-          className={`
-            flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg
-            text-sm font-medium transition-all duration-200
-            ${activeTab === 'server'
-               ? 'bg-accent text-white shadow-sm'
-              : 'text-text-secondary hover:text-text-primary hover:bg-elevated'
-            }
-          `}
-        >
-          <Globe className="w-4 h-4" />
-          服务连接
-        </button>
-        <button
-          type="button"
-          onClick={() => { setActiveTab('path'); setError(null); }}
-          className={`
-            flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg
-            text-sm font-medium transition-all duration-200
-            ${activeTab === 'path'
-               ? 'bg-accent text-white shadow-sm'
-              : 'text-text-secondary hover:text-text-primary hover:bg-elevated'
-            }
-          `}
-        >
-          <FolderOpen className="w-4 h-4" />
-          本地路径
-        </button>
-      </div>
-      )}
-
-      {/* Error Message */}
-      {error && (
-        <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm text-center">
-          {error}
-        </div>
-      )}
-
-      {/* ZIP Upload Tab */}
-      {activeTab === 'zip' && (
-        <>
-          <input
-            id="file-input"
-            type="file"
-            accept=".zip"
-            className="hidden"
-            onChange={handleFileInput}
-          />
-          <button
-            type="button"
-            className={`
-              relative p-12
-              bg-surface border-2 border-dashed rounded-3xl
-              transition-all duration-300 cursor-pointer
-              ${isDragging
-                ? 'border-accent bg-elevated scale-[1.01] shadow-lg'
-                : 'border-border-default hover:border-accent/50 hover:bg-elevated/50'
-               }
-            `}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-            onClick={() => document.getElementById('file-input')?.click()}
-          >
-            {/* Icon */}
-            <div className={`
-              mx-auto w-20 h-20 mb-6
-              flex items-center justify-center
-               bg-accent
-               rounded-2xl shadow-sm
-               transition-transform duration-300
-              ${isDragging ? 'scale-110' : ''}
-            `}>
-              {isDragging ? (
-                <Upload className="w-10 h-10 text-white" />
-              ) : (
-                <FileArchive className="w-10 h-10 text-white" />
-              )}
-            </div>
-
-            {/* Text */}
-            <h2 className="text-xl font-semibold text-text-primary text-center mb-2">
-               {isDragging ? '松手即可开始导入' : '导入代码压缩包'}
-             </h2>
-             <p className="text-sm text-text-secondary text-center mb-6">
-               支持直接拖拽或点击选择 `.zip` 文件，适合最快速进入工作区。
-             </p>
-
-            {/* Hints */}
-            <div className="flex items-center justify-center gap-3 text-xs text-text-muted">
-              <span className="px-3 py-1.5 bg-elevated border border-border-subtle rounded-md">
-                .zip
-              </span>
-            </div>
-          </button>
-
-        </>
-      )}
-
-      {/* GitHub URL Tab */}
-      {activeTab === 'github' && (
-        <div className="p-8 bg-surface border border-border-default rounded-3xl">
-          {/* Icon */}
-             <div className="mx-auto w-20 h-20 mb-6 flex items-center justify-center bg-[#24292e] rounded-2xl shadow-sm">
-            <Github className="w-10 h-10 text-white" />
-          </div>
-
-          {/* Text */}
-          <h2 className="text-xl font-semibold text-text-primary text-center mb-2">
-            从 GitHub 导入
-          </h2>
-          <p className="text-sm text-text-secondary text-center mb-6">
-             输入仓库地址后直接拉取代码；私有仓库可附带 GitHub PAT。
-          </p>
-
-          {/* Inputs - wrapped in div to prevent form autofill */}
-          <div className="space-y-3" data-form-type="other">
-            <input
-              type="url"
-              name="github-repo-url-input"
-              value={githubUrl}
-              onChange={(e) => setGithubUrl(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && !isCloning && handleGitClone()}
-              placeholder="https://github.com/owner/repo"
-              disabled={isCloning}
-              autoComplete="off"
-              data-lpignore="true"
-              data-1p-ignore="true"
-              data-form-type="other"
-              className="
-                w-full px-4 py-3
-                bg-elevated border border-border-default rounded-xl
-                text-text-primary placeholder-text-muted
-                focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent
-                disabled:opacity-50 disabled:cursor-not-allowed
-                transition-all duration-200
-              "
-            />
-
-            {/* Token input for private repos */}
-            <div className="relative">
-              <div className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted">
-                <Key className="w-4 h-4" />
-              </div>
-              <input
-                type={showToken ? 'text' : 'password'}
-                name="github-pat-token-input"
-                value={githubToken}
-                onChange={(e) => setGithubToken(e.target.value)}
-                placeholder="GitHub PAT（可选，用于私有仓库）"
-                disabled={isCloning}
-                autoComplete="new-password"
-                data-lpignore="true"
-                data-1p-ignore="true"
-                data-form-type="other"
-                className="
-                  w-full pl-10 pr-10 py-3
-                  bg-elevated border border-border-default rounded-xl
-                  text-text-primary placeholder-text-muted
-                  focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent
-                  disabled:opacity-50 disabled:cursor-not-allowed
-                  transition-all duration-200
-                "
-              />
-              <button
-                type="button"
-                onClick={() => setShowToken(!showToken)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary transition-colors"
-              >
-                {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleGitClone}
-              disabled={isCloning || !githubUrl.trim()}
-              className="
-                w-full flex items-center justify-center gap-2
-                px-4 py-3
-                bg-accent hover:bg-accent/90
-                text-white font-medium rounded-xl
-                disabled:opacity-50 disabled:cursor-not-allowed
-                transition-all duration-200
-              "
-            >
-              {isCloning ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  {cloneProgress.phase === 'cloning'
-                    ? `正在克隆... ${cloneProgress.percent}%`
-                    : cloneProgress.phase === 'reading'
-                      ? '正在读取文件...'
-                      : '正在启动...'
-                  }
-                </>
-              ) : (
-                <>
-                  导入仓库
-                  <ArrowRight className="w-5 h-5" />
-                </>
-              )}
-            </button>
-          </div>
-
-          {/* Progress bar */}
-          {isCloning && (
-            <div className="mt-4">
-              <div className="h-2 bg-elevated rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-accent transition-all duration-300 ease-out"
-                  style={{ width: `${cloneProgress.percent}%` }}
-                />
-              </div>
-            </div>
-          )}
-
-          {/* Security note */}
-          {githubToken && (
-            <p className="mt-3 text-xs text-text-muted text-center">
-              令牌仅保存在当前浏览器，不会发送到其他服务器
-            </p>
-          )}
-
-          {/* Hints */}
-          <div className="mt-4 flex items-center justify-center gap-3 text-xs text-text-muted">
-            <span className="px-3 py-1.5 bg-elevated border border-border-subtle rounded-md">
-                {githubToken ? '私有 / 公开仓库' : '公开仓库'}
-            </span>
-            <span className="px-3 py-1.5 bg-elevated border border-border-subtle rounded-md">
-              浅克隆
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* Local Path Tab */}
-      {activeTab === 'path' && (
-        <div className="p-8 bg-surface border border-border-default rounded-3xl">
+        {/* Module 1: Local Path Input & Experience Training */}
+        <div className="mb-5 p-8 bg-surface border border-border-default rounded-3xl">
           <div className="mx-auto w-20 h-20 mb-6 flex items-center justify-center bg-gradient-to-br from-indigo-500 to-cyan-600 rounded-2xl shadow-lg">
             <FolderOpen className="w-10 h-10 text-white" />
           </div>
 
+          <div className="text-[11px] uppercase tracking-[0.2em] text-text-muted text-center mb-2">create_graph 工作台入口</div>
           <h2 className="text-xl font-semibold text-text-primary text-center mb-2">
-            {analysisMode === 'experience' ? '训练专属经验库（本地路径）' : '快速代码分析（本地路径）'}
+            训练专属经验库（本地路径）
           </h2>
           <p className="text-sm text-text-secondary text-center mb-6">
-            {analysisMode === 'experience'
-              ? '输入项目绝对路径后，后台会执行主图谱 + 功能层级 + 功能路径的完整训练，耗时较长。'
-              : '输入项目绝对路径后优先进入可浏览图谱，经验库训练会继续在后台执行。'}
+            输入项目绝对路径后，后台会执行主图谱 + 功能层级 + 功能路径的完整训练。
           </p>
 
           <div className="space-y-3" data-form-type="other">
@@ -885,7 +532,12 @@ return (
               name="local-project-path-input"
               value={localProjectPath}
               onChange={(e) => setLocalProjectPath(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && !isPathAnalyzing && handleLocalPathAnalyze()}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !isPathAnalyzing) {
+                  setAnalysisMode('experience');
+                  setTimeout(handleLocalPathAnalyze, 0);
+                }
+              }}
               placeholder="例如：D:/code/my-project"
               disabled={isPathAnalyzing}
               autoComplete="off"
@@ -945,14 +597,17 @@ return (
                 </button>
               </div>
               <p className="mt-2 text-[11px] text-text-muted">
-                提示：该目录由你自行管理，快速模式与训练模式都可提前配置。
+                提示：该目录由你自行管理，可提前配置。
               </p>
             </div>
 
             <div className="flex gap-2">
               <button
                 type="button"
-                onClick={handleLocalPathAnalyze}
+                onClick={() => {
+                  setAnalysisMode('experience');
+                  setTimeout(handleLocalPathAnalyze, 0);
+                }}
                 disabled={isPathAnalyzing || !localProjectPath.trim()}
                 className="
                   flex-1 flex items-center justify-center gap-2
@@ -970,7 +625,7 @@ return (
                   </>
                 ) : (
                   <>
-                    {analysisMode === 'experience' ? '开始训练经验库' : '快速进入分析'}
+                    开始训练经验库
                     <ArrowRight className="w-5 h-5" />
                   </>
                 )}
@@ -1006,154 +661,61 @@ return (
                 {pathProgress.message || '正在分析...'} • {Math.max(1, Math.min(100, pathProgress.progress || 1))}%
               </p>
               <p className="mt-1 text-[11px] text-amber-100 text-center">
-                {analysisMode === 'experience'
-                  ? '经验库训练中，完成后问答/代码生成能力最强。'
-                  : '快速模式已启用：若经验库未完成，问答/代码生成效果会偏弱。'}
+                经验库训练中，完成后问答/代码生成能力最强。
               </p>
             </div>
           )}
-
-
-          <div className="mt-4 flex items-center justify-center gap-3 text-xs text-text-muted">
-            <span className="px-3 py-1.5 bg-elevated border border-border-subtle rounded-md">
-              create_graph 后端
-            </span>
-            <span className="px-3 py-1.5 bg-elevated border border-border-subtle rounded-md">
-              统一分析会话
-            </span>
-          </div>
         </div>
-      )}
 
-      {/* Server Tab */}
-      {activeTab === 'server' && (
-        <div className="p-8 bg-surface border border-border-default rounded-3xl">
-          {/* Icon */}
-           <div className="mx-auto w-20 h-20 mb-6 flex items-center justify-center bg-accent rounded-2xl shadow-sm">
-            <Globe className="w-10 h-10 text-white" />
+      {/* Module 2: History Projects */}
+      <div className="mb-5 rounded-2xl border border-border-default bg-surface/85 p-5">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-xs font-medium uppercase tracking-[0.18em] text-text-muted">历史经验库项目</div>
+            <div className="mt-1 text-xs text-text-secondary">点击可直接快速打开；展示名为“LLM语义名 · 路径”。</div>
           </div>
+          <button
+            type="button"
+            onClick={async () => {
+              setHistoryLoading(true);
+              try {
+                const repos = await fetchRepos(normalizeServerUrl(window.location.origin));
+                setHistoricalRepos(Array.isArray(repos) ? repos : []);
+              } catch {
+                setHistoricalRepos([]);
+              } finally {
+                setHistoryLoading(false);
+              }
+            }}
+            className="px-3 py-1.5 rounded-md border border-border-subtle text-xs text-text-secondary hover:text-text-primary hover:bg-elevated"
+          >
+            刷新列表
+          </button>
+        </div>
 
-          {/* Text */}
-          <h2 className="text-xl font-semibold text-text-primary text-center mb-2">
-            连接到服务
-          </h2>
-          <p className="text-sm text-text-secondary text-center mb-6">
-             从已运行服务加载预构建图谱，适合已有后端索引的场景。
-          </p>
-
-          {/* Inputs */}
-          <div className="space-y-3" data-form-type="other">
-            <input
-              type="url"
-              name="server-url-input"
-              value={serverUrl}
-              onChange={(e) => setServerUrl(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && !isConnecting && handleServerConnect()}
-              placeholder={window.location.origin}
-              disabled={isConnecting}
-              autoComplete="off"
-              data-lpignore="true"
-              data-1p-ignore="true"
-              data-form-type="other"
-              className="
-                w-full px-4 py-3
-                bg-elevated border border-border-default rounded-xl
-                text-text-primary placeholder-text-muted
-                focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent
-                disabled:opacity-50 disabled:cursor-not-allowed
-                transition-all duration-200
-              "
-            />
-
-            <div className="flex gap-2">
+        <div className="mt-3 grid gap-2">
+          {historyLoading ? (
+            <div className="text-xs text-text-muted">正在加载历史项目...</div>
+          ) : historicalRepos.length === 0 ? (
+            <div className="text-xs text-text-muted">暂无历史经验库项目。</div>
+          ) : (
+            historicalRepos.slice(0, 8).map((repo) => (
               <button
+                key={`${repo.name}-${repo.path}`}
                 type="button"
-                onClick={handleServerConnect}
-                disabled={isConnecting}
-                className="
-                  flex-1 flex items-center justify-center gap-2
-                  px-4 py-3
-                  bg-accent hover:bg-accent/90
-                  text-white font-medium rounded-xl
-                  disabled:opacity-50 disabled:cursor-not-allowed
-                  transition-all duration-200
-                "
+                onClick={() => handleOpenHistoricalRepo(repo)}
+                disabled={openingRepoIdentity === (repo.path || repo.name)}
+                className="w-full rounded-lg border border-border-subtle bg-elevated/25 px-3 py-2 text-left hover:bg-elevated/55 disabled:opacity-60"
               >
-                {isConnecting ? (
-                  <>
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                    {serverProgress.phase === 'validating'
-                      ? '正在校验...'
-                      : serverProgress.phase === 'downloading'
-                        ? serverProgressPercent !== null
-                          ? `正在下载... ${serverProgressPercent}%`
-                          : `正在下载... ${formatBytes(serverProgress.downloaded)}`
-                        : serverProgress.phase === 'extracting'
-                          ? '正在处理中...'
-                          : '正在连接...'
-                    }
-                  </>
-                ) : (
-                  <>
-                    连接
-                    <ArrowRight className="w-5 h-5" />
-                  </>
-                )}
+                <div className="text-sm text-text-primary truncate">{repo.displayName || `${repo.name} · ${repo.path}`}</div>
+                <div className="mt-1 text-[11px] text-text-muted truncate">{repo.path}</div>
               </button>
-
-              {isConnecting && (
-                <button
-                  type="button"
-                  onClick={handleCancelConnect}
-                  className="
-                    flex items-center justify-center
-                    px-4 py-3
-                    bg-red-500/20 hover:bg-red-500/30
-                    text-red-400 font-medium rounded-xl
-                    transition-all duration-200
-                  "
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Progress bar */}
-          {isConnecting && serverProgress.phase === 'downloading' && (
-            <div className="mt-4">
-              <div className="h-2 bg-elevated rounded-full overflow-hidden">
-                <div
-                  className={`h-full bg-accent transition-all duration-300 ease-out ${
-                    serverProgressPercent === null ? 'animate-pulse' : ''
-                  }`}
-                  style={{
-                    width: serverProgressPercent !== null
-                      ? `${serverProgressPercent}%`
-                      : '100%',
-                  }}
-                />
-              </div>
-              {serverProgress.total && (
-                <p className="mt-1 text-xs text-text-muted text-center">
-                  {formatBytes(serverProgress.downloaded)} / {formatBytes(serverProgress.total)}
-                </p>
-              )}
-            </div>
+            ))
           )}
-
-          {/* Hints */}
-          <div className="mt-4 flex items-center justify-center gap-3 text-xs text-text-muted">
-            <span className="px-3 py-1.5 bg-elevated border border-border-subtle rounded-md">
-              已预建索引
-            </span>
-            <span className="px-3 py-1.5 bg-elevated border border-border-subtle rounded-md">
-              无需 WASM
-            </span>
-          </div>
         </div>
-      )}
+      </div>
       </div>
     </div>
   </div>
-); };
+);
+};

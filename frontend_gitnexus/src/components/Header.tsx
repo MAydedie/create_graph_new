@@ -1,8 +1,8 @@
-import { ArrowLeft, BookOpen, ChevronDown, HelpCircle, Layers, RefreshCw, Search, Settings, Sparkles } from 'lucide-react';
+import { ArrowLeft, ChevronDown, Layers, MessageSquareText, RefreshCw, Search, Settings } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GraphNode } from '../core/graph/types';
 import { useAppState } from '../hooks/useAppState';
-import { createGraphExtensionsApi, type CreateGraphWorkbenchProjectStatusResponse } from '../services/create-graph-extensions';
+import { createGraphExtensionsApi } from '../services/create-graph-extensions';
 import type { RepoSummary } from '../services/server-connection';
 import { EmbeddingStatus } from './EmbeddingStatus';
 
@@ -10,9 +10,9 @@ import { EmbeddingStatus } from './EmbeddingStatus';
 const NODE_TYPE_COLORS: Record<string, string> = {
   Folder: '#6366f1',
   File: '#3b82f6',
-  Function: '#10b981',
+  Function: '#ef4444',
   Class: '#f59e0b',
-  Method: '#14b8a6',
+  Method: '#ef4444',
   Interface: '#ec4899',
   Variable: '#64748b',
   Import: '#475569',
@@ -29,9 +29,8 @@ export const Header = ({ onFocusNode, availableRepos = [], onSwitchRepo }: Heade
   const {
     projectName,
     graph,
-    openChatPanel,
+    openRagPanel,
     openHierarchyPanel,
-    openExperiencePanel,
     isRightPanelOpen,
     rightPanelTab,
     setSettingsPanelOpen,
@@ -39,7 +38,6 @@ export const Header = ({ onFocusNode, availableRepos = [], onSwitchRepo }: Heade
   } = useAppState();
   const [hierarchyStatus, setHierarchyStatus] = useState<'checking' | 'ready' | 'missing' | 'error'>('checking');
   const [hierarchyStatusMessage, setHierarchyStatusMessage] = useState('正在检查层级...');
-  const [experienceStatus, setExperienceStatus] = useState<CreateGraphWorkbenchProjectStatusResponse | null>(null);
   const [isRepoDropdownOpen, setIsRepoDropdownOpen] = useState(false);
   const repoDropdownRef = useRef<HTMLDivElement>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -101,34 +99,6 @@ export const Header = ({ onFocusNode, availableRepos = [], onSwitchRepo }: Heade
   useEffect(() => {
     refreshHierarchyStatus();
   }, [refreshHierarchyStatus]);
-
-  useEffect(() => {
-    if (!activeProjectPath) {
-      setExperienceStatus(null);
-      return;
-    }
-
-    let cancelled = false;
-    const syncStatus = async () => {
-      try {
-        const payload = await createGraphExtensionsApi.fetchWorkbenchProjectStatus('/api', activeProjectPath);
-        if (!cancelled) {
-          setExperienceStatus(payload);
-        }
-      } catch {
-        if (!cancelled) {
-          setExperienceStatus(null);
-        }
-      }
-    };
-
-    syncStatus();
-    const timer = window.setInterval(syncStatus, 2500);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [activeProjectPath]);
 
   // Search results - filter nodes by name
   const searchResults = useMemo(() => {
@@ -333,35 +303,17 @@ export const Header = ({ onFocusNode, availableRepos = [], onSwitchRepo }: Heade
           </div>
         )}
 
-        {/* Embedding Status */}
         <EmbeddingStatus />
-
-        {experienceStatus && (
-          <div className="hidden xl:flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-amber-300/30 bg-amber-200/10 max-w-[360px]">
-            <div className="min-w-0">
-              <div className="text-[11px] text-amber-100 truncate">
-                经验库 {Math.max(0, Math.min(100, Number(experienceStatus.progress || 0)))}% · {experienceStatus.phase}
-              </div>
-              <div className="text-[10px] text-text-muted truncate">{experienceStatus.qualityHint}</div>
-            </div>
-            <div className="w-20 h-1.5 rounded-full bg-elevated overflow-hidden">
-              <div
-                className="h-full bg-amber-300 transition-all duration-300"
-                style={{ width: `${Math.max(0, Math.min(100, Number(experienceStatus.progress || 0)))}%` }}
-              />
-            </div>
-          </div>
-        )}
 
         {/* Icon buttons */}
         <button
           type="button"
           onClick={() => returnToOnboarding('path')}
           className="hidden lg:flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-surface border border-border-subtle text-text-secondary hover:text-text-primary hover:bg-hover transition-colors"
-          title="返回入口并重新选择项目/经验库"
+          title="返回主页并重新选择项目/经验库"
         >
           <ArrowLeft className="w-4 h-4" />
-          <span>返回入口</span>
+          <span>返回主页</span>
         </button>
         <button
           type="button"
@@ -371,11 +323,21 @@ export const Header = ({ onFocusNode, availableRepos = [], onSwitchRepo }: Heade
         >
           <Settings className="w-[18px] h-[18px]" />
         </button>
-        <button type="button" className="w-9 h-9 flex items-center justify-center rounded-md text-text-secondary hover:bg-hover hover:text-text-primary transition-colors">
-          <HelpCircle className="w-[18px] h-[18px]" />
+        <button
+          type="button"
+          onClick={openRagPanel}
+          className={`
+            flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium transition-all border
+            ${isRightPanelOpen && rightPanelTab === 'rag'
+              ? 'bg-violet-500/20 border-violet-400/40 text-violet-200 shadow-[0_0_0_1px_rgba(167,139,250,0.35)]'
+              : 'bg-surface border-border-subtle text-text-secondary hover:text-text-primary hover:bg-hover'
+            }
+          `}
+          title="打开问答面板"
+        >
+          <MessageSquareText className="w-4 h-4" />
+          <span>问答</span>
         </button>
-
-        {/* AI Button */}
         <button
           type="button"
           onClick={openHierarchyPanel}
@@ -389,7 +351,7 @@ export const Header = ({ onFocusNode, availableRepos = [], onSwitchRepo }: Heade
           title={hierarchyStatusMessage}
         >
           <Layers className="w-4 h-4" />
-          <span>层级</span>
+          <span>社区</span>
           <span
             className={`w-2 h-2 rounded-full ${hierarchyStatus === 'ready'
               ? 'bg-emerald-400'
@@ -408,37 +370,6 @@ export const Header = ({ onFocusNode, availableRepos = [], onSwitchRepo }: Heade
           title="刷新层级状态"
         >
           <RefreshCw className="w-4 h-4" />
-        </button>
-
-        <button
-          type="button"
-          onClick={openExperiencePanel}
-          className={`
-            flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium transition-all border
-            ${isRightPanelOpen && rightPanelTab === 'experience'
-              ? 'bg-amber-500/20 border-amber-400/40 text-amber-100 shadow-[0_0_0_1px_rgba(251,191,36,0.25)]'
-              : 'bg-surface border-border-subtle text-text-secondary hover:text-text-primary hover:bg-hover'
-            }
-          `}
-          title="打开经验库管理器"
-        >
-          <BookOpen className="w-4 h-4" />
-          <span>经验库</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={openChatPanel}
-          className={`
-            flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium transition-all
-            ${isRightPanelOpen && rightPanelTab === 'chat'
-              ? 'bg-accent text-white shadow-glow'
-              : 'bg-gradient-to-r from-accent to-accent-dim text-white shadow-glow hover:shadow-lg hover:-translate-y-0.5'
-            }
-          `}
-        >
-          <Sparkles className="w-4 h-4" />
-          <span>AI 助手</span>
         </button>
       </div>
     </header>

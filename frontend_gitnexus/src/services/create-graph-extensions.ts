@@ -27,6 +27,7 @@ export interface CreateGraphNodeDetailResponse {
   line_start?: number;
   line_end?: number;
   source?: CreateGraphNodeDetailSource;
+  properties?: Record<string, unknown>;
   cfg?: string | null;
   cfg_json?: unknown;
   dfg?: string | null;
@@ -46,6 +47,19 @@ export interface CreateGraphHierarchyContract {
   contract_version: string;
   project_path: string;
   capabilities: Record<string, unknown>;
+  ui_flags?: {
+    showCommunityChat?: boolean;
+    showCommunityProcesses?: boolean;
+    showCommunityRag?: boolean;
+    showPartitionIntroText?: boolean;
+    showPartitionStage25VisibleLayer?: boolean;
+    showPartitionStage3Compare?: boolean;
+    showPartitionFunctionRelations?: boolean;
+    showPartitionMethodSummary?: boolean;
+    showPartitionFqmnSummary?: boolean;
+    showPartitionInputSummary?: boolean;
+    showPartitionOutputSummary?: boolean;
+  };
   adapters?: {
     partition_summaries?: unknown[];
   };
@@ -95,6 +109,8 @@ export interface CreateGraphRagAskResponse {
   evidence_verdict?: Record<string, unknown>;
   solution_packet?: Record<string, unknown>;
   generation?: Record<string, unknown>;
+  opencode_kernel?: CreateGraphOutputProtocolOpenCodeKernel;
+  swarm_packet?: CreateGraphSwarmPacket;
   search?: Record<string, unknown>;
   index_rebuild_status?: Record<string, unknown>;
   legacy?: CreateGraphLegacyApiNotice;
@@ -236,8 +252,10 @@ export interface CreateGraphConversationSessionStartRequest {
 }
 
 export interface CreateGraphConversationPendingQuestionOption {
+  id?: string;
   label: string;
   description?: string;
+  promptFragment?: string;
 }
 
 export interface CreateGraphConversationPendingQuestion {
@@ -247,9 +265,17 @@ export interface CreateGraphConversationPendingQuestion {
   options?: CreateGraphConversationPendingQuestionOption[];
   multiple?: boolean;
   custom?: boolean;
+  allowFreeform?: boolean;
   source?: string;
   projectPath?: string;
   reason?: string;
+  round?: number;
+  maxRounds?: number;
+  clarityLevel?: string;
+  inferredIntent?: string;
+  structuredFields?: CreateGraphClarificationField[];
+  terminal?: boolean;
+  originalQuery?: string;
   createdAt?: string;
 }
 
@@ -331,6 +357,12 @@ export interface CreateGraphConversationSessionResultResponse {
   answer?: string;
   pendingQuestion?: CreateGraphConversationPendingQuestion;
   retrieval?: CreateGraphConversationRetrievalPayload;
+  output_protocol?: CreateGraphOutputProtocol;
+  evidence_verdict?: Record<string, unknown>;
+  solution_packet?: CreateGraphSolutionPacket;
+  generation?: Record<string, unknown>;
+  opencode_kernel?: CreateGraphOutputProtocolOpenCodeKernel;
+  swarm_packet?: CreateGraphSwarmPacket;
   handoff?: Record<string, unknown>;
   memory?: Record<string, unknown>;
   compaction?: Record<string, unknown> | null;
@@ -365,6 +397,8 @@ export interface CreateGraphConversationReplyRequest {
   project_path?: string;
   answer?: string;
   query?: string;
+  selected_node?: Record<string, unknown>;
+  partition_id?: string;
   selectedOptionLabels?: string[];
   clarification_context?: Record<string, unknown>;
   llm_config?: CreateGraphConversationLLMConfig;
@@ -572,7 +606,7 @@ export interface CreateGraphExperienceLibraryEntry {
   relativePath: string;
   absolutePath: string;
   filename: string;
-  type: 'generated' | 'imported';
+  type: 'generated' | 'imported' | 'digest';
   projectName?: string;
   analysisTimestamp?: string | null;
   updatedAt: string;
@@ -633,6 +667,53 @@ export interface CreateGraphExperienceLibraryImportItem {
 export interface CreateGraphExperienceLibraryImportResponse {
   ok: boolean;
   imported: CreateGraphExperienceLibraryImportItem[];
+}
+
+export interface CreateGraphArchitectureDigestModule {
+  name: string;
+  path: string;
+  file_count: number;
+  key_files: string[];
+}
+
+export interface CreateGraphArchitectureDigestPattern {
+  name: string;
+  description: string;
+  evidence: string;
+}
+
+export interface CreateGraphArchitectureDigestApiGroup {
+  source_file: string;
+  route_count: number;
+  routes: string[];
+}
+
+export interface CreateGraphArchitectureDigestResponse {
+  version: string;
+  digest_type: string;
+  project_path: string;
+  project_name: string;
+  generated_at: string;
+  overview: {
+    purpose: string;
+    tech_stack: string[];
+    frameworks: string[];
+    entry_point: string | null;
+    module_count: number;
+    total_code_files: number;
+    api_route_count: number;
+  };
+  modules: CreateGraphArchitectureDigestModule[];
+  design_patterns: CreateGraphArchitectureDigestPattern[];
+  api_catalog: CreateGraphArchitectureDigestApiGroup[];
+  readme_summary: string | null;
+  experience_library_stats: Record<string, unknown>;
+  quick_start: {
+    run_command: string | null;
+    url: string | null;
+    prerequisites: string[];
+  };
+  cross_conversation_context: string;
 }
 
 export interface CreateGraphFixedScenarioBenchmarkStartRequest {
@@ -1092,6 +1173,14 @@ export const createGraphExtensionsApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
+  },
+
+  fetchArchitectureDigest(
+    baseApiUrl: string,
+    projectPath: string,
+  ): Promise<CreateGraphArchitectureDigestResponse> {
+    const query = `?project_path=${encodeURIComponent(projectPath)}`;
+    return fetchJson<CreateGraphArchitectureDigestResponse>(`${baseApiUrl}/experience/library/architecture_digest${query}`);
   },
 
   async importExperienceLibraryFiles(

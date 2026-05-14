@@ -17,6 +17,7 @@ import { createGraphExtensionsApi, type CreateGraphConversationListItem } from '
 
 export type ViewMode = 'onboarding' | 'loading' | 'exploring';
 export type RightPanelTab = 'chat' | 'processes' | 'hierarchy' | 'rag' | 'experience';
+export type GraphHighlightMode = 'community' | 'path' | 'node';
 export type EmbeddingStatus = 'idle' | 'loading' | 'embedding' | 'indexing' | 'ready' | 'error';
 
 export interface QueryResult {
@@ -79,6 +80,7 @@ interface AppState {
   setRightPanelTab: (tab: RightPanelTab) => void;
   openCodePanel: () => void;
   openChatPanel: () => void;
+  openRagPanel: () => void;
   openHierarchyPanel: () => void;
   openExperiencePanel: () => void;
 
@@ -97,6 +99,8 @@ interface AppState {
   setHighlightedNodeIds: (ids: Set<string>) => void;
   secondaryHighlightedNodeIds: Set<string>;
   setSecondaryHighlightedNodeIds: (ids: Set<string>) => void;
+  graphHighlightMode: GraphHighlightMode;
+  setGraphHighlightMode: (mode: GraphHighlightMode) => void;
   // AI highlights (toggable)
   aiCitationHighlightedNodeIds: Set<string>;
   aiToolHighlightedNodeIds: Set<string>;
@@ -188,6 +192,24 @@ interface AppState {
   codeReferenceFocus: CodeReferenceFocus | null;
 }
 
+const inferOutputRootFromQuery = (query: string): string | null => {
+  const trimmed = query.trim();
+  if (!trimmed) return null;
+
+  const quotedMatch = trimmed.match(/["“”']([A-Za-z]:[\\/][^"“”']+)["“”']/);
+  const unquotedMatch = trimmed.match(/([A-Za-z]:[\\/][^\r\n"“”<>|?*]+?)(?=\s+(?:下|中|里|内|目录|文件夹|生成|创建|写入|输出)|[，。；;,]|$)/);
+  const candidate = quotedMatch?.[1] || unquotedMatch?.[1];
+  if (!candidate) return null;
+
+  const normalized = candidate
+    .trim()
+    .replace(/["“”']/g, '')
+    .replace(/[，。；;]+$/, '')
+    .replace(/[\\/]+$/, '');
+
+  return normalized || null;
+};
+
 const AppStateContext = createContext<AppState | null>(null);
 
 export const AppStateProvider = ({ children }: { children: ReactNode }) => {
@@ -217,7 +239,13 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
     setRightPanelTab('chat');
   }, []);
 
+  const openRagPanel = useCallback(() => {
+    setRightPanelOpen(true);
+    setRightPanelTab('rag');
+  }, []);
+
   const openHierarchyPanel = useCallback(() => {
+    setCodePanelOpen(false);
     setRightPanelOpen(true);
     setRightPanelTab('hierarchy');
   }, []);
@@ -237,6 +265,7 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
   // Query state
   const [highlightedNodeIds, setHighlightedNodeIds] = useState<Set<string>>(new Set());
   const [secondaryHighlightedNodeIds, setSecondaryHighlightedNodeIds] = useState<Set<string>>(new Set());
+  const [graphHighlightMode, setGraphHighlightMode] = useState<GraphHighlightMode>('community');
   const [queryResult, setQueryResult] = useState<QueryResult | null>(null);
 
   // AI highlights (separate from user/query highlights)
@@ -309,7 +338,14 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
   const [projectName, setProjectName] = useState<string>('');
 
   // Multi-repo switching
-  const [serverBaseUrl, setServerBaseUrl] = useState<string | null>(null);
+  const [serverBaseUrl, setServerBaseUrl] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    const stored = window.localStorage.getItem('create-graph-backend-url');
+    if (stored && stored.trim()) {
+      return stored.trim().replace(/\/$/, '').endsWith('/api') ? stored.trim().replace(/\/$/, '') : `${stored.trim().replace(/\/$/, '')}/api`;
+    }
+    return `${window.location.origin}/api`;
+  });
   const [availableRepos, setAvailableRepos] = useState<RepoSummary[]>([]);
 
   // Embedding state
@@ -809,6 +845,9 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
 
       try {
         const normalizedOutputRoot = chatOutputRootPath.trim();
+                const inferredOutputRoot = inferOutputRootFromQuery(message);
+                const effectiveOutputRoot = normalizedOutputRoot || inferredOutputRoot || '';
+                const shouldAutoApplyOutput = Boolean(effectiveOutputRoot);
         const normalizedPrioritizedExperienceLibraries = (options?.prioritizedExperienceLibraries ?? [])
           .map((item) => item.trim())
           .filter((item, index, items) => item.length > 0 && items.indexOf(item) === index);
@@ -823,8 +862,8 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
           clarification_context: clarificationContext,
           llm_config: llmConfig || undefined,
           auto_start_multi_agent: true,
-          output_root: normalizedOutputRoot || undefined,
-          auto_apply_output: Boolean(normalizedOutputRoot),
+          output_root: effectiveOutputRoot || undefined,
+          auto_apply_output: shouldAutoApplyOutput,
         });
         setChatConversationId(startResponse.conversationId);
 
@@ -1472,6 +1511,7 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
     setRightPanelTab,
     openCodePanel,
     openChatPanel,
+    openRagPanel,
     openHierarchyPanel,
     openExperiencePanel,
     visibleLabels,
@@ -1494,6 +1534,8 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
     queryResult,
     setQueryResult,
     clearQueryHighlights,
+    graphHighlightMode,
+    setGraphHighlightMode,
     // Node animations
     animatedNodes,
     triggerNodeAnimation,

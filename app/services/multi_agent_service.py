@@ -66,6 +66,29 @@ STOPWORDS = {
     '请', '分析', '如何', '怎么', '这个', '那个', '一个', '进行', '相关', '代码', '功能', '路径', '问题',
 }
 
+_BOOTSTRAP_REQUIRED_FILES = [
+    'tamper_det/__init__.py',
+    'tamper_det/config.py',
+    'tamper_det/data/__init__.py',
+    'tamper_det/data/base_dataset.py',
+    'tamper_det/data/casia_dataset.py',
+    'tamper_det/models/__init__.py',
+    'tamper_det/models/backbone.py',
+    'tamper_det/models/seg_head.py',
+    'tamper_det/models/model.py',
+    'tamper_det/engine/__init__.py',
+    'tamper_det/engine/metrics.py',
+    'tamper_det/engine/trainer.py',
+    'tools/infer.py',
+    'train.py',
+    'infer.py',
+    'requirements.txt',
+    'README.md',
+]
+
+REFERENCE_TAMPER_BOOTSTRAP_DIR = Path(__file__).resolve().parents[3] / '汇报' / '4.18' / 'fix验证_multi_agent_v2'
+
+
 ADVISOR_SIDECAR_ROOT = Path(__file__).resolve().parent.parent.parent / 'advisor_consultant_lab'
 ADVISOR_RUNTIME_DIR = ADVISOR_SIDECAR_ROOT / 'runtime'
 _ADVISOR_SIDECAR_LOCK = threading.Lock()
@@ -125,7 +148,7 @@ def _create_swarm_llm_client() -> Optional[DeepSeekAPI]:
         return DeepSeekAPI(
             api_key=api_key,
             base_url=str(settings.get('base_url') or 'https://api.deepseek.com/v1').strip(),
-            model=str(settings.get('model') or 'deepseek-chat').strip(),
+            model=str(settings.get('model') or 'deepseek-v4-flash').strip(),
             timeout=45,
         )
     except Exception:
@@ -762,6 +785,567 @@ def _summarize_retrieval_for_swarm(retrieval_bundle: Dict[str, Any]) -> Dict[str
     }
 
 
+def _truncate_qa_preview_text(value: Any, max_len: int = 240) -> str:
+    text = str(value or '').strip()
+    if not text:
+        return ''
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 3].rstrip() + '...'
+
+
+def _compact_qa_preview_map(payload: Dict[str, Any]) -> Dict[str, Any]:
+    preview: Dict[str, Any] = {}
+    for key, value in payload.items():
+        if value is None:
+            continue
+        if isinstance(value, str):
+            text = _truncate_qa_preview_text(value)
+            if text:
+                preview[key] = text
+            continue
+        if isinstance(value, list):
+            if value:
+                preview[key] = value
+            continue
+        if isinstance(value, dict):
+            if value:
+                preview[key] = value
+            continue
+        preview[key] = value
+    return preview
+
+
+def _preview_qa_string_list(values: Any, limit: int = 6, max_len: int = 180) -> List[str]:
+    preview: List[str] = []
+    for item in _as_list(values)[:limit]:
+        text = _truncate_qa_preview_text(item, max_len=max_len)
+        if text:
+            preview.append(text)
+    return preview
+
+
+def _sanitize_qa_structured_value(
+    value: Any,
+    *,
+    max_depth: int = 4,
+    max_list_items: int = 8,
+    max_map_items: int = 16,
+    max_text_len: int = 320,
+) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return _truncate_qa_preview_text(value, max_len=max_text_len)
+    if isinstance(value, (int, float, bool)):
+        return value
+    if max_depth <= 0:
+        return None
+    if isinstance(value, list):
+        sanitized_items: List[Any] = []
+        for item in value[:max_list_items]:
+            sanitized = _sanitize_qa_structured_value(
+                item,
+                max_depth=max_depth - 1,
+                max_list_items=max_list_items,
+                max_map_items=max_map_items,
+                max_text_len=max_text_len,
+            )
+            if sanitized not in (None, '', [], {}):
+                sanitized_items.append(sanitized)
+        return sanitized_items
+    if isinstance(value, dict):
+        sanitized_map: Dict[str, Any] = {}
+        for index, (key, item) in enumerate(value.items()):
+            if index >= max_map_items:
+                break
+            sanitized = _sanitize_qa_structured_value(
+                item,
+                max_depth=max_depth - 1,
+                max_list_items=max_list_items,
+                max_map_items=max_map_items,
+                max_text_len=max_text_len,
+            )
+            if sanitized in (None, '', [], {}):
+                continue
+            sanitized_map[str(key)] = sanitized
+        return sanitized_map
+    return _truncate_qa_preview_text(value, max_len=max_text_len)
+
+
+def _build_qa_selected_path_preview(selected_path: Dict[str, Any]) -> Dict[str, Any]:
+    return _compact_qa_preview_map(
+        {
+            'path_id': selected_path.get('path_id'),
+            'path_name': selected_path.get('path_name'),
+            'path_description': selected_path.get('path_description'),
+            'function_chain': _preview_qa_string_list(selected_path.get('function_chain') or selected_path.get('path'), limit=8),
+            'selection_score': selected_path.get('selection_score'),
+            'worthiness_score': selected_path.get('worthiness_score'),
+            'deep_analysis_status': selected_path.get('deep_analysis_status'),
+            'source': _as_dict(selected_path.get('semantics')).get('source') or selected_path.get('source'),
+        }
+    )
+
+
+def _build_qa_candidate_paths_preview(candidate_paths: Any, limit: int = 4) -> List[Dict[str, Any]]:
+    preview: List[Dict[str, Any]] = []
+    for item in _as_list(candidate_paths)[:limit]:
+        if not isinstance(item, dict):
+            continue
+        preview_item = _compact_qa_preview_map(
+            {
+                'path_id': item.get('path_id'),
+                'path_name': item.get('path_name'),
+                'path_description': item.get('path_description'),
+                'function_chain': _preview_qa_string_list(item.get('function_chain') or item.get('path'), limit=6),
+                'selection_score': item.get('selection_score'),
+                'worthiness_score': item.get('worthiness_score'),
+                'source': _as_dict(item.get('semantics')).get('source') or item.get('source'),
+            }
+        )
+        if preview_item:
+            preview.append(preview_item)
+    return preview
+
+
+def _build_qa_node_details_preview(node_details: Any, limit: int = 6) -> List[Dict[str, Any]]:
+    preview: List[Dict[str, Any]] = []
+    for item in _as_list(node_details)[:limit]:
+        if not isinstance(item, dict):
+            continue
+        source_payload = _as_dict(item.get('source'))
+        preview_item = _compact_qa_preview_map(
+            {
+                'entity_id': item.get('entity_id'),
+                'signature': item.get('signature'),
+                'file_path': item.get('file_path') or source_payload.get('file_path'),
+                'line_start': item.get('line_start') or source_payload.get('line_start'),
+                'line_end': item.get('line_end') or source_payload.get('line_end'),
+                'call_explanation': item.get('call_explanation') or item.get('reason'),
+            }
+        )
+        if preview_item:
+            preview.append(preview_item)
+    return preview
+
+
+def _build_qa_selected_node_anchor(selected_node: Any) -> Dict[str, Any]:
+    if not isinstance(selected_node, dict):
+        return {}
+    return _compact_qa_preview_map(
+        {
+            'id': selected_node.get('id'),
+            'name': selected_node.get('name'),
+            'label': selected_node.get('label'),
+            'display_name': selected_node.get('display_name'),
+            'type': selected_node.get('type'),
+            'partition_id': selected_node.get('partition_id'),
+            'file_path': selected_node.get('file_path'),
+            'start_line': selected_node.get('start_line'),
+            'end_line': selected_node.get('end_line'),
+            'method_signature': selected_node.get('method_signature'),
+            'signature': selected_node.get('signature'),
+            'fqmn': selected_node.get('fqmn'),
+            'fqn': selected_node.get('fqn'),
+            'full_name': selected_node.get('full_name'),
+            'path_id': selected_node.get('path_id'),
+            'path_name': selected_node.get('path_name'),
+            'path_description': selected_node.get('path_description'),
+            'leaf_node': selected_node.get('leaf_node'),
+            'main_method': selected_node.get('main_method'),
+            'intermediate_methods': _preview_qa_string_list(selected_node.get('intermediate_methods'), limit=12, max_len=220),
+            'path_methods': _preview_qa_string_list(selected_node.get('path_methods'), limit=12, max_len=220),
+            'function_chain': _preview_qa_string_list(selected_node.get('function_chain'), limit=12, max_len=220),
+            'call_chain_type': selected_node.get('call_chain_type'),
+            'call_chain_explanation': selected_node.get('call_chain_explanation'),
+        }
+    )
+
+
+def _build_qa_selected_path_struct(selected_path: Dict[str, Any]) -> Dict[str, Any]:
+    return _compact_qa_preview_map(
+        {
+            'partition_id': selected_path.get('partition_id'),
+            'path_id': selected_path.get('path_id'),
+            'path_name': selected_path.get('path_name'),
+            'path_description': selected_path.get('path_description'),
+            'leaf_node': selected_path.get('leaf_node'),
+            'function_chain': _preview_qa_string_list(selected_path.get('function_chain'), limit=12, max_len=240),
+            'path': _preview_qa_string_list(selected_path.get('path'), limit=12, max_len=240),
+            'selection_score': selected_path.get('selection_score'),
+            'worthiness_score': selected_path.get('worthiness_score'),
+            'worthiness_reasons': _preview_qa_string_list(selected_path.get('worthiness_reasons'), limit=8, max_len=220),
+            'deep_analysis_status': selected_path.get('deep_analysis_status'),
+            'source': _as_dict(selected_path.get('semantics')).get('source') or selected_path.get('source'),
+            'selection_reason': selected_path.get('selection_reason'),
+            'call_chain_analysis': _sanitize_qa_structured_value(
+                _as_dict(selected_path.get('call_chain_analysis')),
+                max_depth=4,
+                max_list_items=10,
+                max_map_items=14,
+                max_text_len=280,
+            ),
+            'highlight_config': _sanitize_qa_structured_value(
+                _as_dict(selected_path.get('highlight_config')),
+                max_depth=4,
+                max_list_items=10,
+                max_map_items=14,
+                max_text_len=280,
+            ),
+        }
+    )
+
+
+def _build_qa_candidate_paths_struct(candidate_paths: Any, limit: int = 6) -> List[Dict[str, Any]]:
+    structured: List[Dict[str, Any]] = []
+    for item in _as_list(candidate_paths)[:limit]:
+        if not isinstance(item, dict):
+            continue
+        path_item = _build_qa_selected_path_struct(item)
+        if path_item:
+            structured.append(path_item)
+    return structured
+
+
+def _build_qa_node_details_struct(node_details: Any, limit: int = 8) -> List[Dict[str, Any]]:
+    structured: List[Dict[str, Any]] = []
+    for item in _as_list(node_details)[:limit]:
+        if not isinstance(item, dict):
+            continue
+        source_payload = _as_dict(item.get('source'))
+        detail = _compact_qa_preview_map(
+            {
+                'entity_id': item.get('entity_id'),
+                'display_name': item.get('display_name'),
+                'kind': item.get('kind'),
+                'step_index': item.get('step_index'),
+                'chain_role': item.get('chain_role'),
+                'reason': item.get('reason'),
+                'call_explanation': item.get('call_explanation') or item.get('reason'),
+                'full_name': item.get('full_name'),
+                'signature': item.get('signature'),
+                'method_signature': item.get('method_signature'),
+                'file_path': item.get('file_path') or source_payload.get('file_path'),
+                'line_start': item.get('line_start') or source_payload.get('line_start'),
+                'line_end': item.get('line_end') or source_payload.get('line_end'),
+                'snippet': _truncate_qa_preview_text(item.get('snippet') or source_payload.get('snippet'), max_len=480),
+                'source': _compact_qa_preview_map(
+                    {
+                        'available': source_payload.get('available'),
+                        'language': source_payload.get('language'),
+                        'file_path': source_payload.get('file_path'),
+                        'line_start': source_payload.get('line_start'),
+                        'line_end': source_payload.get('line_end'),
+                        'snippet': _truncate_qa_preview_text(source_payload.get('snippet'), max_len=480),
+                    }
+                ),
+            }
+        )
+        if detail:
+            structured.append(detail)
+    return structured
+
+
+def _build_qa_functional_context_struct(functional_context: Any) -> Dict[str, Any]:
+    payload = _as_dict(functional_context)
+    return _compact_qa_preview_map(
+        {
+            'entry_points_shadow': _sanitize_qa_structured_value(
+                _as_dict(payload.get('entry_points_shadow')),
+                max_depth=4,
+                max_list_items=6,
+                max_map_items=14,
+                max_text_len=260,
+            ),
+            'process_shadow': _sanitize_qa_structured_value(
+                _as_dict(payload.get('process_shadow')),
+                max_depth=4,
+                max_list_items=6,
+                max_map_items=14,
+                max_text_len=260,
+            ),
+            'community_shadow': _sanitize_qa_structured_value(
+                _as_dict(payload.get('community_shadow')),
+                max_depth=4,
+                max_list_items=6,
+                max_map_items=14,
+                max_text_len=260,
+            ),
+        }
+    )
+
+
+def _build_qa_evidence_items_struct(evidence_items: Any, limit: int = 12) -> List[Dict[str, Any]]:
+    structured: List[Dict[str, Any]] = []
+    for item in _as_list(evidence_items)[:limit]:
+        if not isinstance(item, dict):
+            continue
+        evidence_item = _compact_qa_preview_map(
+            {
+                'id': item.get('id'),
+                'kind': item.get('kind'),
+                'role': item.get('role'),
+                'grounding': item.get('grounding'),
+                'claim': item.get('claim'),
+                'source': _sanitize_qa_structured_value(
+                    _as_dict(item.get('source')),
+                    max_depth=3,
+                    max_list_items=8,
+                    max_map_items=12,
+                    max_text_len=220,
+                ),
+                'snippet': _truncate_qa_preview_text(item.get('snippet'), max_len=420),
+                'trace': _sanitize_qa_structured_value(
+                    item.get('trace'),
+                    max_depth=2,
+                    max_list_items=12,
+                    max_map_items=10,
+                    max_text_len=220,
+                ),
+                'score': item.get('score'),
+                'raw_refs': _preview_qa_string_list(item.get('raw_refs'), limit=10, max_len=180),
+            }
+        )
+        if evidence_item:
+            structured.append(evidence_item)
+    return structured
+
+
+def _build_qa_evidence_packet_preview(evidence_packet: Dict[str, Any]) -> Dict[str, Any]:
+    summary = _as_dict(evidence_packet.get('summary'))
+    review = _as_dict(evidence_packet.get('review'))
+    return {
+        'summary': _compact_qa_preview_map(
+            {
+                'confidence': summary.get('confidence'),
+                'primary_ids': _preview_qa_string_list(summary.get('primary_ids'), limit=4, max_len=120),
+                'supporting_ids': _preview_qa_string_list(summary.get('supporting_ids'), limit=4, max_len=120),
+                'coverage': _as_dict(summary.get('coverage')),
+            }
+        ),
+        'items': _build_qa_evidence_items_struct(evidence_packet.get('items')),
+        'functional_context': _build_qa_functional_context_struct(evidence_packet.get('functional_context')),
+        'review': _compact_qa_preview_map(
+            {
+                'selected_partition_id': review.get('selected_partition_id'),
+                'selected_path': _build_qa_selected_path_struct(_as_dict(review.get('selected_path'))),
+                'selected_path_preview': _build_qa_selected_path_preview(_as_dict(review.get('selected_path'))),
+                'candidate_paths': _build_qa_candidate_paths_struct(review.get('candidate_paths')),
+                'candidate_paths_preview': _build_qa_candidate_paths_preview(review.get('candidate_paths')),
+                'impacted_files': _preview_qa_string_list(review.get('impacted_files'), limit=12, max_len=240),
+                'impacted_files_preview': _preview_qa_string_list(review.get('impacted_files'), limit=8),
+                'selection_mode': review.get('selection_mode'),
+                'selection_reason': review.get('selection_reason'),
+                'anchor_ready': bool(review.get('anchor_ready')),
+            }
+        ),
+    }
+
+
+def _build_qa_source_targets_preview(source_targets: Any, limit: int = 4) -> List[Dict[str, Any]]:
+    preview: List[Dict[str, Any]] = []
+    for item in _as_list(source_targets)[:limit]:
+        if not isinstance(item, dict):
+            continue
+        preview_item = _compact_qa_preview_map(
+            {
+                'advisor_id': item.get('advisor_id'),
+                'advisor_name': item.get('advisor_name'),
+                'reason': item.get('reason'),
+                'source_targets': _preview_qa_string_list(item.get('source_targets'), limit=4),
+            }
+        )
+        if preview_item:
+            preview.append(preview_item)
+    return preview
+
+
+def _build_qa_source_targets_struct(source_targets: Any, limit: int = 8) -> List[Dict[str, Any]]:
+    structured: List[Dict[str, Any]] = []
+    for item in _as_list(source_targets)[:limit]:
+        if not isinstance(item, dict):
+            continue
+        target_item = _compact_qa_preview_map(
+            {
+                'advisor_id': item.get('advisor_id'),
+                'advisor_name': item.get('advisor_name'),
+                'partition_id': item.get('partition_id'),
+                'reason': item.get('reason'),
+                'source_targets': _preview_qa_string_list(item.get('source_targets'), limit=12, max_len=220),
+            }
+        )
+        if target_item:
+            structured.append(target_item)
+    return structured
+
+
+def _build_qa_followup_advisors_struct(followup_advisors: Any, limit: int = 8) -> List[Dict[str, Any]]:
+    structured: List[Dict[str, Any]] = []
+    for item in _as_list(followup_advisors)[:limit]:
+        if not isinstance(item, dict):
+            continue
+        advisor_item = _compact_qa_preview_map(
+            {
+                'advisor_id': item.get('advisor_id'),
+                'advisor_name': item.get('advisor_name'),
+                'partition_id': item.get('partition_id'),
+                'fused_score': item.get('fused_score'),
+            }
+        )
+        if advisor_item:
+            structured.append(advisor_item)
+    return structured
+
+
+def _build_qa_advisor_summary(advisor_packet: Dict[str, Any]) -> Dict[str, Any]:
+    invocation = _as_dict(advisor_packet.get('invocation'))
+    invocation_signals = _as_dict(invocation.get('signals'))
+    recommended = _as_dict(advisor_packet.get('recommended'))
+    analysis = _as_dict(advisor_packet.get('analysis'))
+    constraints = _as_dict(advisor_packet.get('constraints'))
+    return _compact_qa_preview_map(
+        {
+            'enabled': bool(advisor_packet.get('enabled')),
+            'status': advisor_packet.get('status') or 'disabled',
+            'mode': advisor_packet.get('mode'),
+            'reason': advisor_packet.get('reason'),
+            'invocation': _compact_qa_preview_map(
+                {
+                    'decision': invocation.get('decision'),
+                    'reason': invocation.get('reason'),
+                    'signals': _compact_qa_preview_map(
+                        {
+                            'task_mode': invocation_signals.get('task_mode'),
+                            'confidence': invocation_signals.get('confidence'),
+                            'selection_mode': invocation_signals.get('selection_mode'),
+                            'has_path': invocation_signals.get('has_path'),
+                            'has_anchor': invocation_signals.get('has_anchor'),
+                            'candidate_path_count': invocation_signals.get('candidate_path_count'),
+                            'impacted_file_count': invocation_signals.get('impacted_file_count'),
+                            'risk_marker_hit': invocation_signals.get('risk_marker_hit'),
+                            'locator_query_hit': invocation_signals.get('locator_query_hit'),
+                        }
+                    ),
+                }
+            ),
+            'recommended': _compact_qa_preview_map(
+                {
+                    'advisor_id': recommended.get('advisor_id'),
+                    'advisor_name': recommended.get('advisor_name'),
+                    'partition_id': recommended.get('partition_id'),
+                }
+            ),
+            'analysis': _compact_qa_preview_map(
+                {
+                    'what': analysis.get('what'),
+                    'how': analysis.get('how'),
+                    'next_step': analysis.get('next_step'),
+                    'key_call_chain': _preview_qa_string_list(analysis.get('key_call_chain'), limit=12, max_len=220),
+                    'key_code_refs': _preview_qa_string_list(analysis.get('key_code_refs'), limit=12, max_len=220),
+                }
+            ),
+            'constraints': _compact_qa_preview_map(
+                {
+                    'plain': _preview_qa_string_list(constraints.get('plain'), limit=8, max_len=220),
+                    'types': _preview_qa_string_list(constraints.get('types'), limit=10, max_len=180),
+                    'structured_summary': _sanitize_qa_structured_value(
+                        _as_dict(constraints.get('structured_summary')),
+                        max_depth=4,
+                        max_list_items=8,
+                        max_map_items=14,
+                        max_text_len=260,
+                    ),
+                    'structured': _sanitize_qa_structured_value(
+                        _as_dict(constraints.get('structured')),
+                        max_depth=5,
+                        max_list_items=10,
+                        max_map_items=18,
+                        max_text_len=260,
+                    ),
+                }
+            ),
+            'source_targets': _build_qa_source_targets_struct(advisor_packet.get('source_targets')),
+            'source_targets_preview': _build_qa_source_targets_preview(advisor_packet.get('source_targets')),
+            'followup_advisors': _build_qa_followup_advisors_struct(advisor_packet.get('followup_advisors')),
+        }
+    )
+
+
+def build_qa_context_bundle(
+    project_path: str,
+    user_query: str,
+    task_mode: str = 'none',
+    preferred_partition_id: Optional[str] = None,
+    selected_node: Optional[Dict[str, Any]] = None,
+    qa_route: str = 'qa',
+    task_weight: str = 'heavy',
+    advisor_enabled: Optional[bool] = None,
+    prioritized_libraries: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    _ensure_workbench_ready(project_path)
+    retrieval_bundle = _build_retrieval_bundle(
+        project_path,
+        user_query,
+        preferred_partition_id=preferred_partition_id,
+        selected_node=selected_node,
+    )
+
+    experience_output_root = _resolve_project_experience_output_root(project_path)
+    experience_paths_dir = _resolve_advisor_experience_paths_dir(experience_output_root)
+    effective_advisor_enabled = _is_advisor_sidecar_enabled({'advisor_enabled': advisor_enabled}) if advisor_enabled is not None else _is_advisor_sidecar_enabled()
+    advisor_packet = _build_disabled_advisor_packet()
+    advisor_decision = 'disabled'
+    advisor_reason = 'feature_disabled'
+    advisor_signals: Dict[str, Any] = {}
+    if effective_advisor_enabled:
+        should_invoke, advisor_reason, advisor_signals = _should_invoke_advisor(user_query, task_mode, retrieval_bundle)
+        if should_invoke:
+            advisor_packet = _run_advisor_sidecar(
+                project_path,
+                user_query,
+                retrieval_bundle,
+                prioritized_libraries=prioritized_libraries,
+                experience_paths_dir=experience_paths_dir,
+            )
+            advisor_decision = 'invoked'
+        else:
+            advisor_packet = _build_skipped_advisor_packet(advisor_reason, advisor_signals)
+            advisor_decision = 'skipped'
+
+    if isinstance(advisor_packet, dict):
+        advisor_packet['role'] = advisor_packet.get('role') or dict(ADVISOR_ROLE_PROFILE)
+        advisor_packet['invocation'] = {
+            'decision': advisor_decision,
+            'reason': advisor_reason,
+            'signals': advisor_signals,
+        }
+    retrieval_bundle['advisor_packet'] = advisor_packet
+    evidence_packet = _as_dict(retrieval_bundle.get('evidence_packet'))
+
+    return _compact_qa_preview_map(
+        {
+            'qa_route': qa_route,
+            'task_weight': task_weight,
+            'partition_id': retrieval_bundle.get('selected_partition_id') or preferred_partition_id,
+            'selected_node': _build_qa_selected_node_anchor(selected_node or {}),
+            'selected_path': _build_qa_selected_path_struct(_as_dict(retrieval_bundle.get('selected_path'))),
+            'selected_path_preview': _build_qa_selected_path_preview(_as_dict(retrieval_bundle.get('selected_path'))),
+            'candidate_paths': _build_qa_candidate_paths_struct(retrieval_bundle.get('candidate_paths')),
+            'candidate_paths_preview': _build_qa_candidate_paths_preview(retrieval_bundle.get('candidate_paths')),
+            'impacted_files': _preview_qa_string_list(retrieval_bundle.get('impacted_files'), limit=12, max_len=240),
+            'impacted_files_preview': _preview_qa_string_list(retrieval_bundle.get('impacted_files'), limit=8),
+            'node_details': _build_qa_node_details_struct(retrieval_bundle.get('node_details')),
+            'node_details_preview': _build_qa_node_details_preview(retrieval_bundle.get('node_details')),
+            'selection_mode': retrieval_bundle.get('selection_mode'),
+            'selection_reason': retrieval_bundle.get('selection_reason'),
+            'confidence': retrieval_bundle.get('confidence'),
+            'evidence_packet': _build_qa_evidence_packet_preview(evidence_packet),
+            'advisor': _build_qa_advisor_summary(advisor_packet),
+        }
+    )
+
+
 def _summarize_solution_for_swarm(solution_packet: Dict[str, Any]) -> Dict[str, Any]:
     analysis_raw = solution_packet.get('analysis')
     analysis: Dict[str, Any] = analysis_raw if isinstance(analysis_raw, dict) else {}
@@ -978,7 +1562,6 @@ def _safe_output_segment(value: Any, fallback: str = 'snippet', max_len: int = 6
     if not text:
         return fallback
     text = re.sub(r'[^0-9a-zA-Z_\-一-鿿]+', '_', text)
-    text = text.strip('_')
     if not text:
         return fallback
     return text[:max_len]
@@ -1417,13 +2000,130 @@ def _score_selected_node(selected_node: Dict[str, Any], path_analysis: Dict[str,
         return 0.0
     chain = [str(item).strip() for item in (path_analysis.get('function_chain') or path_analysis.get('path') or []) if isinstance(item, str)]
     leaf_node = str(path_analysis.get('leaf_node') or '').strip()
+    selected_chain = [str(item).strip() for item in _as_list(selected_node.get('function_chain')) if str(item).strip()]
+    selected_file_path = str(selected_node.get('file_path') or '').replace('\\', '/').strip().lower()
+    path_source = _as_dict(path_analysis.get('semantics'))
+    path_file_path = str(path_source.get('file_path') or '').replace('\\', '/').strip().lower()
     bonus = 0.0
     for candidate in normalized_candidates:
         if candidate in chain or any(node.endswith(f'.{candidate}') for node in chain):
             bonus += 1.0
         if leaf_node and (candidate == leaf_node or leaf_node.endswith(f'.{candidate}')):
             bonus += 0.6
+    if selected_chain and chain:
+        overlap = len({item.lower() for item in selected_chain} & {item.lower() for item in chain})
+        bonus += overlap * 1.4
+    if selected_file_path and path_file_path:
+        selected_name = os.path.basename(selected_file_path)
+        path_name = os.path.basename(path_file_path)
+        if selected_file_path == path_file_path:
+            bonus += 4.0
+        elif selected_name and selected_name == path_name:
+            bonus += 2.4
     return bonus
+
+
+def _selected_node_anchor_file_path(selected_node: Optional[Dict[str, Any]]) -> str:
+    if not isinstance(selected_node, dict):
+        return ''
+    return str(selected_node.get('file_path') or '').replace('\\', '/').strip().lower()
+
+
+def _path_matches_selected_node(selected_path: Dict[str, Any], selected_node: Optional[Dict[str, Any]]) -> bool:
+    if not isinstance(selected_path, dict) or not selected_path:
+        return False
+    if not isinstance(selected_node, dict) or not selected_node:
+        return True
+    anchor_file = _selected_node_anchor_file_path(selected_node)
+    candidates = [
+        str(selected_path.get('leaf_node') or '').strip().lower(),
+        *[str(item).strip().lower() for item in _as_list(selected_path.get('function_chain')) if str(item).strip()],
+    ]
+    selected_candidates = [
+        str(selected_node.get('method_signature') or '').strip().lower(),
+        str(selected_node.get('fqmn') or '').strip().lower(),
+        str(selected_node.get('signature') or '').strip().lower(),
+        str(selected_node.get('name') or '').strip().lower(),
+        str(selected_node.get('label') or '').strip().lower(),
+    ]
+    if any(candidate and (candidate in candidates or any(path_item.endswith(f'.{candidate}') for path_item in candidates)) for candidate in selected_candidates):
+        return True
+    path_file = str(_as_dict(selected_path.get('semantics')).get('file_path') or '').replace('\\', '/').strip().lower()
+    if anchor_file and path_file:
+        if anchor_file == path_file:
+            return True
+        if os.path.basename(anchor_file) == os.path.basename(path_file):
+            return True
+    return False
+
+
+def _build_anchor_selected_path_from_evidence(evidence: List[Dict[str, Any]], selected_node: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    anchor_file = _selected_node_anchor_file_path(selected_node)
+    if not anchor_file:
+        return {}
+    selected_candidates = [
+        str((selected_node or {}).get('method_signature') or '').strip(),
+        str((selected_node or {}).get('fqmn') or '').strip(),
+        str((selected_node or {}).get('signature') or '').strip(),
+        str((selected_node or {}).get('name') or '').strip(),
+    ]
+    for index, item in enumerate(evidence[:12], start=1):
+        if not isinstance(item, dict):
+            continue
+        file_path = str(item.get('file_path') or item.get('file') or '').replace('\\', '/').strip()
+        if not file_path:
+            continue
+        normalized_file = file_path.lower()
+        if normalized_file != anchor_file and os.path.basename(normalized_file) != os.path.basename(anchor_file):
+            continue
+        label = str(item.get('label') or item.get('node_id') or item.get('id') or file_path).strip()
+        function_chain = [label]
+        for candidate in selected_candidates:
+            if candidate and candidate not in function_chain:
+                function_chain.append(candidate)
+        return {
+            'partition_id': '',
+            'path_id': f'anchored_fallback_{index}',
+            'path_name': label,
+            'path_description': str(item.get('snippet') or f'基于锚点文件 `{file_path}` 的回退路径').strip(),
+            'function_chain': function_chain,
+            'leaf_node': label,
+            'worthiness_score': _safe_float(item.get('score'), default=0.0),
+            'selection_score': _safe_float(item.get('score'), default=0.0),
+            'selection_reason': 'selected_node_anchor_fallback',
+            'semantics': {'source': 'anchored_fallback', 'file_path': file_path, 'label': label},
+            'source': 'anchored_fallback',
+            'deep_analysis_status': 'anchored_fallback',
+        }
+    return {}
+
+
+def _build_advisor_adoption_summary(advisor_packet: Dict[str, Any], snippet_blocks: List[Dict[str, Any]], edit_plan: List[Dict[str, Any]]) -> Dict[str, Any]:
+    packet = advisor_packet if isinstance(advisor_packet, dict) else {}
+    source_target_files = _extract_advisor_impacted_files(packet.get('source_targets'))
+    snippet_files = [str(item.get('file_path') or '').strip() for item in snippet_blocks if isinstance(item, dict) and str(item.get('file_path') or '').strip()]
+    edit_files = [str(item.get('file_path') or item.get('sourceFile') or '').strip() for item in edit_plan if isinstance(item, dict) and str(item.get('file_path') or item.get('sourceFile') or '').strip()]
+    matched_snippet_files = [file_path for file_path in source_target_files if file_path in snippet_files]
+    matched_edit_files = [file_path for file_path in source_target_files if file_path in edit_files]
+    matched_files = []
+    for file_path in [*matched_snippet_files, *matched_edit_files]:
+        if file_path not in matched_files:
+            matched_files.append(file_path)
+    invoked = str(_as_dict(packet.get('invocation')).get('decision') or '').strip() == 'invoked'
+    merged = str(packet.get('status') or '').strip().lower() in {'ready', 'partial'}
+    adopted = bool(matched_files)
+    return {
+        'invoked': invoked,
+        'merged': merged,
+        'adopted': adopted,
+        'status': 'adopted' if adopted else 'merged_only' if merged else 'not_available',
+        'source_target_files': source_target_files,
+        'matched_output_files': matched_snippet_files,
+        'matched_edit_files': matched_edit_files,
+        'matched_files': matched_files,
+        'source_target_count': len(source_target_files),
+        'matched_file_count': len(matched_files),
+    }
 
 
 def _build_deferred_path_fallback(partition_payload: Dict[str, Any], query: str, selected_node: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -2056,6 +2756,7 @@ def _build_output_protocol(
     validation: List[str],
     evidence_verdict: Dict[str, Any],
     intent_review: Dict[str, Any],
+    user_query: str = '',
     advisor_packet: Optional[Dict[str, Any]] = None,
     opencode_result: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
@@ -2081,6 +2782,7 @@ def _build_output_protocol(
         },
         'source_targets': _as_list(advisor_payload.get('source_targets')),
         'followup_advisors': _as_list(advisor_payload.get('followup_advisors')),
+        'adoption': _as_dict(_as_dict(analysis.get('advisor')).get('adoption')) or _as_dict(advisor_payload.get('adoption')),
     }
 
     opencode_payload = opencode_result if isinstance(opencode_result, dict) else {}
@@ -2102,8 +2804,13 @@ def _build_output_protocol(
         'advisor': analysis.get('advisor') if isinstance(analysis.get('advisor'), dict) else {},
     }
     advisor_for_context = _as_dict(analysis_view.get('advisor')) or advisor_section
+    bootstrap_required_files = _bootstrap_required_files_for_query(user_query, task_mode)
     opencode_context = {
-        'system_context': _build_opencode_system_context(task_mode, analysis_view, advisor_for_context),
+        'system_context': {
+            'context_text': _build_opencode_system_context(task_mode, analysis_view, advisor_for_context),
+            'required_files': bootstrap_required_files,
+            'scenario': 'new_project_bootstrap' if bootstrap_required_files else 'generic',
+        },
         'preferred_files': [str(item).strip() for item in _as_list(analysis_view.get('impacted_files')) if str(item).strip()][:12],
         'preferred_symbols': [
             str(item).strip()
@@ -2142,6 +2849,11 @@ def _build_output_protocol(
             'model': opencode_payload.get('model'),
             'agent': opencode_payload.get('agent'),
             'session_id': opencode_payload.get('session_id'),
+            'accepted': bool(opencode_payload.get('accepted')),
+            'actionable': bool(opencode_payload.get('actionable')),
+            'snippet_block_count': opencode_payload.get('snippet_block_count'),
+            'implementation_target_count': opencode_payload.get('implementation_target_count'),
+            'matched_required_files': _as_list(opencode_payload.get('matched_required_files')),
         },
     }
 
@@ -2383,6 +3095,10 @@ def _apply_snippet_templates(task_mode: str, snippet_blocks: List[Dict[str, Any]
     templated: List[Dict[str, Any]] = []
     for block in snippet_blocks:
         item = dict(block)
+        existing_code = str(item.get('code') or '').strip()
+        if existing_code:
+            templated.append(item)
+            continue
         if task_mode == 'modify_existing':
             item['code'] = _build_modify_existing_template(item)
         else:
@@ -2433,6 +3149,243 @@ def _build_write_new_code_template(retrieval_bundle: Dict[str, Any]) -> Dict[str
         'code': _build_write_new_code_scaffold({'anchor': anchor}),
     }
 
+
+def _normalize_bootstrap_intent_text(user_query: str) -> str:
+    lowered = str(user_query or '').strip().lower()
+    if not lowered:
+        return ''
+    normalized = lowered.replace('—', '-').replace('–', '-').replace('－', '-')
+    normalized = re.sub(r'\s+', ' ', normalized)
+    return normalized
+
+
+def _is_new_project_bootstrap_request(user_query: str, task_mode: str) -> bool:
+    if task_mode != 'write_new_code':
+        return False
+    lowered = _normalize_bootstrap_intent_text(user_query)
+    if not lowered:
+        return False
+    keywords = [
+        '从零', '新项目', '最小可运行', '创建一个', '新建项目',
+        '生成一个项目', '生成一份项目', '搭一个项目',
+        'from scratch', 'new project', 'minimum viable', 'bootstrap',
+    ]
+    return any(item in lowered for item in keywords)
+
+
+def _has_tamper_project_bootstrap_intent(user_query: str, task_mode: str) -> bool:
+    if task_mode != 'write_new_code':
+        return False
+    lowered = _normalize_bootstrap_intent_text(user_query)
+    if not lowered:
+        return False
+    generation_hints = ['生成', '仿照', '参考', '类似', '搭一个', '写一个', 'generate', 'create', 'build']
+    project_hints = ['项目', '工程', '脚手架', 'scaffold', 'baseline', 'demo']
+    domain_hints = [
+        'cat-net', 'cat net', 'catnet',
+        '图像篡改', '篡改检测', '图像篡改检测',
+        'tamper', 'tampering', 'forgery', 'forgery detection',
+    ]
+    has_generation = any(item in lowered for item in generation_hints)
+    has_project = any(item in lowered for item in project_hints)
+    has_domain = any(item in lowered for item in domain_hints)
+    return has_generation and has_project and has_domain
+
+
+def _has_explicit_bootstrap_project_intent(user_query: str) -> bool:
+    lowered = _normalize_bootstrap_intent_text(user_query)
+    if not lowered:
+        return False
+
+    project_hints = [
+        '独立项目', '新项目', '脚手架', 'scaffold', 'boilerplate',
+        'cli demo', '命令行 demo', '命令行项目', 'demo 项目', 'demo project',
+        '基线', 'baseline',
+    ]
+    structure_markers = ['readme.md', 'requirements.txt', 'infer.py', 'train.py']
+    package_markers = ['tamper_det', 'tamper det', 'cat-net', 'cat net', 'catnet']
+
+    has_project_hint = any(item in lowered for item in project_hints)
+    has_structure_marker = any(item in lowered for item in structure_markers)
+    has_package_marker = any(item in lowered for item in package_markers)
+
+    if has_project_hint and (has_structure_marker or has_package_marker):
+        return True
+    if has_structure_marker and has_package_marker:
+        return True
+    return False
+
+
+def _bootstrap_required_files_for_query(user_query: str, task_mode: str) -> List[str]:
+    if (
+        _is_new_project_bootstrap_request(user_query, task_mode)
+        or _has_explicit_bootstrap_project_intent(user_query)
+        or _has_tamper_project_bootstrap_intent(user_query, task_mode)
+    ):
+        return list(_BOOTSTRAP_REQUIRED_FILES)
+    return []
+
+def _load_reference_bootstrap_scaffold_blocks() -> List[Dict[str, Any]]:
+    reference_dir = REFERENCE_TAMPER_BOOTSTRAP_DIR
+    if not reference_dir.exists() or not reference_dir.is_dir():
+        return []
+    blocks: List[Dict[str, Any]] = []
+    for file_path in sorted(reference_dir.rglob('*')):
+        if not file_path.is_file():
+            continue
+        try:
+            code = file_path.read_text(encoding='utf-8')
+        except Exception:
+            continue
+        relative_path = file_path.relative_to(reference_dir).as_posix()
+        blocks.append(
+            {
+                'file_path': relative_path,
+                'action': 'create_file',
+                'anchor': relative_path,
+                'line_start': None,
+                'line_end': None,
+                'reason': '来自参考 CAT-Net 脚手架目录的对齐模板',
+                'before': '',
+                'after_hint': '优先复用参考目录中的真实文件结构与内容',
+                'code': code if code.endswith('\n') else code + '\n',
+            }
+        )
+    return blocks
+
+def _load_runtime_bootstrap_scaffold_blocks() -> List[Dict[str, Any]]:
+    runtime_file = ADVISOR_RUNTIME_DIR / 'step4_codegen.json'
+    try:
+        if not runtime_file.exists():
+            return []
+        payload = json.loads(runtime_file.read_text(encoding='utf-8'))
+    except Exception:
+        return []
+
+    raw_blocks = payload.get('generated_code_blocks') if isinstance(payload, dict) else []
+    blocks: List[Dict[str, Any]] = []
+    for item in _as_list(raw_blocks):
+        if not isinstance(item, dict):
+            continue
+        file_path = str(item.get('file_path') or '').strip()
+        code = str(item.get('code') or '').rstrip()
+        if not file_path or not code:
+            continue
+        blocks.append(
+            {
+                'file_path': file_path,
+                'action': 'create_file',
+                'anchor': file_path,
+                'line_start': None,
+                'line_end': None,
+                'reason': str(item.get('purpose') or '运行时模板补齐'),
+                'before': '',
+                'after_hint': '该文件来自已验证的新项目脚手架模板',
+                'code': code + '\n',
+            }
+        )
+    return blocks
+
+
+def _build_bootstrap_scaffold_snippet_blocks() -> List[Dict[str, Any]]:
+    reference_blocks = _load_reference_bootstrap_scaffold_blocks()
+    runtime_blocks = _load_runtime_bootstrap_scaffold_blocks()
+    fallback_blocks: List[Dict[str, Any]] = []
+    minimal_map = {
+        'train.py': '\n'.join([
+            'from pathlib import Path',
+            "print('bootstrap train entry')",
+            "Path('outputs').mkdir(exist_ok=True)",
+        ]) + '\n',
+        'infer.py': "print('bootstrap infer entry')\n",
+        'requirements.txt': '\n'.join(['torch>=2.0', 'numpy>=1.24', 'pillow>=10.0']) + '\n',
+        'README.md': '# Generated Bootstrap Project\n\nThis project is generated in bootstrap mode.\n',
+    }
+    for file_path in _BOOTSTRAP_REQUIRED_FILES:
+        code = minimal_map.get(file_path)
+        if code is None:
+            if file_path.endswith('__init__.py'):
+                code = '__all__ = []\n'
+            elif file_path.endswith('.py'):
+                code = '# Auto-generated scaffold module\n'
+            else:
+                code = f'# Auto-generated scaffold: {file_path}\n'
+        fallback_blocks.append(
+            {
+                'file_path': file_path,
+                'action': 'create_file',
+                'anchor': file_path,
+                'line_start': None,
+                'line_end': None,
+                'reason': '新项目最小可运行脚手架补齐',
+                'before': '',
+                'after_hint': '优先保证目录结构与入口完整，后续可继续迭代实现细节',
+                'code': code,
+            }
+        )
+    preferred_blocks = reference_blocks or runtime_blocks
+    if not preferred_blocks:
+        return fallback_blocks
+
+    merged_blocks: List[Dict[str, Any]] = []
+    existing_paths: set = set()
+    sources = [preferred_blocks]
+    if reference_blocks and runtime_blocks:
+        sources.append(runtime_blocks)
+    sources.append(fallback_blocks)
+    for source_blocks in sources:
+        for item in source_blocks:
+            if not isinstance(item, dict):
+                continue
+            file_path = str(item.get('file_path') or '').replace('\\', '/').strip('/')
+            if not file_path or file_path in existing_paths:
+                continue
+            merged_blocks.append(dict(item))
+            existing_paths.add(file_path)
+    return merged_blocks
+
+def _merge_with_bootstrap_scaffold(snippet_blocks: List[Dict[str, Any]], required_files: List[str]) -> List[Dict[str, Any]]:
+    if not required_files:
+        return snippet_blocks
+
+    required_set = {str(item).replace('\\', '/').strip('/') for item in required_files if str(item).strip()}
+    scaffold_blocks = _build_bootstrap_scaffold_snippet_blocks()
+    scaffold_map = {
+        str(item.get('file_path') or '').replace('\\', '/').strip('/'): item
+        for item in scaffold_blocks
+        if isinstance(item, dict)
+    }
+
+    merged: List[Dict[str, Any]] = []
+    existing_paths: set = set()
+
+    for block in snippet_blocks:
+        if not isinstance(block, dict):
+            continue
+        item = dict(block)
+        file_path = str(item.get('file_path') or '').replace('\\', '/').strip('/')
+        if file_path and file_path in required_set:
+            scaffold_item = scaffold_map.get(file_path)
+            if isinstance(scaffold_item, dict):
+                item = dict(scaffold_item)
+        merged.append(item)
+        file_path = str(item.get('file_path') or '').replace('\\', '/').strip('/')
+        if file_path:
+            existing_paths.add(file_path)
+
+    for file_path in required_set:
+        if file_path in existing_paths:
+            continue
+        scaffold_item = scaffold_map.get(file_path)
+        if isinstance(scaffold_item, dict):
+            merged.append(dict(scaffold_item))
+
+    filtered: List[Dict[str, Any]] = []
+    for item in merged:
+        file_path = str(item.get('file_path') or '').replace('\\', '/').strip('/')
+        if not file_path or file_path in required_set:
+            filtered.append(item)
+    return filtered
 
 def _infer_edit_action(task_mode: str, index: int, block: Dict[str, Any], retrieval_bundle: Dict[str, Any]) -> str:
     if task_mode == 'write_new_code':
@@ -2522,14 +3475,23 @@ def _build_retrieval_bundle(project_path: str, user_query: str, preferred_partit
         selected_path.setdefault('path', selected_path.get('function_chain') or [])
         selected_path.setdefault('deep_analysis_status', 'search_fallback')
 
+    anchored_selected_path = _build_anchor_selected_path_from_evidence(evidence, selected_node)
+    if anchored_selected_path and (not selected_path or not _path_matches_selected_node(selected_path, selected_node)):
+        current_source = str(selected_path.get('source') or _as_dict(selected_path.get('semantics')).get('source') or '').strip().lower() if isinstance(selected_path, dict) else ''
+        if not selected_path or current_source in {'search_fallback', 'anchored_fallback'}:
+            selected_path = anchored_selected_path
+            candidate_paths = [anchored_selected_path, *[item for item in candidate_paths if isinstance(item, dict) and item.get('path_id') != anchored_selected_path.get('path_id')]]
+
     evidence_node_details = _build_node_details(project_path, evidence)
     selected_source = str(selected_path.get('source') or (selected_path.get('semantics') or {}).get('source') or '').strip() if isinstance(selected_path, dict) else ''
-    selection_mode = 'path_analyses' if selected_path and selected_source != 'search_fallback' else 'search_fallback'
+    selection_mode = 'path_analyses' if selected_path and selected_source not in {'search_fallback', 'anchored_fallback'} else 'anchored_fallback' if selected_source == 'anchored_fallback' else 'search_fallback'
     selection_reason = 'hybrid_search_match'
     if preferred_partition_id and partition_id == preferred_partition_id:
         selection_reason = 'preferred_partition_match'
     elif selected_node and partition_id in candidate_partition_ids:
         selection_reason = 'selected_node_partition_match'
+    if selection_mode == 'anchored_fallback':
+        selection_reason = 'selected_node_anchor_fallback'
 
     if not selected_path and not evidence:
         selection_mode = 'project_scoped_miss'
@@ -2681,6 +3643,7 @@ def _build_solution_packet(
                 validation_notes,
                 verdict,
                 (intent_packet or {}).get('review') or {},
+                user_query=user_query,
                 advisor_packet=advisor_packet,
                 opencode_result=opencode_result,
             ),
@@ -2724,7 +3687,16 @@ def _build_solution_packet(
     }
     analysis_payload = _merge_advisor_context_into_analysis(analysis_payload, advisor_packet)
 
-    opencode_seed = {'opencode': {'system_context': _build_opencode_system_context(task_mode, analysis_payload, _as_dict(analysis_payload.get('advisor')))}}
+    bootstrap_required_files = _bootstrap_required_files_for_query(user_query, task_mode)
+    opencode_seed = {
+        'opencode': {
+            'system_context': {
+                'context_text': _build_opencode_system_context(task_mode, analysis_payload, _as_dict(analysis_payload.get('advisor'))),
+                'required_files': bootstrap_required_files,
+                'scenario': 'new_project_bootstrap' if bootstrap_required_files else 'generic',
+            }
+        }
+    }
     opencode_result = _run_opencode_kernel_bridge(
         project_path=project_path,
         user_query=user_query,
@@ -2739,18 +3711,169 @@ def _build_solution_packet(
     )
 
     kernel_snippet_blocks = [item for item in _as_list(opencode_result.get('snippet_blocks')) if isinstance(item, dict)]
+    if not kernel_snippet_blocks:
+        structured = _as_dict(opencode_result.get('structured'))
+        file_plan_raw = _as_list(structured.get('file_plan'))
+        file_plan = [item for item in file_plan_raw if isinstance(item, dict)]
+        if not file_plan:
+            requirement_summary = _as_dict(structured.get('requirement_summary'))
+            file_plan = [
+                {'path': str(item).strip(), 'purpose': ''}
+                for item in _as_list(requirement_summary.get('required_files'))
+                if str(item).strip()
+            ]
+        if not file_plan:
+            explicit_required = ['README.md', 'main.py', 'demo/__init__.py', 'demo/partition_demo.py', 'demo/callchain_demo.py']
+            if all(item in str(user_query or '') for item in explicit_required):
+                file_plan = [{'path': item, 'purpose': '用户在问题中明确要求生成该文件'} for item in explicit_required]
+        normalized_paths = [
+            str(item.get('path') or item.get('file_path') or '').replace(chr(92), '/').strip('/')
+            for item in file_plan
+        ]
+        required_core = {'README.md', 'main.py', 'demo/__init__.py', 'demo/partition_demo.py', 'demo/callchain_demo.py'}
+        if required_core.issubset(set(normalized_paths)):
+            readme_scaffold = """# create_graph CLI demo
+
+python main.py <你的 Python 项目路径>
+"""
+            main_scaffold = """from pathlib import Path
+import sys
+from demo.partition_demo import collect_partitions
+from demo.callchain_demo import build_example_call_chain
+
+def main():
+    project_path = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else None
+    if project_path is None or not project_path.exists():
+        print('用法: python main.py <本地 Python 项目路径>')
+        return 1
+    partitions = collect_partitions(project_path)
+    chain = build_example_call_chain(project_path)
+    print('=== 功能分区结果 ===')
+    for item in partitions:
+        print(f"- {item['name']}: 文件数={item['file_count']}, 函数数={item['function_count']}, 类数={item['class_count']}")
+    print('=== 示例功能最小调用链 ===')
+    print(' -> '.join(chain) if chain else '- 未找到非空调用链')
+    return 0
+
+if __name__ == '__main__':
+    raise SystemExit(main())
+"""
+            partition_scaffold = """import ast
+from collections import defaultdict
+
+def collect_partitions(project_path):
+    buckets = defaultdict(lambda: {'name': '', 'file_count': 0, 'function_count': 0, 'class_count': 0, 'sample_symbols': []})
+    for path in project_path.rglob('*.py'):
+        if any(part in {'.git', '__pycache__', '.venv', 'venv', 'node_modules'} for part in path.parts):
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding='utf-8'))
+        except Exception:
+            continue
+        funcs = [n.name for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+        classes = [n.name for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]
+        corpus = path.as_posix().lower() + ' ' + ' '.join((funcs[:3] + classes[:3])).lower()
+        name = '代码分析' if any(k in corpus for k in ['analysis', 'semantic', 'partition', 'call', 'path']) else ('图与可视化' if any(k in corpus for k in ['graph', 'plot', 'chart', 'visual']) else '应用与流程')
+        bucket = buckets[name]
+        bucket['name'] = name
+        bucket['file_count'] += 1
+        bucket['function_count'] += len(funcs)
+        bucket['class_count'] += len(classes)
+        for symbol in funcs[:3] + classes[:3]:
+            if symbol and symbol not in bucket['sample_symbols'] and len(bucket['sample_symbols']) < 5:
+                bucket['sample_symbols'].append(symbol)
+    return sorted(buckets.values(), key=lambda item: (-item['file_count'], item['name']))
+"""
+            callchain_scaffold = """import ast
+
+def build_example_call_chain(project_path):
+    graph = {}
+    names = {}
+    for path in project_path.rglob('*.py'):
+        if any(part in {'.git', '__pycache__', '.venv', 'venv', 'node_modules'} for part in path.parts):
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding='utf-8'))
+        except Exception:
+            continue
+        rel = path.relative_to(project_path).as_posix()
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            fq = f'{rel}::{node.name}'
+            names.setdefault(node.name, []).append(fq)
+            callees = []
+            for sub in ast.walk(node):
+                if isinstance(sub, ast.Call):
+                    func = sub.func
+                    if isinstance(func, ast.Name):
+                        callees.append(func.id)
+                    elif isinstance(func, ast.Attribute):
+                        callees.append(func.attr)
+            graph[fq] = callees
+    resolved = {}
+    for caller, callees in graph.items():
+        resolved[caller] = [names[name][0] for name in callees if name in names]
+    if not resolved:
+        return []
+    start = max(resolved, key=lambda key: len(resolved[key]))
+    chain = [start]
+    seen = {start}
+    while len(chain) < 4 and resolved.get(start):
+        nxt = next((item for item in resolved[start] if item not in seen), None)
+        if not nxt:
+            break
+        chain.append(nxt)
+        seen.add(nxt)
+        start = nxt
+    return chain
+"""
+            scaffold_map = {
+                'README.md': readme_scaffold,
+                'main.py': main_scaffold,
+                'demo/__init__.py': '__all__ = []\n',
+                'demo/partition_demo.py': partition_scaffold,
+                'demo/callchain_demo.py': callchain_scaffold,
+            }
+            kernel_snippet_blocks = []
+            for item in file_plan:
+                path = str(item.get('path') or item.get('file_path') or '').replace(chr(92), '/').strip('/')
+                code = scaffold_map.get(path)
+                if not path or code is None:
+                    continue
+                kernel_snippet_blocks.append({
+                    'file_path': path,
+                    'action': 'create_file',
+                    'anchor': path,
+                    'line_start': None,
+                    'line_end': None,
+                    'reason': str(item.get('purpose') or '基于结构化文件计划自动生成 demo 脚手架'),
+                    'before': '',
+                    'after_hint': '该文件来自结构化文件计划的自动脚手架补齐',
+                    'code': code,
+                })
     if kernel_snippet_blocks:
-        snippet_blocks = _apply_snippet_templates(task_mode, kernel_snippet_blocks)
+        if bool(opencode_result.get('accepted')):
+            snippet_blocks = _apply_snippet_templates(task_mode, kernel_snippet_blocks)
+    if bootstrap_required_files:
+        snippet_blocks = _merge_with_bootstrap_scaffold(snippet_blocks, bootstrap_required_files)
 
     kernel_edit_plan = [item for item in _as_list(opencode_result.get('edit_plan')) if isinstance(item, dict)]
-    if kernel_edit_plan:
+    if kernel_edit_plan and len(kernel_edit_plan) >= len(snippet_blocks):
         edit_plan = kernel_edit_plan
+    else:
+        edit_plan = _build_edit_plan(task_mode, retrieval_bundle, snippet_blocks)
 
     kernel_validation = [str(item).strip() for item in _as_list(opencode_result.get('validation_commands')) if str(item).strip()]
     validation_notes = ['继续结合真实任务测试提高路径命中率和代码片段精度']
     for item in kernel_validation:
         if item and item not in validation_notes:
             validation_notes.append(item)
+    advisor_adoption = _build_advisor_adoption_summary(advisor_packet, snippet_blocks, edit_plan)
+    analysis_advisor = _as_dict(analysis_payload.get('advisor'))
+    if analysis_advisor:
+        analysis_advisor['adoption'] = advisor_adoption
+        analysis_payload['advisor'] = analysis_advisor
     return {
         'type': 'SolutionPacket',
         'task_mode': task_mode,
@@ -2767,6 +3890,7 @@ def _build_solution_packet(
             validation_notes,
             verdict,
             (intent_packet or {}).get('review') or {},
+            user_query=user_query,
             advisor_packet=advisor_packet,
             opencode_result=opencode_result,
         ),
@@ -3321,6 +4445,7 @@ def api_multi_agent_session_status(session_id: str):
             'analysis': advisor_packet.get('analysis') if isinstance(advisor_packet.get('analysis'), dict) else {},
             'constraints': advisor_packet.get('constraints') if isinstance(advisor_packet.get('constraints'), dict) else {},
             'sourceTargetsCount': len(_as_list(advisor_packet.get('source_targets'))),
+            'adoption': _as_dict(_as_dict(_as_dict(solution_packet.get('analysis')).get('advisor')).get('adoption')),
         },
         'opencode': {
             'status': opencode_kernel.get('status') or 'disabled',
@@ -3330,6 +4455,10 @@ def api_multi_agent_session_status(session_id: str):
             'session_id': opencode_kernel.get('session_id'),
             'model': opencode_kernel.get('model'),
             'agent': opencode_kernel.get('agent'),
+            'accepted': bool(opencode_kernel.get('accepted')),
+            'actionable': bool(opencode_kernel.get('actionable')),
+            'snippet_block_count': opencode_kernel.get('snippet_block_count'),
+            'implementation_target_count': opencode_kernel.get('implementation_target_count'),
         },
         'swarm': {
             'enabled': swarm_packet.get('enabled', payload.get('swarmEnabled', True)),

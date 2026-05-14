@@ -28,9 +28,10 @@ class QuestionDetector:
     ]
 
     WRITE_NEW_CODE_KEYWORDS = [
-        "新增", "新建", "写一个", "写一段", "做一个", "补一个功能", "加一个功能",
-        "create", "generate", "new file", "new function", "write new", "build new",
-    ]
+            "新增", "新建", "写一个", "写一段", "做一个", "补一个功能", "加一个功能",
+            "生成", "生成一个", "生成一份", "仿照", "参考", "类似", "搭一个", "新项目", "脚手架",
+            "create", "generate", "new file", "new function", "write new", "build new", "scaffold", "baseline", "demo",
+        ]
 
     MODIFY_EXISTING_KEYWORDS = [
         "修改", "修复", "优化", "重构", "替换", "调整", "补丁", "改一下",
@@ -52,6 +53,13 @@ class QuestionDetector:
         "风格", "测试", "日志", "指标", "约束", "优先", "精度", "可读性", "风险",
         "performance", "latency", "stability", "security", "maintainability", "compatibility",
         "test", "logging", "metric", "constraint", "priority", "accuracy", "readability", "risk",
+    ]
+
+    CODEBASE_FACT_QUERY_KEYWORDS = [
+        "多少个类", "多少类", "多少个方法", "多少方法", "几个类", "几个方法", "哪些类", "哪些方法",
+        "最重要的方法", "核心方法", "主要方法", "主要是干嘛", "是干嘛的", "做什么的",
+        "被谁调用", "调用了谁", "谁调用了", "调用链", "依赖链", "引用链", "调用关系",
+        "class count", "method count", "methods", "classes", "called by", "calls", "call chain", "references",
     ]
 
     STRUCTURED_FIELDS = [
@@ -122,6 +130,7 @@ class QuestionDetector:
         combined_text = cls._merge_texts(original_query, latest_user_reply, selected_option_labels)
 
         analysis = cls.analyze(combined_text)
+        latest_reply_analysis = cls.analyze(latest_user_reply)
         task_mode = cls.detect_task_mode(combined_text)
         task_signal = cls._contains_any(combined_text, cls.TASK_KEYWORDS) or round_index > 0
         target_present = cls._has_target_hint(combined_text, has_context)
@@ -138,15 +147,51 @@ class QuestionDetector:
             missing_slots.append("constraints")
 
         if analysis.get("is_question") and not task_signal and round_index == 0:
+            if cls._is_codebase_fact_question(combined_text, has_context=has_context):
+                return {
+                    "route": "run_retrieval",
+                    "confidence": max(float(analysis.get("confidence") or 0.0), 0.82),
+                    "reason": "命中特定文件/节点的代码事实问答，优先进入检索回答而不是普通闲聊",
+                    "task_mode": "none",
+                    "clarity_level": "codebase_fact_question",
+                    "inferred_intent": combined_text or original_query,
+                    "missing_slots": [],
+                    "clarification_round": round_index,
+                }
             return {
                 "route": "general_chat",
                 "confidence": float(analysis.get("confidence") or 0.0),
                 "reason": str(analysis.get("reason") or "命中问答路由"),
-                "task_mode": None,
+                "task_mode": "none",
                 "clarity_level": "general_chat",
                 "inferred_intent": combined_text or original_query,
                 "missing_slots": [],
+                "clarification_round": round_index,
             }
+
+        if round_index > 0:
+            if latest_reply_analysis.get("is_question") and not cls._contains_any(latest_user_reply, cls.TASK_KEYWORDS):
+                return {
+                    "route": "general_chat",
+                    "confidence": max(float(latest_reply_analysis.get("confidence") or 0.0), 0.72),
+                    "reason": "澄清后输入仍属于问答/说明类内容，转入普通问答避免重复阻塞",
+                    "task_mode": "none",
+                    "clarity_level": "general_chat_after_clarification",
+                    "inferred_intent": latest_user_reply or inferred_intent,
+                    "missing_slots": [],
+                    "clarification_round": round_index,
+                }
+            if missing_slots:
+                return {
+                    "route": "run_retrieval",
+                    "confidence": 0.74,
+                    "reason": "已完成至少一轮需求澄清；先基于现有信息给出证据化建议，避免继续卡在澄清环节",
+                    "task_mode": task_mode,
+                    "clarity_level": "retrieval_after_clarification",
+                    "inferred_intent": inferred_intent,
+                    "missing_slots": missing_slots,
+                    "clarification_round": round_index,
+                }
 
         if not task_signal:
             return cls._build_clarification_result(
@@ -241,6 +286,7 @@ class QuestionDetector:
             "clarity_level": "clear",
             "inferred_intent": inferred_intent,
             "missing_slots": [],
+            "clarification_round": round_index,
         }
 
     @classmethod
@@ -256,6 +302,16 @@ class QuestionDetector:
         if any(keyword in lowered for keyword in cls.TARGET_HINT_KEYWORDS):
             return True
         return any(token in text for token in ["/", "\\", ".py", ".ts", ".tsx", "::", "->", "#", "@"])
+
+    @classmethod
+    def _is_codebase_fact_question(cls, text: str, *, has_context: bool) -> bool:
+        lowered = text.lower()
+        has_code_location_hint = has_context or any(
+            token in text for token in ["/", "\\", ".py", ".ts", ".tsx", ".js", "::", "->", "#", "@"]
+        )
+        if not has_code_location_hint:
+            return False
+        return any(keyword in lowered for keyword in cls.CODEBASE_FACT_QUERY_KEYWORDS)
 
     @classmethod
     def _has_expectation_hint(cls, text: str) -> bool:
@@ -324,6 +380,7 @@ class QuestionDetector:
             "clarity_level": clarity_level,
             "inferred_intent": inferred_intent,
             "missing_slots": missing_slots,
+            "clarification_round": round_index,
             "clarification": {
                 "round": round_number,
                 "maxRounds": 2,

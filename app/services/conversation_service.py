@@ -4,21 +4,24 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import re
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from queue import Empty, Queue
+from typing import Any, Callable, Dict, List, Optional, Union, cast
 from uuid import uuid4
 
 from flask import Response, jsonify, request, stream_with_context
 
 from config.config import get_deepseek_settings, has_deepseek_config
 from app.services.codebase_retrieval_service import run_codebase_retrieval
+from app.services.opencode_qa_service import run_opencode_qa
 from data.data_accessor import get_data_accessor
 from llm.agent.utils.question_detector import QuestionDetector
 from llm.rag_core.llm_api import DeepSeekAPI
@@ -26,6 +29,7 @@ from src.search.adapters.hybrid_shadow_adapter import run_hybrid_shadow
 
 
 data_accessor = get_data_accessor()
+_SERVER_LOAD_EPOCH: float = time.time()
 
 
 COMPACTION_KEEP_RECENT_MESSAGES = 10
@@ -82,6 +86,21 @@ SKILL_FOCUS_MARKERS = [
     (".skill", "技能库目录"),
 ]
 
+PRIMARY_RUNTIME_MARKERS = [
+    ("app/routes/api_routes.py", "主 API 路由注册"),
+    ("app/services/conversation_service.py", "会话问答主链"),
+    ("app/services/analysis_service.py", "workbench 分析主链"),
+    ("app/services/multi_agent_service.py", "多智能体执行主链"),
+    ("frontend_gitnexus/src/components/RightPanel.tsx", "前端问答入口"),
+]
+
+QA_HEAVY_QUERY_MARKERS = (
+    "调用链", "call chain", "called by", "被谁调用", "调用了谁", "谁调用",
+    "架构", "architecture", "依赖", "dependency", "链路", "流程", "路径",
+    "证据", "evidence", "依据", "定位", "where", "which file", "哪个文件", "哪一行",
+    "入口", "出口", "上下游", "影响范围", "trace",
+)
+
 
 def _utcnow_iso() -> str:
     return datetime.utcnow().isoformat() + "Z"
@@ -92,6 +111,18 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+_TIMEOUT_WORKER_LIMIT = max(1, _safe_int(os.getenv("CONVERSATION_TIMEOUT_WORKER_LIMIT"), 2))
+_TIMEOUT_WORKER_SEMAPHORE = threading.BoundedSemaphore(_TIMEOUT_WORKER_LIMIT)
+
+
+def _get_qa_context_timeout_seconds() -> float:
+    raw_value = os.getenv("CONVERSATION_QA_CONTEXT_TIMEOUT_SECONDS")
+    try:
+        return max(1.0, float(raw_value or 12))
+    except (TypeError, ValueError):
+        return 12.0
 
 
 def _safe_slug(value: Any, fallback: str = "item", max_len: int = 48) -> str:
@@ -169,6 +200,55 @@ def _is_project_purpose_query(user_query: str) -> bool:
     return has_subject and has_intent
 
 
+def _is_project_bound_usage_query(user_query: str) -> bool:
+    query = str(user_query or "").strip().lower()
+    if not query:
+        return False
+
+    explicit_markers = (
+        "当前已打开项目",
+        "经验库已就绪",
+        "主图谱",
+        "功能层级",
+        "经验路径",
+        "后端文件路径",
+        "接口定义在哪里",
+        "多智能体流程",
+        "project-bound",
+        "workbench",
+        "experience library",
+        "experience paths",
+        "opened project",
+        "opened repo",
+        "graph",
+        "hierarchy",
+        "advisor",
+        "multi-agent",
+        "multi agent",
+        "where is",
+        "which file",
+        "后端接口",
+        "文件路径",
+    )
+    if any(marker in query for marker in explicit_markers):
+        return True
+
+    project_scope_markers = (
+        "打开项目",
+        "当前项目",
+        "这个项目",
+        "该项目",
+        "定位",
+        "入口接口",
+        "主问答入口",
+        "新增功能",
+        "检索链路",
+    )
+    return any(marker in query for marker in project_scope_markers) and any(
+        marker in query for marker in ("经验库", "图谱", "层级", "路径", "接口", "文件")
+    )
+
+
 def _build_project_identity_profile(project_path: str) -> Dict[str, Any]:
     normalized_project_path = _normalize_project_path(project_path)
     if not normalized_project_path or not os.path.isdir(normalized_project_path):
@@ -185,9 +265,18 @@ def _build_project_identity_profile(project_path: str) -> Dict[str, Any]:
         if os.path.exists(absolute_path):
             evidence.append({"path": relative_path.replace('\\', '/'), "label": label})
 
+    runtime_evidence: List[Dict[str, str]] = []
+    for relative_path, label in PRIMARY_RUNTIME_MARKERS:
+        absolute_path = os.path.join(normalized_project_path, relative_path)
+        if os.path.exists(absolute_path):
+            runtime_evidence.append({"path": relative_path.replace('\\', '/'), "label": label})
+
     project_name = os.path.basename(normalized_project_path).lower()
-    is_skill_first = len(evidence) >= 2 or "skill" in project_name
-    if is_skill_first:
+    has_primary_runtime = len(runtime_evidence) >= 3
+    is_skill_first = (len(evidence) >= 2 or "skill" in project_name) and not has_primary_runtime
+    if has_primary_runtime:
+        purpose = "这是一个先打开项目并构建 workbench / 经验库，再围绕当前项目做检索问答、advisor 辅助和多智能体任务编排的系统。"
+    elif is_skill_first:
         purpose = "这是一个以 skill 技能库选取/匹配为主轴的系统，RAG 用于提供辅助证据而不是主导回答。"
     else:
         purpose = "这是一个面向代码仓库理解、检索与任务编排的问答系统。"
@@ -195,14 +284,103 @@ def _build_project_identity_profile(project_path: str) -> Dict[str, Any]:
     return {
         "projectPath": normalized_project_path,
         "isSkillFirst": is_skill_first,
+        "hasPrimaryRuntime": has_primary_runtime,
         "purpose": purpose,
         "evidence": evidence,
+        "runtimeEvidence": runtime_evidence,
     }
 
 
 def _contains_any_phrase(text: str, phrases: List[str]) -> bool:
     content = str(text or "").lower()
     return any(str(phrase or "").lower() in content for phrase in phrases)
+
+
+def _is_project_runtime_architecture_question(user_query: str) -> bool:
+    query = str(user_query or "").strip().lower()
+    if not query:
+        return False
+    markers = (
+        "主问答入口", "问答入口", "入口接口", "后端文件路径", "文件路径", "接口定义在哪里",
+        "分析产物", "检索链路", "主图谱", "功能层级", "经验路径", "advisor", "多智能体流程",
+        "已打开项目", "经验库已就绪", "workbench", "experience library", "experience paths",
+        "which file", "where is", "api route", "conversation", "retrieval", "graph", "hierarchy",
+    )
+    return any(marker in query for marker in markers)
+
+
+def _build_project_bound_usage_answer(project_path: str, user_query: str) -> str:
+    profile = _build_project_identity_profile(project_path)
+    runtime_evidence_raw = profile.get("runtimeEvidence")
+    runtime_evidence: List[Dict[str, Any]] = runtime_evidence_raw if isinstance(runtime_evidence_raw, list) else []
+    runtime_lines: List[str] = []
+    for item in runtime_evidence[:4]:
+        if not isinstance(item, dict):
+            continue
+        path = str(item.get("path") or "").strip()
+        label = str(item.get("label") or "").strip()
+        if path:
+            runtime_lines.append(f"- `{path}`：{label}")
+
+    query = str(user_query or "")
+    lowered = query.lower()
+
+    if any(marker in lowered for marker in ("主问答入口", "问答入口", "入口接口", "后端文件路径", "api route", "which file")):
+        lines = [
+            "### 回答",
+            "- 当前主问答入口不是 `.skill` 或 `skill_callchain`，而是 conversations API。",
+            "- 前端问答入口在 `frontend_gitnexus/src/components/RightPanel.tsx`，会调用 `/api/conversations/session/start`。",
+            "- 路由注册在 `app/routes/api_routes.py`，对应后端处理函数是 `app/services/conversation_service.py` 里的 `api_conversation_session_start()`。",
+            "",
+            "### 真实主链",
+            "- 打开项目后，先走 workbench 分析与经验库构建；问答阶段再进入 conversations 主链。",
+            "- 如果需要代码执行/生成，再从 conversations 主链切到 `multi_agent_service.py`。",
+            "",
+            "### 依据",
+            *(runtime_lines or ["- 已根据当前项目主运行时结构进行归纳。"]),
+        ]
+        return "\n".join(lines)
+
+    if any(marker in lowered for marker in ("接口定义在哪里", "分析产物", "检索链路", "where is", "retrieval")):
+        lines = [
+            "### 回答",
+            "- 对当前已打开项目做接口定位时，优先使用的是 workbench 已产出的主图谱、功能层级与 conversations 检索主链，而不是 `.skill` 或 `skill_callchain`。",
+            "",
+            "### 推荐顺序",
+            "1. 先确认 workbench/经验库已就绪，确保主图谱、功能层级、经验路径可用。",
+            "2. 进入 `conversation_service.py` 的 `run_retrieval` 主链，先做 codebase retrieval。",
+            "3. 再做 graph augmentation / hybrid shadow，把代码命中和图谱上下文合并。",
+            "4. 如果已有 selected node / path / evidence packet，则继续走 `multi_agent_service.py` 里的 QA context bundle，把路径、节点、证据组织成项目绑定上下文。",
+            "5. advisor 主要用于方案设计、改造建议和复杂任务，不是定位接口定义时的第一优先级。",
+            "",
+            "### 对应文件",
+            "- `app/services/analysis_service.py`：workbench 分析与经验库状态",
+            "- `app/services/conversation_service.py`：conversations 问答与 retrieval 主链",
+            "- `app/services/multi_agent_service.py`：QA context bundle / advisor / 多智能体扩展",
+        ]
+        return "\n".join(lines)
+
+    if any(marker in lowered for marker in ("新增一个功能", "新增功能", "多智能体流程", "advisor", "主图谱", "功能层级", "经验路径")):
+        lines = [
+            "### 回答",
+            "- 对当前项目新增功能时，主流程应该是：workbench 产物定范围 → retrieval / evidence 定依据 → advisor 定方案 → multi-agent 定执行，而不是 skill-first 路由。",
+            "",
+            "### 建议流程",
+            "1. 先用主图谱定位受影响模块、入口和核心调用关系。",
+            "2. 再用功能层级判断新功能应挂在哪个功能分区/业务路径下。",
+            "3. 通过经验路径和 retrieval bundle 提取相似实现证据，作为方案依据。",
+            "4. 如果问题涉及架构权衡、重构、迁移、风险控制，再由 advisor sidecar 给出 how / constraints 建议。",
+            "5. 只有在需要真正执行改动、生成代码、串联多步任务时，才切入 `multi_agent_service.py` 的多智能体流程。",
+            "",
+            "### 关键点",
+            "- 主图谱和层级负责确定‘改哪里’与‘挂在哪’。",
+            "- 经验路径和 retrieval 负责提供‘类似案例和证据’。",
+            "- advisor 负责‘方案约束和权衡’。",
+            "- multi-agent 负责‘真正落地执行’。",
+        ]
+        return "\n".join(lines)
+
+    return ""
 
 
 def _build_skill_first_fallback_answer(user_query: str, project_path: str, llm_error: str = "") -> str:
@@ -264,6 +442,13 @@ def _build_skill_first_fallback_answer(user_query: str, project_path: str, llm_e
 def _prefer_project_intro_action(user_query: str, project_path: str) -> Optional[Dict[str, Any]]:
     if not _is_project_purpose_query(user_query):
         return None
+    if _is_project_bound_usage_query(user_query):
+        return {
+            "action": "run_retrieval",
+            "task_mode": "none",
+            "reason": "项目绑定型问题优先走项目检索与工作台证据主链",
+            "confidence": 0.9,
+        }
     profile = _build_project_identity_profile(project_path)
     reason = "项目定位问答优先走会话直答，避免检索片段主导语义"
     if bool(profile.get("isSkillFirst")):
@@ -421,6 +606,12 @@ def _update_key_facts_memory(
         "decisions": decisions,
         "retrievalCache": list(existing.get("retrievalCache") or [])[:12],
     }
+    raw_opencode_qa = existing.get("opencodeQa")
+    if isinstance(raw_opencode_qa, dict):
+        memory["opencodeQa"] = dict(raw_opencode_qa)
+    existing_opencode_qa_session_id = str(existing.get("opencodeQaSessionId") or "").strip()
+    if existing_opencode_qa_session_id:
+        memory["opencodeQaSessionId"] = existing_opencode_qa_session_id
     return data_accessor.save_conversation_key_facts_memory(conversation_id, memory, merge=False)
 
 
@@ -563,10 +754,33 @@ def _normalize_reply_payload(raw_payload: Any) -> Dict[str, Any]:
     return payload
 
 
+def _build_codegen_selected_node(selected_node: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not isinstance(selected_node, dict) or not selected_node:
+        return {}
+    legacy_keys = (
+        "id",
+        "name",
+        "label",
+        "type",
+        "file_path",
+        "start_line",
+        "end_line",
+    )
+    payload: Dict[str, Any] = {}
+    for key in legacy_keys:
+        value = selected_node.get(key)
+        if value is None:
+            continue
+        if isinstance(value, str) and not value.strip():
+            continue
+        payload[key] = value
+    return payload
+
+
 _RUNTIME_LLM_DEFAULTS: Dict[str, Dict[str, str]] = {
     "openai": {"base_url": "https://api.openai.com/v1", "model": "gpt-4o-mini"},
     "openrouter": {"base_url": "https://openrouter.ai/api/v1", "model": "openai/gpt-4o-mini"},
-    "deepseek": {"base_url": "https://api.deepseek.com/v1", "model": "deepseek-chat"},
+    "deepseek": {"base_url": "https://api.deepseek.com/v1", "model": "deepseek-v4-flash"},
     "qwen": {"base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1", "model": "qwen-plus"},
     "glm": {"base_url": "https://open.bigmodel.cn/api/paas/v4", "model": "glm-4.5"},
     "kimi": {"base_url": "https://api.moonshot.ai/v1", "model": "kimi-k2.5"},
@@ -636,11 +850,210 @@ def _create_deepseek_client(llm_config: Optional[Dict[str, str]] = None) -> Opti
         return DeepSeekAPI(
             api_key=api_key,
             base_url=str(settings.get("base_url") or "https://api.deepseek.com/v1").strip(),
-            model=str(settings.get("model") or "deepseek-chat").strip(),
+            model=str(settings.get("model") or "deepseek-v4-flash").strip(),
             timeout=45,
         )
     except Exception:
         return None
+
+
+def _is_opencode_qa_enabled(payload: Optional[Dict[str, Any]] = None) -> bool:
+    explicit = None
+    if isinstance(payload, dict):
+        if "opencode_enabled" in payload:
+            explicit = payload.get("opencode_enabled")
+        elif "opencodeEnabled" in payload:
+            explicit = payload.get("opencodeEnabled")
+    if explicit is not None:
+        return bool(explicit)
+    raw = str(os.getenv("FH_ENABLE_OPENCODE_QA", "1") or "1").strip().lower()
+    return raw in {"1", "true", "yes", "on", "enabled"}
+
+
+def _opencode_qa_model() -> str:
+    return str(os.getenv("FH_OPENCODE_QA_MODEL") or os.getenv("FH_OPENCODE_MODEL") or "").strip()
+
+
+def _opencode_qa_agent() -> str:
+    return str(os.getenv("FH_OPENCODE_QA_AGENT") or "").strip()
+
+
+def _get_opencode_qa_session_id(conversation_id: str) -> str:
+    memory = data_accessor.get_conversation_key_facts_memory(conversation_id)
+    if not isinstance(memory, dict):
+        return ""
+    raw_qa_memory = memory.get("opencodeQa")
+    qa_memory = cast(Dict[str, Any], raw_qa_memory) if isinstance(raw_qa_memory, dict) else {}
+    return str(qa_memory.get("sessionId") or memory.get("opencodeQaSessionId") or "").strip()
+
+
+def _remember_opencode_qa_session_id(conversation_id: str, session_id: str) -> str:
+    normalized_session_id = str(session_id or "").strip()
+    if not normalized_session_id:
+        return ""
+    memory = data_accessor.get_conversation_key_facts_memory(conversation_id)
+    if not isinstance(memory, dict):
+        memory = {}
+    raw_qa_memory = memory.get("opencodeQa")
+    qa_memory = cast(Dict[str, Any], raw_qa_memory) if isinstance(raw_qa_memory, dict) else {}
+    if str(qa_memory.get("sessionId") or memory.get("opencodeQaSessionId") or "").strip() == normalized_session_id:
+        return normalized_session_id
+    memory["opencodeQa"] = {
+        **qa_memory,
+        "sessionId": normalized_session_id,
+        "updatedAt": _utcnow_iso(),
+    }
+    memory["opencodeQaSessionId"] = normalized_session_id
+    memory["updatedAt"] = _utcnow_iso()
+    data_accessor.save_conversation_key_facts_memory(conversation_id, memory, merge=False)
+    return normalized_session_id
+
+
+def _opencode_qa_timeout_seconds() -> int:
+    raw_value = os.getenv("FH_OPENCODE_QA_TIMEOUT_SECONDS", "90")
+    try:
+        timeout = int(raw_value)
+    except (TypeError, ValueError):
+        timeout = 90
+    return max(20, min(timeout, 600))
+
+
+def _run_opencode_qa_answer(
+    *,
+    conversation_id: str,
+    project_path: str,
+    user_query: str,
+    system_prompt: str,
+    context_payload: Optional[Dict[str, Any]] = None,
+    opencode_enabled: Optional[bool] = None,
+) -> Optional[str]:
+    stored_session_id = _get_opencode_qa_session_id(conversation_id)
+    result = run_opencode_qa(
+        project_path=project_path,
+        conversation_id=conversation_id,
+        opencode_session_id=stored_session_id,
+        user_query=user_query,
+        system_prompt=system_prompt,
+        history=_history_for_prompt(conversation_id, limit=10),
+        context_payload=context_payload,
+        enabled=_is_opencode_qa_enabled({"opencode_enabled": opencode_enabled}),
+        model=_opencode_qa_model(),
+        agent=_opencode_qa_agent(),
+        timeout_seconds=_opencode_qa_timeout_seconds(),
+    )
+    if isinstance(result, dict) and str(result.get("status") or "") == "ready":
+        _remember_opencode_qa_session_id(conversation_id, result.get("session_id") or stored_session_id)
+        text = str(result.get("text") or "").strip()
+        if text:
+            return text
+    return None
+
+
+def _merge_qa_context_payload(base_payload: Optional[Dict[str, Any]], qa_context: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    merged = dict(base_payload or {})
+    if isinstance(qa_context, dict) and qa_context:
+        merged["qa_context"] = qa_context
+    return merged or None
+
+
+def _looks_like_incomplete_qa_answer(text: str) -> bool:
+    lowered = str(text or "").strip().lower()
+    if not lowered:
+        return True
+    markers = (
+        "i read this as",
+        "i'm gathering",
+        "i am gathering",
+        "waiting for parallel",
+        "still checking",
+        "still investigating",
+        "explore-agent",
+        "explore agent",
+        "还在查",
+        "还在检索",
+        "继续梳理",
+    )
+    return any(marker in lowered for marker in markers)
+
+
+def _is_valid_qa_answer(text: str) -> bool:
+    answer = str(text or "").strip()
+    if not answer:
+        return False
+    if any(marker in answer for marker in ["### 定位结论", "### 关键证据", "### 建议改动步骤", "### 建议验证命令"]):
+        return False
+    return not _looks_like_incomplete_qa_answer(answer)
+
+
+def _classify_qa_task_weight(user_query: str) -> Dict[str, Any]:
+    query = str(user_query or "").strip()
+    query_lower = query.lower()
+    score = 0
+    signals: List[str] = []
+
+    if _looks_like_codebase_fact_question(query):
+        score += 2
+        signals.append("codebase_fact")
+
+    if _extract_path_hints_from_text(query):
+        score += 1
+        signals.append("path_hint")
+
+    if any(marker in query_lower for marker in QA_HEAVY_QUERY_MARKERS):
+        score += 2
+        signals.append("heavy_marker")
+
+    punctuation_hits = sum(query.count(token) for token in ["，", ",", "？", "?", "；", ";"])
+    if len(query) >= 40 or punctuation_hits >= 2:
+        score += 1
+        signals.append("multi_clause")
+
+    return {
+        "task_weight": "heavy" if score >= 2 else "light",
+        "score": score,
+        "signals": signals[:4],
+    }
+
+
+def _build_weighted_qa_context(
+    *,
+    project_path: str,
+    user_query: str,
+    action: str,
+    task_mode: Optional[str],
+    partition_id: Optional[str] = None,
+    selected_node: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    normalized_action = str(action or "").strip()
+    normalized_task_mode = str(task_mode or "none").strip().lower() or "none"
+    if normalized_action not in {"general_chat", "run_retrieval"}:
+        return None
+    if normalized_task_mode in {"modify_existing", "write_new_code"}:
+        return None
+
+    weight = _classify_qa_task_weight(user_query)
+    if str(weight.get("task_weight") or "light") != "heavy":
+        return None
+
+    try:
+        from app.services import multi_agent_service as mas
+
+        qa_context = _execute_with_timeout(
+            _get_qa_context_timeout_seconds(),
+            mas.build_qa_context_bundle,
+            project_path=project_path,
+            user_query=user_query,
+            task_mode=normalized_task_mode,
+            preferred_partition_id=partition_id,
+            selected_node=selected_node or {},
+            qa_route=normalized_action,
+            task_weight="heavy",
+        )
+    except FuturesTimeoutError:
+        return None
+    except Exception:
+        return None
+    return qa_context if isinstance(qa_context, dict) and qa_context else None
 
 
 def _extract_text_from_response(response: Dict[str, Any]) -> str:
@@ -885,12 +1298,54 @@ def _build_clarification_payload(
     return _fallback_clarification_payload(user_query, project_path, decision)
 
 
-def _generate_chat_answer(user_query: str, conversation_id: str, project_path: str, llm_config: Optional[Dict[str, str]] = None) -> str:
-    history = _history_for_prompt(conversation_id, limit=10)
+def _generate_chat_answer(
+    user_query: str,
+    conversation_id: str,
+    project_path: str,
+    llm_config: Optional[Dict[str, str]] = None,
+    opencode_enabled: Optional[bool] = None,
+    qa_context: Optional[Dict[str, Any]] = None,
+) -> str:
     project_profile = _build_project_identity_profile(project_path)
+    profile_evidence = project_profile.get("evidence") if isinstance(project_profile.get("evidence"), list) else []
+    project_bound_usage = _is_project_bound_usage_query(user_query)
+    profile_hint = {
+        "project_profile": {
+            "purpose": str(project_profile.get("purpose") or ""),
+            "is_skill_first": bool(project_profile.get("isSkillFirst")),
+            "evidence": profile_evidence,
+            "project_bound_usage": project_bound_usage,
+        },
+        "policy": {
+            "for_project_intro_questions": "优先先说明项目真实用途。若命中 skill-first 特征，明确说明技能库选取是主流程、RAG仅辅助。",
+            "for_project_bound_usage_questions": "若问题明确绑定当前已打开项目/经验库/图谱/功能层级/经验路径，请优先围绕 workbench、conversations、retrieval、advisor、多智能体主链回答，不要把 .skill 或 skill_callchain 说成当前主流程。",
+            "avoid": "不要把检索基础设施描述成项目主目标。",
+        },
+    }
+    context_payload = _merge_qa_context_payload(profile_hint, qa_context)
+    opencode_answer = _run_opencode_qa_answer(
+        conversation_id=conversation_id,
+        project_path=project_path,
+        user_query=user_query,
+        system_prompt=(
+            "你是代码项目智能问答助手。优先结合当前会话历史回答，回答要简洁、可执行。"
+            "当信息不足时，明确指出还缺什么。"
+        ),
+        context_payload=context_payload,
+        opencode_enabled=opencode_enabled,
+    )
+    if opencode_answer:
+        return opencode_answer
+
+    if project_bound_usage and _is_project_runtime_architecture_question(user_query):
+        direct_answer = _build_project_bound_usage_answer(project_path, user_query)
+        if direct_answer:
+            return direct_answer
+
+    history = _history_for_prompt(conversation_id, limit=10)
     client = _create_deepseek_client(llm_config=llm_config)
     if client is None:
-        if _is_project_purpose_query(user_query):
+        if _is_project_purpose_query(user_query) and not project_bound_usage:
             return str(project_profile.get("purpose") or "这是一个代码问答系统。")
         return f"我收到你的问题：{user_query}。当前会话模式已启用，你也可以继续补充上下文，我会基于后续信息持续更新答案。"
 
@@ -899,20 +1354,8 @@ def _generate_chat_answer(user_query: str, conversation_id: str, project_path: s
         "优先结合当前会话历史回答，回答要简洁、可执行。"
         "当信息不足时，明确指出还缺什么。"
     )
-    profile_evidence = project_profile.get("evidence") if isinstance(project_profile.get("evidence"), list) else []
-    profile_hint = {
-        "project_profile": {
-            "purpose": str(project_profile.get("purpose") or ""),
-            "is_skill_first": bool(project_profile.get("isSkillFirst")),
-            "evidence": profile_evidence,
-        },
-        "policy": {
-            "for_project_intro_questions": "优先先说明项目真实用途。若命中 skill-first 特征，明确说明技能库选取是主流程、RAG仅辅助。",
-            "avoid": "不要把检索基础设施描述成项目主目标。",
-        },
-    }
     messages = [{"role": "system", "content": system_prompt}] + history
-    messages.append({"role": "system", "content": json.dumps(profile_hint, ensure_ascii=False)})
+    messages.append({"role": "system", "content": json.dumps(context_payload or profile_hint, ensure_ascii=False)})
     messages.append({"role": "user", "content": user_query})
 
     llm_error = ""
@@ -924,10 +1367,10 @@ def _generate_chat_answer(user_query: str, conversation_id: str, project_path: s
     except Exception as exc:
         llm_error = str(exc)
 
-    if _is_project_purpose_query(user_query):
+    if _is_project_purpose_query(user_query) and not project_bound_usage:
         return _build_project_intro_answer(project_path, [])
 
-    if bool(project_profile.get("isSkillFirst")):
+    if bool(project_profile.get("isSkillFirst")) and not project_bound_usage:
         return _build_skill_first_fallback_answer(user_query, project_path, llm_error)
 
     return f"我理解你的问题是：{user_query}。你可以再补充一点背景，我会给出更具体的可执行建议。"
@@ -950,6 +1393,8 @@ def _llm_decide_next_action(
         "你只能返回JSON，不允许返回其他文字。"
         "action 只能是 clarify/general_chat/run_retrieval/start_multi_agent 四选一。"
         "如果用户在问项目定位/用途/能做什么，优先 general_chat，除非用户明确要求代码证据。"
+        "如果 heuristicDecision 表明已经历过至少一轮需求澄清（clarification_round > 0），不要再次返回 clarify。"
+        "这类继续追问或补充应优先 general_chat 或 run_retrieval，避免把用户卡在澄清阶段。"
     )
     user_payload = {
         "task": "decide_next_action",
@@ -1016,20 +1461,47 @@ def _normalize_action_decision(
     if isinstance(llm_decision, dict):
         heuristic_task_mode = str(heuristic_decision.get("task_mode") or "").strip()
         llm_task_mode = str(llm_decision.get("task_mode") or "").strip()
+        heuristic_route = str(heuristic_decision.get("route") or "").strip()
+        heuristic_clarity_level = str(heuristic_decision.get("clarity_level") or "").strip()
+        clarification_round = _safe_int(heuristic_decision.get("clarification_round"), 0)
         if heuristic_task_mode == "write_new_code" and llm_task_mode == "modify_existing":
             llm_decision = {
                 **llm_decision,
                 "task_mode": "write_new_code",
             }
-        return llm_decision
+        llm_action = str(llm_decision.get("action") or "").strip()
+        heuristic_confidence = heuristic_decision.get("confidence")
+        try:
+            fallback_confidence = float(heuristic_confidence) if heuristic_confidence is not None else float(llm_decision.get("confidence") or 0.7)
+        except (TypeError, ValueError):
+            fallback_confidence = 0.7
+        if clarification_round > 0 and llm_action == "clarify" and heuristic_route in {"general_chat", "run_retrieval"}:
+            llm_decision = {
+                **llm_decision,
+                "action": heuristic_route,
+                "task_mode": "none" if heuristic_route == "general_chat" else str(llm_decision.get("task_mode") or heuristic_task_mode or "modify_existing"),
+                "reason": str(heuristic_decision.get("reason") or llm_decision.get("reason") or "澄清后沿用非阻塞回退策略"),
+                "confidence": max(0.0, min(fallback_confidence, 1.0)),
+            }
+        elif heuristic_route == "run_retrieval" and heuristic_clarity_level == "codebase_fact_question":
+            llm_decision = {
+                **llm_decision,
+                "action": "run_retrieval",
+                "task_mode": "none",
+                "reason": str(heuristic_decision.get("reason") or "具体代码事实问答保持检索路径"),
+                "confidence": max(0.0, min(fallback_confidence, 1.0)),
+            }
+        normalized_action = str(llm_decision.get("action") or "").strip()
+        normalized_task_mode = str(llm_decision.get("task_mode") or "modify_existing").strip() or "modify_existing"
+        return {
+            **llm_decision,
+            "action": normalized_action,
+            "task_mode": normalized_task_mode,
+        }
 
-    route = str(heuristic_decision.get("route") or "modify_existing")
-    if route == "clarify":
-        action = "clarify"
-    elif route == "general_chat":
-        action = "general_chat"
-    else:
-        action = "run_retrieval"
+    route = str(heuristic_decision.get("route") or "general_chat").strip() or "general_chat"
+    if route not in {"clarify", "general_chat", "run_retrieval", "start_multi_agent"}:
+        route = "general_chat"
     heuristic_confidence = heuristic_decision.get("confidence")
     try:
         confidence = float(heuristic_confidence) if heuristic_confidence is not None else 0.6
@@ -1037,8 +1509,8 @@ def _normalize_action_decision(
         confidence = 0.6
 
     return {
-        "action": action,
-        "task_mode": str(heuristic_decision.get("task_mode") or "modify_existing"),
+        "action": route,
+        "task_mode": str(heuristic_decision.get("task_mode") or "modify_existing").strip() or "modify_existing",
         "reason": str(heuristic_decision.get("reason") or "规则动作决策"),
         "confidence": confidence,
     }
@@ -1480,16 +1952,78 @@ def _build_project_intro_answer(project_path: str, highlights: List[Dict[str, An
         usage_text = "你可以用它做代码仓库分析、证据检索和任务编排问答。"
 
     evidence_block = "\n".join(project_evidence_lines) if project_evidence_lines else "- 暂未提取到稳定证据，请补充项目路径或关键文件。"
-    return "\n".join(
-        [
-            "### 项目定位",
-            f"- {str(profile.get('purpose') or '这是一个代码问答系统。')}",
-            f"- {usage_text}",
-            "",
-            "### 依据",
-            evidence_block,
-        ]
-    )
+
+    arch_digest_section = _build_architecture_digest_section(project_path)
+
+    sections = [
+        "### 项目定位",
+        f"- {str(profile.get('purpose') or '这是一个代码问答系统。')}",
+        f"- {usage_text}",
+        "",
+        "### 依据",
+        evidence_block,
+    ]
+    if arch_digest_section:
+        sections.append("")
+        sections.append(arch_digest_section)
+    return "\n".join(sections)
+
+
+def _build_architecture_digest_section(project_path: str) -> str:
+    try:
+        from app.services.experience_library_service import generate_architecture_digest
+        digest = generate_architecture_digest(project_path)
+    except Exception:
+        return ""
+
+    overview = digest.get("overview", {})
+    modules = digest.get("modules", [])
+    design_patterns = digest.get("design_patterns", [])
+    experience_stats = digest.get("experience_library_stats", {})
+
+    lines: List[str] = []
+
+    tech_stack = overview.get("tech_stack", [])
+    frameworks = overview.get("frameworks", [])
+    if tech_stack or frameworks:
+        lines.append("### 技术架构")
+        if tech_stack:
+            lines.append(f"- **技术栈**: {' / '.join(tech_stack)}")
+        if frameworks:
+            lines.append(f"- **框架**: {' / '.join(frameworks)}")
+        entry = overview.get("entry_point")
+        if entry:
+            lines.append(f"- **入口文件**: `{entry}`")
+        lines.append(f"- **代码模块**: {overview.get('module_count', 0)} 个")
+        lines.append(f"- **API路由**: {overview.get('api_route_count', 0)} 条")
+        lines.append("")
+
+    if modules:
+        lines.append("### 核心模块")
+        for m in modules[:8]:
+            lines.append(f"- **{m['name']}/**: {m.get('file_count', 0)} 个代码文件")
+        lines.append("")
+
+    if design_patterns:
+        lines.append("### 设计模式")
+        for p in design_patterns:
+            lines.append(f"- **{p['name']}**: {p['description']}")
+        lines.append("")
+
+    if experience_stats:
+        stats_parts: List[str] = []
+        if experience_stats.get("community_count"):
+            stats_parts.append(f"{experience_stats['community_count']} 个社区分区")
+        if experience_stats.get("process_count"):
+            stats_parts.append(f"{experience_stats['process_count']} 个业务流程")
+        if experience_stats.get("experience_path_total"):
+            stats_parts.append(f"{experience_stats['experience_path_total']} 条经验路径")
+        if stats_parts:
+            lines.append("### 经验库概况")
+            lines.append(f"- {' · '.join(stats_parts)}")
+            lines.append("")
+
+    return "\n".join(lines)
 
 
 def _build_retrieval_fallback_answer(
@@ -1521,6 +2055,454 @@ def _build_retrieval_fallback_answer(
     )
 
 
+def _looks_like_codebase_fact_question(user_query: str) -> bool:
+    try:
+        return bool(QuestionDetector._is_codebase_fact_question(user_query, has_context=False))
+    except Exception:
+        lowered = str(user_query or "").lower()
+        keywords = ["多少个类", "多少个方法", "最重要的方法", "被谁调用", "调用了谁", "call chain", "called by"]
+        return any(keyword in lowered for keyword in keywords)
+
+
+def _has_rich_graph_qa_context(qa_context: Optional[Dict[str, Any]]) -> bool:
+    if not isinstance(qa_context, dict) or not qa_context:
+        return False
+    selection_mode = str(qa_context.get("selection_mode") or "").strip().lower()
+    if selection_mode == "path_analyses":
+        return True
+    rich_keys = ("selected_path", "candidate_paths", "node_details", "evidence_packet")
+    if any(isinstance(qa_context.get(key), dict) and qa_context.get(key) for key in rich_keys):
+        return True
+    selected_node = qa_context.get("selected_node")
+    if isinstance(selected_node, dict) and any(
+        selected_node.get(key) for key in ("function_chain", "fqmn", "method_signature", "main_method", "intermediate_methods")
+    ):
+        return True
+    return False
+
+
+def _should_prefer_graph_grounded_qa(user_query: str, qa_context: Optional[Dict[str, Any]]) -> bool:
+    query = str(user_query or "").strip().lower()
+    if not query or not _has_rich_graph_qa_context(qa_context):
+        return False
+    graph_markers = (
+        "graph", "图", "fqn", "fqmn", "full name", "全限定", "call-chain", "call chain", "调用链",
+        "caller", "callee", "caller-callee", "called by", "被谁调用", "调用了谁", "证据", "evidence",
+    )
+    return any(marker in query for marker in graph_markers)
+
+
+def _build_direct_qa_fallback_answer(user_query: str, highlights: List[Dict[str, Any]]) -> str:
+    evidence_lines = _format_retrieval_evidence_lines(highlights, limit=4)
+    first_target = highlights[0] if highlights else {}
+    first_label = str(first_target.get("label") or first_target.get("file") or "候选目标").strip()
+    lines = [f"我先直接回答：当前最相关的证据集中在 `{first_label}`。"]
+    if user_query:
+        lines.append(f"你的问题是：{user_query}")
+    if evidence_lines:
+        lines.extend(["", "我依据的代码证据：", *evidence_lines])
+    else:
+        lines.extend(["", "这次只拿到了弱证据，建议补充更明确的文件名、类名或方法名。"])
+    return "\n".join(lines)
+
+
+def _call_target_name(node: ast.AST) -> str:
+    if isinstance(node, ast.Name):
+        return str(node.id or "").strip()
+    if isinstance(node, ast.Attribute):
+        base = _call_target_name(node.value)
+        attr = str(node.attr or "").strip()
+        return f"{base}.{attr}".strip(".") if base else attr
+    return ""
+
+
+def _first_doc_line(value: Any) -> str:
+    doc = str(value or "").strip()
+    if not doc:
+        return ""
+    for line in doc.splitlines():
+        normalized = line.strip()
+        if normalized:
+            return normalized
+    return ""
+
+
+def _select_focus_file(user_query: str, highlights: List[Dict[str, Any]], qa_context: Optional[Dict[str, Any]] = None) -> str:
+    files = [str(item.get("file") or item.get("file_path") or "").strip() for item in highlights if isinstance(item, dict)]
+    files = [item for item in files if item]
+    preferred_files: List[str] = []
+    if isinstance(qa_context, dict):
+        selected_node = qa_context.get("selected_node")
+        if isinstance(selected_node, dict):
+            selected_file = str(selected_node.get("file_path") or "").strip()
+            if selected_file:
+                preferred_files.append(selected_file)
+        evidence_packet = qa_context.get("evidence_packet")
+        if isinstance(evidence_packet, dict):
+            for item in evidence_packet.get("items") or []:
+                if not isinstance(item, dict):
+                    continue
+                source = item.get("source")
+                if not isinstance(source, dict):
+                    continue
+                source_file = str(source.get("file_path") or "").strip()
+                if source_file and source_file not in preferred_files:
+                    preferred_files.append(source_file)
+    raw_hints = re.findall(r"[A-Za-z0-9_./\-]+\.[A-Za-z0-9_]+", str(user_query or ""))
+    for hint in [*preferred_files, *raw_hints]:
+        normalized_hint = hint.replace("\\", "/").strip().lower()
+        for file_path in files:
+            normalized_file = file_path.replace("\\", "/").strip().lower()
+            if normalized_hint and (
+                normalized_file.endswith(normalized_hint)
+                or normalized_hint.endswith(normalized_file)
+                or os.path.basename(normalized_file) == os.path.basename(normalized_hint)
+            ):
+                return file_path
+    for preferred in preferred_files:
+        if preferred:
+            return preferred
+    return files[0] if files else ""
+
+
+def _collect_ast_call_names(node: ast.AST) -> List[str]:
+    names: List[str] = []
+    seen = set()
+    for child in ast.walk(node):
+        if not isinstance(child, ast.Call):
+            continue
+        target_name = _call_target_name(child.func)
+        if not target_name or target_name in seen:
+            continue
+        seen.add(target_name)
+        names.append(target_name)
+    return names
+
+
+def _normalize_symbol_tail(value: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    text = text.split("(", 1)[0].strip()
+    return text.rsplit(".", 1)[-1].strip().lower()
+
+
+def _build_fact_anchor_names(user_query: str, qa_context: Optional[Dict[str, Any]] = None) -> List[str]:
+    anchors: List[str] = []
+    for token in re.findall(r"[A-Za-z_][A-Za-z0-9_\.]{1,}", str(user_query or "")):
+        normalized = _normalize_symbol_tail(token)
+        if normalized and normalized not in anchors:
+            anchors.append(normalized)
+    if isinstance(qa_context, dict):
+        selected_node = qa_context.get("selected_node")
+        if isinstance(selected_node, dict):
+            for key in ("method_signature", "fqmn", "signature", "name", "label"):
+                normalized = _normalize_symbol_tail(str(selected_node.get(key) or ""))
+                if normalized and normalized not in anchors:
+                    anchors.insert(0, normalized)
+    return anchors[:12]
+
+
+def _build_python_file_fact_payload(
+    project_path: str,
+    user_query: str,
+    highlights: List[Dict[str, Any]],
+    qa_context: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    focus_file = _select_focus_file(user_query, highlights, qa_context=qa_context)
+    if not focus_file or not focus_file.lower().endswith('.py'):
+        return None
+    normalized_project = _normalize_project_path(project_path)
+    resolved_path = focus_file if os.path.isabs(focus_file) else os.path.join(normalized_project, focus_file)
+    if not os.path.isfile(resolved_path):
+        return None
+    try:
+        with open(resolved_path, 'r', encoding='utf-8', errors='replace') as handle:
+            source = handle.read()
+    except Exception:
+        return None
+    try:
+        tree = ast.parse(source)
+    except Exception:
+        return None
+
+    module_doc = _first_doc_line(ast.get_docstring(tree))
+    classes: List[Dict[str, Any]] = []
+    methods: List[Dict[str, Any]] = []
+    top_level_functions: List[Dict[str, Any]] = []
+    function_payloads_by_name: Dict[str, List[Dict[str, Any]]] = {}
+    anchor_names = _build_fact_anchor_names(user_query, qa_context=qa_context)
+
+    def _build_function_payload(node: Union[ast.FunctionDef, ast.AsyncFunctionDef], qualified_name: Optional[str] = None) -> Dict[str, Any]:
+        calls = _collect_ast_call_names(node)
+        payload = {
+            'name': str(node.name or '').strip(),
+            'qualified_name': qualified_name or str(node.name or '').strip(),
+            'line_start': int(getattr(node, 'lineno', 1) or 1),
+            'line_end': int(getattr(node, 'end_lineno', getattr(node, 'lineno', 1)) or getattr(node, 'lineno', 1) or 1),
+            'docstring': _first_doc_line(ast.get_docstring(node)),
+            'callers': [],
+            'callees': [{'label': name, 'relation': 'AST_CALL', 'file': focus_file} for name in calls[:4]],
+        }
+        key = _normalize_symbol_tail(payload['qualified_name'])
+        if key:
+            function_payloads_by_name.setdefault(key, []).append(payload)
+        return payload
+
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef):
+            class_methods: List[Dict[str, Any]] = []
+            for item in node.body:
+                if not isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                method_payload = _build_function_payload(item, qualified_name=f"{node.name}.{item.name}")
+                methods.append(method_payload)
+                class_methods.append(method_payload)
+            classes.append({'name': str(node.name or '').strip(), 'docstring': _first_doc_line(ast.get_docstring(node)), 'method_count': len(class_methods)})
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            top_level_functions.append(_build_function_payload(node))
+
+    if not methods and not top_level_functions:
+        return None
+
+    all_functions = methods + top_level_functions
+    for caller in all_functions:
+        caller_label = str(caller.get('qualified_name') or caller.get('name') or '').strip()
+        for callee in caller.get('callees') or []:
+            callee_label = str(callee.get('label') or '').strip()
+            normalized = _normalize_symbol_tail(callee_label)
+            matches = function_payloads_by_name.get(normalized) or []
+            if len(matches) != 1:
+                continue
+            target = matches[0]
+            callers_raw = target.get('callers')
+            callers: List[Dict[str, Any]] = callers_raw if isinstance(callers_raw, list) else []
+            if not isinstance(callers_raw, list):
+                target['callers'] = callers
+            if any(str(item.get('label') or '').strip() == caller_label for item in callers if isinstance(item, dict)):
+                continue
+            callers.append({'label': caller_label, 'relation': 'LOCAL_CALL', 'file': focus_file})
+
+    if isinstance(qa_context, dict):
+        selected_path = qa_context.get('selected_path')
+        if isinstance(selected_path, dict):
+            function_chain = [str(item).strip() for item in (selected_path.get('function_chain') or []) if str(item).strip()]
+            for index, symbol in enumerate(function_chain):
+                normalized = _normalize_symbol_tail(symbol)
+                matches = function_payloads_by_name.get(normalized) or []
+                if len(matches) != 1:
+                    continue
+                payload = matches[0]
+                payload_callers = payload.get('callers')
+                payload_callees = payload.get('callees')
+                callers: List[Dict[str, Any]] = list(payload_callers) if isinstance(payload_callers, list) else []
+                callees: List[Dict[str, Any]] = list(payload_callees) if isinstance(payload_callees, list) else []
+                if index > 0:
+                    prev_symbol = function_chain[index - 1]
+                    if not any(str(item.get('label') or '').strip() == prev_symbol for item in callers if isinstance(item, dict)):
+                        callers.insert(0, {'label': prev_symbol, 'relation': 'PATH_CALLER', 'file': focus_file})
+                    payload['callers'] = callers
+                if index + 1 < len(function_chain):
+                    next_symbol = function_chain[index + 1]
+                    if not any(str(item.get('label') or '').strip() == next_symbol for item in callees if isinstance(item, dict)):
+                        callees.insert(0, {'label': next_symbol, 'relation': 'PATH_CALLEE', 'file': focus_file})
+                    payload['callees'] = callees
+
+    top_method: Optional[Dict[str, Any]] = None
+    best_score = -1.0
+    for item in all_functions:
+        line_span = max(1, int(item.get('line_end') or 1) - int(item.get('line_start') or 1) + 1)
+        item_name = _normalize_symbol_tail(str(item.get('qualified_name') or item.get('name') or ''))
+        anchor_bonus = 10.0 if item_name and item_name in anchor_names else 0.0
+        score = (0 if str(item.get('name') or '').startswith('__') else 3.0) + len(item.get('callees') or []) * 1.6 + len(item.get('callers') or []) * 1.4 + min(line_span / 12.0, 4.0) + anchor_bonus
+        if score > best_score:
+            best_score = score
+            top_method = item
+
+    purpose = module_doc
+    if not purpose and classes:
+        purpose = str(classes[0].get('docstring') or '').strip() or f"该文件主要围绕 `{classes[0].get('name')}` 提供相关能力。"
+    if not purpose:
+        representative_names = [str(item.get('qualified_name') or item.get('name') or '').strip() for item in all_functions[:3] if str(item.get('qualified_name') or item.get('name') or '').strip()]
+        if representative_names:
+            purpose = f"该文件主要围绕 {', '.join(representative_names)} 等函数/方法实现 `{Path(focus_file).name}` 对应的核心逻辑。"
+        else:
+            purpose = f"该文件主要负责 `{Path(focus_file).name}` 对应的代码逻辑。"
+
+    important_functions = sorted(
+        all_functions,
+        key=lambda item: (
+            1 if _normalize_symbol_tail(str(item.get('qualified_name') or item.get('name') or '')) in anchor_names else 0,
+            len(item.get('callers') or []),
+            len(item.get('callees') or []),
+            -int(item.get('line_start') or 1),
+        ),
+        reverse=True,
+    )[:6]
+
+    return {
+        'file_path': focus_file,
+        'class_count': len(classes),
+        'method_count': len(all_functions),
+        'class_method_count': len(methods),
+        'top_level_function_count': len(top_level_functions),
+        'file_purpose': purpose,
+        'classes': classes,
+        'top_level_functions': top_level_functions,
+        'important_functions': important_functions,
+        'top_method': top_method,
+    }
+
+
+def _build_codebase_fact_fallback_answer(fact_payload: Dict[str, Any]) -> str:
+    file_path = str(fact_payload.get('file_path') or '目标文件').strip()
+    class_count = int(fact_payload.get('class_count') or 0)
+    method_count = int(fact_payload.get('method_count') or 0)
+    top_method_raw = fact_payload.get('top_method')
+    top_method_dict: Dict[str, Any] = top_method_raw if isinstance(top_method_raw, dict) else {}
+    top_method_name = str(top_method_dict.get('qualified_name') or top_method_dict.get('name') or '未确定').strip() or '未确定'
+    top_method_purpose = str(top_method_dict.get('docstring') or '').strip() or f"从实现结构看，`{top_method_name}` 是当前最值得优先关注的方法。"
+    lines = [
+        f"直接回答你的问题：`{file_path}` 当前包含 {class_count} 个类、{method_count} 个方法。",
+        f"这个文件主要是干嘛的：{str(fact_payload.get('file_purpose') or '暂未提取到稳定说明。').strip()}",
+        f"我选出的最重要方法是 `{top_method_name}`。",
+        f"这个方法主要是干嘛的：{top_method_purpose}",
+    ]
+    top_level_functions = fact_payload.get('top_level_functions') if isinstance(fact_payload.get('top_level_functions'), list) else []
+    important_functions = fact_payload.get('important_functions') if isinstance(fact_payload.get('important_functions'), list) else []
+    if top_level_functions:
+        lines.append("这个文件里的顶层函数摘要：")
+        for item in top_level_functions[:6]:
+            if not isinstance(item, dict):
+                continue
+            label = str(item.get('qualified_name') or item.get('name') or '').strip()
+            purpose = str(item.get('docstring') or '').strip() or '当前未抽取到稳定注释，建议结合源码继续确认。'
+            lines.append(f"- `{label}`：{purpose}")
+    elif important_functions:
+        lines.append("当前最值得优先看的函数/方法：")
+        for item in important_functions[:6]:
+            if not isinstance(item, dict):
+                continue
+            label = str(item.get('qualified_name') or item.get('name') or '').strip()
+            purpose = str(item.get('docstring') or '').strip() or '当前未抽取到稳定注释。'
+            lines.append(f"- `{label}`：{purpose}")
+    callers_raw = top_method_dict.get('callers')
+    callers = callers_raw if isinstance(callers_raw, list) else []
+    callees_raw = top_method_dict.get('callees')
+    callees = callees_raw if isinstance(callees_raw, list) else []
+    lines.append(f"谁调用了它：{'当前没有拿到稳定的外部调用者证据。' if not callers else ''}")
+    for item in callers[:4]:
+        lines.append(f"- {item.get('label')}（{item.get('relation')}）")
+    lines.append(f"它又调用了谁：{'当前没有拿到稳定的调用证据。' if not callees else ''}")
+    for item in callees[:4]:
+        lines.append(f"- {item.get('label')}（{item.get('relation')}）")
+    return "\n".join(lines)
+
+
+def _generate_direct_retrieval_answer(
+    user_query: str,
+    conversation_id: str,
+    project_path: Optional[str],
+    highlights: List[Dict[str, Any]],
+    llm_config: Optional[Dict[str, str]] = None,
+    opencode_enabled: Optional[bool] = None,
+    qa_context: Optional[Dict[str, Any]] = None,
+) -> str:
+    conversation_payload = data_accessor.get_conversation(conversation_id)
+    conversation_project_path = conversation_payload.get("projectPath") if isinstance(conversation_payload, dict) else "."
+    effective_project_path = str(project_path or conversation_project_path or ".")
+    context_payload = _merge_qa_context_payload({"retrieval_highlights": highlights, "answer_style": "direct_qa"}, qa_context)
+    opencode_answer = _run_opencode_qa_answer(
+        conversation_id=conversation_id,
+        project_path=effective_project_path,
+        user_query=user_query,
+        system_prompt=(
+            "你是代码库事实问答助手。直接根据检索证据回答用户问题，不要输出建议改动步骤、建议验证命令，也不要套固定模板。"
+            "必须先正面回答用户问的内容，只保留和问题有关的信息。"
+        ),
+        context_payload=context_payload,
+        opencode_enabled=opencode_enabled,
+    )
+    if _is_valid_qa_answer(str(opencode_answer or '')):
+        return str(opencode_answer or '')
+    client = _create_deepseek_client(llm_config=llm_config)
+    if client is None:
+        return _build_direct_qa_fallback_answer(user_query, highlights)
+    history = _history_for_prompt(conversation_id, limit=6)
+    system_prompt = (
+        "你是代码库事实问答助手。"
+        "直接根据检索证据回答用户问题，不要输出建议改动步骤、建议验证命令，也不要套固定模板。"
+        "必须先正面回答用户问的内容，只保留和问题有关的信息。"
+    )
+    user_payload = _merge_qa_context_payload({'query': user_query, 'retrieval_highlights': highlights, 'answer_style': 'direct_qa'}, qa_context) or {}
+    messages = [{'role': 'system', 'content': system_prompt}] + history
+    messages.append({'role': 'user', 'content': json.dumps(user_payload, ensure_ascii=False)})
+    try:
+        response = client.chat(messages=messages, temperature=0.15, max_tokens=700, timeout=35)
+        answer = _extract_text_from_response(response)
+        if answer:
+            if not _is_valid_qa_answer(answer):
+                return _build_direct_qa_fallback_answer(user_query, highlights)
+            return answer
+    except Exception:
+        pass
+    return _build_direct_qa_fallback_answer(user_query, highlights)
+
+
+def _generate_codebase_fact_answer(
+    user_query: str,
+    conversation_id: str,
+    project_path: str,
+    highlights: List[Dict[str, Any]],
+    llm_config: Optional[Dict[str, str]] = None,
+    opencode_enabled: Optional[bool] = None,
+    qa_context: Optional[Dict[str, Any]] = None,
+) -> str:
+    fact_payload = _build_python_file_fact_payload(project_path, user_query, highlights, qa_context=qa_context)
+    if not isinstance(fact_payload, dict):
+        return _generate_direct_retrieval_answer(user_query, conversation_id, project_path, highlights, llm_config=llm_config, opencode_enabled=opencode_enabled, qa_context=qa_context)
+    context_payload = _merge_qa_context_payload({"facts": fact_payload}, qa_context)
+    opencode_answer = _run_opencode_qa_answer(
+        conversation_id=conversation_id,
+        project_path=project_path,
+        user_query=user_query,
+        system_prompt=(
+            "你是代码库事实问答助手。你会基于已经提取好的文件结构事实来直接回答用户问题。"
+            "不要输出定位结论/关键证据/建议改动步骤/建议验证命令这类模板。"
+            "必须覆盖：类数量、方法数量、最重要的方法、文件作用、调用者、被调者。"
+            "如果 facts 里没有某项证据，就明确说未找到，不要猜。"
+        ),
+        context_payload=context_payload,
+        opencode_enabled=opencode_enabled,
+    )
+    if _is_valid_qa_answer(str(opencode_answer or '')):
+        return str(opencode_answer or '')
+    client = _create_deepseek_client(llm_config=llm_config)
+    if client is None:
+        return _build_codebase_fact_fallback_answer(fact_payload)
+    history = _history_for_prompt(conversation_id, limit=4)
+    system_prompt = (
+        "你是代码库事实问答助手。"
+        "你会基于已经提取好的文件结构事实来直接回答用户问题。"
+        "不要输出定位结论/关键证据/建议改动步骤/建议验证命令这类模板。"
+        "必须覆盖：类数量、方法数量、最重要的方法、文件作用、调用者、被调者。"
+        "如果 facts 里没有某项证据，就明确说未找到，不要猜。"
+    )
+    user_payload = _merge_qa_context_payload({'query': user_query, 'facts': fact_payload}, qa_context) or {}
+    messages = [{'role': 'system', 'content': system_prompt}] + history
+    messages.append({'role': 'user', 'content': json.dumps(user_payload, ensure_ascii=False)})
+    try:
+        response = client.chat(messages=messages, temperature=0.1, max_tokens=750, timeout=35)
+        answer = _extract_text_from_response(response)
+        if answer:
+            if not _is_valid_qa_answer(answer):
+                return _build_codebase_fact_fallback_answer(fact_payload)
+            return answer
+    except Exception:
+        pass
+    return _build_codebase_fact_fallback_answer(fact_payload)
+
+
 def _generate_retrieval_answer(
     user_query: str,
     conversation_id: str,
@@ -1528,9 +2510,54 @@ def _generate_retrieval_answer(
     highlights: List[Dict[str, Any]],
     validation_commands: List[str],
     llm_config: Optional[Dict[str, str]] = None,
+    task_mode: Optional[str] = None,
+    opencode_enabled: Optional[bool] = None,
+    qa_context: Optional[Dict[str, Any]] = None,
 ) -> str:
     if not highlights:
         return "当前检索没有命中明显相关证据，你可以补充模块名、文件路径或更明确目标。"
+    normalized_task_mode = str(task_mode or "").strip().lower()
+    if normalized_task_mode in {"", "none"}:
+        if _should_prefer_graph_grounded_qa(user_query, qa_context):
+            return _generate_direct_retrieval_answer(user_query, conversation_id, project_path, highlights, llm_config=llm_config, opencode_enabled=opencode_enabled, qa_context=qa_context)
+        if _looks_like_codebase_fact_question(user_query):
+            return _generate_codebase_fact_answer(
+                user_query,
+                conversation_id,
+                project_path,
+                highlights,
+                llm_config=llm_config,
+                opencode_enabled=opencode_enabled,
+                qa_context=qa_context,
+            )
+        return _generate_direct_retrieval_answer(user_query, conversation_id, project_path, highlights, llm_config=llm_config, opencode_enabled=opencode_enabled, qa_context=qa_context)
+    context_payload = _merge_qa_context_payload(
+        {
+            "retrieval_highlights": highlights,
+            "validation_commands": validation_commands,
+            "format_constraints": {
+                "sections": ["定位结论", "关键证据", "建议改动步骤", "建议验证命令"],
+                "bullet_style": "- ...",
+                "max_evidence_items": 4,
+                "max_steps": 4,
+            },
+        },
+        qa_context,
+    )
+    opencode_answer = _run_opencode_qa_answer(
+        conversation_id=conversation_id,
+        project_path=project_path,
+        user_query=user_query,
+        system_prompt=(
+            "你是代码问答助手，采用 opencode 风格输出。必须只基于提供的检索证据，不得虚构仓库事实。"
+            "输出必须使用以下4个Markdown二级标题，且按顺序输出：`### 定位结论`、`### 关键证据`、`### 建议改动步骤`、`### 建议验证命令`。"
+            "关键证据必须引用具体文件与行号（若有）。改动步骤必须是可执行动作，避免空话。"
+        ),
+        context_payload=context_payload,
+        opencode_enabled=opencode_enabled,
+    )
+    if opencode_answer:
+        return opencode_answer
     client = _create_deepseek_client(llm_config=llm_config)
     if client is None:
         return _build_retrieval_fallback_answer(user_query, highlights, validation_commands)
@@ -1544,7 +2571,7 @@ def _generate_retrieval_answer(
         "关键证据必须引用具体文件与行号（若有）。"
         "改动步骤必须是可执行动作，避免空话。"
     )
-    user_payload = {
+    user_payload = _merge_qa_context_payload({
         "query": user_query,
         "retrieval_highlights": highlights,
         "validation_commands": validation_commands,
@@ -1554,7 +2581,7 @@ def _generate_retrieval_answer(
             "max_evidence_items": 4,
             "max_steps": 4,
         },
-    }
+    }, qa_context) or {}
     messages = [{"role": "system", "content": system_prompt}] + history
     messages.append({"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)})
     try:
@@ -1568,9 +2595,31 @@ def _generate_retrieval_answer(
 
 
 def _execute_with_timeout(timeout_seconds: float, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(fn, *args, **kwargs)
-        return future.result(timeout=timeout_seconds)
+    acquired = _TIMEOUT_WORKER_SEMAPHORE.acquire(timeout=max(float(timeout_seconds), 0.01))
+    if not acquired:
+        raise FuturesTimeoutError("timeout worker pool exhausted")
+
+    result_queue: Queue[Any] = Queue(maxsize=1)
+
+    def _target() -> None:
+        try:
+            result_queue.put(("result", fn(*args, **kwargs)))
+        except Exception as exc:  # pragma: no cover - passthrough behavior
+            result_queue.put(("error", exc))
+        finally:
+            _TIMEOUT_WORKER_SEMAPHORE.release()
+
+    worker = threading.Thread(target=_target, daemon=True)
+    worker.start()
+
+    try:
+        outcome, payload = result_queue.get(timeout=timeout_seconds)
+    except Empty as exc:
+        raise FuturesTimeoutError() from exc
+
+    if outcome == "error":
+        raise payload
+    return payload
 
 
 def _run_retrieval_tool(
@@ -1876,6 +2925,181 @@ def _confidence_level(value: Any) -> str:
     return "low"
 
 
+def _parse_iso_datetime(value: Any) -> Optional[datetime]:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _is_stale_running_session(payload: Dict[str, Any], stale_after_seconds: float = 1800.0) -> bool:
+    status = str(payload.get("status") or "").strip()
+    if status not in {"starting", "running"}:
+        return False
+    updated_at = _parse_iso_datetime(payload.get("updatedAt"))
+    if updated_at is None:
+        return True
+    if updated_at.timestamp() < _SERVER_LOAD_EPOCH:
+        return True
+    return (datetime.now(updated_at.tzinfo) - updated_at).total_seconds() >= stale_after_seconds
+
+
+def _build_reconciled_answer_result(
+    session_payload: Dict[str, Any],
+    conversation_payload: Dict[str, Any],
+    answer: str,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    mode = str((metadata or {}).get("mode") or "").strip().lower()
+    next_step = "retrieval_answer" if mode == "retrieval" else "send_chat"
+    return {
+        "conversationId": conversation_payload.get("conversationId") or session_payload.get("conversationId"),
+        "projectPath": session_payload.get("projectPath") or conversation_payload.get("projectPath"),
+        "nextStep": next_step,
+        "safeToCodegen": mode in {"inline_codegen"},
+        "taskMode": None,
+        "answer": answer,
+    }
+
+
+def _reconcile_terminal_conversation_session(
+    session_payload: Dict[str, Any],
+    *,
+    conversation_payload: Optional[Dict[str, Any]] = None,
+    events: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    status = str(session_payload.get("status") or "").strip()
+    if status not in {"starting", "running"}:
+        return session_payload
+
+    conversation_id = str(session_payload.get("conversationId") or "").strip()
+    if not conversation_id:
+        return session_payload
+
+    conversation = conversation_payload if isinstance(conversation_payload, dict) else data_accessor.get_conversation(conversation_id)
+    if not isinstance(conversation, dict):
+        return session_payload
+
+    pending_question = conversation.get("pendingQuestion")
+    reconciled_result: Optional[Dict[str, Any]] = None
+    reconciled_status: Optional[str] = None
+    reconciled_stage: Optional[str] = None
+    reconciled_message: Optional[str] = None
+    reconciled_error: Optional[str] = None
+
+    if isinstance(pending_question, dict) and pending_question:
+        reconciled_result = {
+            "conversationId": conversation.get("conversationId") or conversation_id,
+            "projectPath": session_payload.get("projectPath") or conversation.get("projectPath"),
+            "nextStep": "ask_clarification",
+            "safeToCodegen": False,
+            "taskMode": None,
+            "pendingQuestion": pending_question,
+        }
+        reconciled_status = "completed"
+        reconciled_stage = "done"
+        reconciled_message = "会话回合完成"
+    else:
+        raw_parts = conversation.get("parts")
+        parts: List[Dict[str, Any]] = [item for item in raw_parts if isinstance(item, dict)] if isinstance(raw_parts, list) else []
+        latest_handoff: Optional[Dict[str, Any]] = None
+        latest_answer_part: Optional[Dict[str, Any]] = None
+        for item in reversed(parts):
+            if not isinstance(item, dict):
+                continue
+            part_type = str(item.get("type") or "").strip()
+            if latest_handoff is None and part_type == "task_handoff":
+                latest_handoff = item
+            if latest_answer_part is None and part_type == "assistant_text":
+                latest_answer_part = item
+            if latest_handoff is not None and latest_answer_part is not None:
+                break
+
+        if latest_handoff is not None:
+            reconciled_result = {
+                "conversationId": conversation.get("conversationId") or conversation_id,
+                "projectPath": session_payload.get("projectPath") or conversation.get("projectPath"),
+                "nextStep": "start_multi_agent",
+                "safeToCodegen": True,
+                "taskMode": None,
+                "handoff": latest_handoff.get("metadata") if isinstance(latest_handoff.get("metadata"), dict) else {},
+            }
+            reconciled_status = "completed"
+            reconciled_stage = "done"
+            reconciled_message = "会话回合完成"
+        else:
+            answer_text = ""
+            answer_metadata: Optional[Dict[str, Any]] = None
+            if latest_answer_part is not None:
+                answer_text = str(latest_answer_part.get("content") or "").strip()
+                answer_metadata = latest_answer_part.get("metadata") if isinstance(latest_answer_part.get("metadata"), dict) else {}
+            if not answer_text:
+                raw_messages = conversation.get("messages")
+                messages: List[Dict[str, Any]] = [item for item in raw_messages if isinstance(item, dict)] if isinstance(raw_messages, list) else []
+                for item in reversed(messages):
+                    if not isinstance(item, dict):
+                        continue
+                    if str(item.get("role") or "").strip() != "assistant":
+                        continue
+                    answer_text = str(item.get("content") or "").strip()
+                    if answer_text:
+                        break
+            if answer_text:
+                reconciled_result = _build_reconciled_answer_result(session_payload, conversation, answer_text, answer_metadata)
+                reconciled_status = "completed"
+                reconciled_stage = "done"
+                reconciled_message = "会话回合完成"
+            else:
+                event_items = events if isinstance(events, list) else data_accessor.list_conversation_events(conversation_id, since_seq=0, limit=200)
+                latest_failure_event: Optional[Dict[str, Any]] = None
+                for item in reversed(event_items):
+                    if not isinstance(item, dict):
+                        continue
+                    event_type = str(item.get("type") or "").strip()
+                    event_payload_raw = item.get("payload")
+                    event_payload: Dict[str, Any] = {}
+                    if isinstance(event_payload_raw, dict):
+                        event_payload = dict(event_payload_raw)
+                    if event_type.endswith("failed") or str(event_payload.get("status") or "").strip() == "failed":
+                        latest_failure_event = item
+                        break
+                if latest_failure_event is not None:
+                    failure_payload_raw = latest_failure_event.get("payload")
+                    failure_payload: Dict[str, Any] = {}
+                    if isinstance(failure_payload_raw, dict):
+                        failure_payload = dict(failure_payload_raw)
+                    reconciled_status = "failed"
+                    reconciled_stage = "failed"
+                    reconciled_error = str(failure_payload.get("error") or latest_failure_event.get("type") or "会话回合失败").strip() or "会话回合失败"
+                    reconciled_message = "会话回合失败"
+
+    if reconciled_status is None:
+        if not _is_stale_running_session(session_payload):
+            return session_payload
+        updated_payload = dict(session_payload)
+        updated_payload["status"] = "failed"
+        updated_payload["stage"] = "failed"
+        updated_payload["message"] = "会话回合处理超时"
+        updated_payload["error"] = "会话回合处理超时，服务端未能完成该任务（可能因服务重启）"
+        updated_payload["updatedAt"] = _utcnow_iso()
+        data_accessor.save_conversation_session(str(updated_payload.get("sessionId") or ""), updated_payload)
+        return updated_payload
+
+    updated_payload = dict(session_payload)
+    updated_payload["status"] = reconciled_status
+    updated_payload["stage"] = reconciled_stage
+    updated_payload["message"] = reconciled_message
+    updated_payload["error"] = reconciled_error
+    updated_payload["result"] = reconciled_result
+    updated_payload["completedAt"] = str(updated_payload.get("completedAt") or conversation.get("updatedAt") or _utcnow_iso())
+    updated_payload["updatedAt"] = _utcnow_iso()
+    data_accessor.save_conversation_session(str(updated_payload.get("sessionId") or ""), updated_payload)
+    return updated_payload
+
+
 def _create_conversation_session(
     project_path: str,
     user_query: str,
@@ -2002,7 +3226,7 @@ def _post_turn_housekeeping(
 
 
 def _should_try_inline_codegen(task_mode: str) -> bool:
-    return task_mode == "write_new_code"
+    return task_mode in {"write_new_code", "modify_existing"}
 
 
 def _build_inline_codegen_answer(result: Dict[str, Any]) -> str:
@@ -2115,7 +3339,7 @@ def _run_conversation_turn(
     partition_id: Optional[str] = None,
     clarification_context: Optional[Dict[str, Any]] = None,
     reply_payload: Optional[Dict[str, Any]] = None,
-    auto_start_multi_agent: bool = False,
+    auto_start_multi_agent: bool = True,
     force_action: Optional[str] = None,
     force_fallback_clarification: bool = False,
     output_root: Optional[str] = None,
@@ -2190,6 +3414,11 @@ def _run_conversation_turn(
             }
         action = str(action_decision.get("action") or "start_multi_agent")
         task_mode = str(action_decision.get("task_mode") or "modify_existing")
+        should_escalate_to_multi_agent = action == "start_multi_agent" or _should_try_inline_codegen(task_mode)
+        if auto_start_multi_agent and not forced and action != "clarify" and should_escalate_to_multi_agent:
+            action = "start_multi_agent"
+        if action == "start_multi_agent" and task_mode == "none":
+            task_mode = "modify_existing"
         confidence = _confidence_level(action_decision.get("confidence"))
         decision_reason = str(action_decision.get("reason") or "动作决策完成")
         _emit_conversation_event(
@@ -2387,17 +3616,31 @@ def _run_conversation_turn(
             if retrieval_result.get("ok"):
                 validation_commands = _suggest_validation_commands(project_path, highlights)
                 _emit_retrieval_progress("answer", {"message": "正在基于证据生成回答"})
-                if _is_project_purpose_query(user_query):
+                if _is_project_purpose_query(user_query) and not _is_project_bound_usage_query(user_query):
                     answer = _build_project_intro_answer(project_path, highlights)
                 else:
-                    answer = _generate_retrieval_answer(
-                        user_query,
-                        conversation_id,
-                        project_path,
-                        highlights,
-                        validation_commands,
-                        llm_config=llm_config,
+                    qa_context = _build_weighted_qa_context(
+                        project_path=project_path,
+                        user_query=user_query,
+                        action=action,
+                        task_mode=task_mode,
+                        partition_id=partition_id,
+                        selected_node=selected_node,
                     )
+                    if _is_project_bound_usage_query(user_query) and _is_project_runtime_architecture_question(user_query):
+                        answer = _build_project_bound_usage_answer(project_path, user_query)
+                    else:
+                        answer = _generate_retrieval_answer(
+                            user_query,
+                            conversation_id,
+                            project_path,
+                            highlights,
+                            validation_commands,
+                            llm_config=llm_config,
+                            task_mode=task_mode,
+                            opencode_enabled=opencode_enabled,
+                            qa_context=qa_context,
+                        )
                 _emit_retrieval_progress("answer", {"message": "回答生成完成"})
             else:
                 validation_commands = []
@@ -2483,7 +3726,22 @@ def _run_conversation_turn(
 
         if action == "general_chat":
             _update_conversation_session(session_id, stage="chat", message="正在生成会话回答")
-            answer = _generate_chat_answer(user_query, conversation_id, project_path, llm_config=llm_config)
+            qa_context = _build_weighted_qa_context(
+                project_path=project_path,
+                user_query=user_query,
+                action=action,
+                task_mode=task_mode,
+                partition_id=partition_id,
+                selected_node=selected_node,
+            )
+            answer = _generate_chat_answer(
+                user_query,
+                conversation_id,
+                project_path,
+                llm_config=llm_config,
+                opencode_enabled=opencode_enabled,
+                qa_context=qa_context,
+            )
             data_accessor.append_conversation_message(
                 conversation_id,
                 {
@@ -2526,12 +3784,13 @@ def _run_conversation_turn(
             return
 
         _update_conversation_session(session_id, stage="handoff", message="已达到代码流门槛，准备进入执行链")
+        codegen_selected_node = _build_codegen_selected_node(selected_node)
         handoff = {
             "project_path": project_path,
             "query": user_query,
             "task_mode": task_mode,
             "partition_id": partition_id,
-            "selected_node": selected_node or {},
+            "selected_node": codegen_selected_node,
             "clarification_context": clarification_context or {},
             "output_root": output_root,
             "auto_apply_output": bool(auto_apply_output),
@@ -2547,7 +3806,7 @@ def _run_conversation_turn(
                     user_query=user_query,
                     task_mode=task_mode,
                     partition_id=partition_id,
-                    selected_node=selected_node,
+                    selected_node=codegen_selected_node,
                     clarification_context=clarification_context,
                     output_root=output_root,
                     auto_apply_output=bool(auto_apply_output),
@@ -2676,7 +3935,7 @@ def _run_conversation_turn(
                         user_query,
                         task_mode,
                         partition_id,
-                        selected_node or {},
+                        codegen_selected_node,
                         clarification_context or {},
                         True,
                         output_root,
@@ -2775,7 +4034,7 @@ def api_conversation_session_start():
     partition_id = str(data.get("partition_id") or "").strip() or None
     clarification_context = data.get("clarification_context") if isinstance(data.get("clarification_context"), dict) else {}
     reply_payload = _normalize_reply_payload(data.get("reply_payload"))
-    auto_start_multi_agent = bool(data.get("auto_start_multi_agent", False))
+    auto_start_multi_agent = bool(data.get("auto_start_multi_agent", True))
     force_action = str(data.get("force_action") or "").strip() or None
     force_fallback_clarification = bool(data.get("force_fallback_clarification", False))
     raw_output_root = data.get("output_root")
@@ -2852,6 +4111,8 @@ def api_conversation_session_status(session_id: str):
     payload = data_accessor.get_conversation_session(session_id)
     if not payload:
         return jsonify({"error": "未找到会话回合"}), 404
+    if isinstance(payload, dict):
+        payload = _reconcile_terminal_conversation_session(payload)
     return jsonify(
         {
             "sessionId": payload.get("sessionId"),
@@ -2872,6 +4133,8 @@ def api_conversation_session_result(session_id: str):
     payload = data_accessor.get_conversation_session(session_id)
     if not payload:
         return jsonify({"error": "未找到会话回合"}), 404
+    if isinstance(payload, dict):
+        payload = _reconcile_terminal_conversation_session(payload)
     if payload.get("status") == "failed":
         return jsonify({"error": payload.get("error") or "会话回合失败"}), 400
     if payload.get("status") != "completed":
@@ -3041,6 +4304,16 @@ def api_conversation_events(conversation_id: str):
     interval_ms = max(100, min(_safe_int(request.args.get("intervalMs"), 1000), 5000))
     interval_seconds = float(interval_ms) / 1000.0
     target_session_id = str(request.args.get("session_id") or "").strip()
+    reconciled_target_session: Optional[Dict[str, Any]] = None
+    if target_session_id:
+        target_session = data_accessor.get_conversation_session(target_session_id)
+        if isinstance(target_session, dict):
+            existing_events = data_accessor.list_conversation_events(conversation_id, since_seq=0, limit=200)
+            reconciled_target_session = _reconcile_terminal_conversation_session(
+                target_session,
+                conversation_payload=payload if isinstance(payload, dict) else None,
+                events=existing_events,
+            )
 
     def _event_stream():
         cursor = since_seq
@@ -3080,7 +4353,9 @@ def api_conversation_events(conversation_id: str):
                 yield f"event: heartbeat\ndata: {json.dumps(heartbeat, ensure_ascii=False)}\n\n"
 
             if target_session_id:
-                target_session = data_accessor.get_conversation_session(target_session_id)
+                target_session = reconciled_target_session
+                if not isinstance(target_session, dict) or str(target_session.get("status") or "").strip() not in {"completed", "failed"}:
+                    target_session = data_accessor.get_conversation_session(target_session_id)
                 if isinstance(target_session, dict):
                     target_status = str(target_session.get("status") or "").strip()
                     if target_status in {"completed", "failed"}:
@@ -3242,6 +4517,9 @@ def api_conversation_reply(conversation_id: str):
     if not os.path.isdir(project_path):
         return jsonify({"error": f"project_path 不存在或不是目录: {project_path}"}), 400
 
+    selected_node = data.get("selected_node") if isinstance(data.get("selected_node"), dict) else {}
+    partition_id = str(data.get("partition_id") or "").strip() or None
+
     user_query = answer or "，".join(str(item) for item in selected_option_labels)
     reply_payload = {
         "questionId": str(pending.get("questionId") or "").strip(),
@@ -3256,7 +4534,7 @@ def api_conversation_reply(conversation_id: str):
     clarification_context.setdefault("originalQuery", str(data.get("originalQuery") or payload.get("originalQuery") or user_query))
     clarification_context.setdefault("latestUserReply", user_query)
     clarification_context.setdefault("selectedOptionLabels", reply_payload.get("selectedOptionLabels") or [])
-    auto_start_multi_agent = bool(data.get("auto_start_multi_agent", False))
+    auto_start_multi_agent = bool(data.get("auto_start_multi_agent", True))
     force_action = str(data.get("force_action") or "").strip() or None
     force_fallback_clarification = bool(data.get("force_fallback_clarification", False))
     raw_output_root = data.get("output_root")
@@ -3294,8 +4572,8 @@ def api_conversation_reply(conversation_id: str):
             project_path,
             user_query,
             conversation_id,
-            {},
-            None,
+            selected_node,
+            partition_id,
             clarification_context,
             reply_payload,
             auto_start_multi_agent,

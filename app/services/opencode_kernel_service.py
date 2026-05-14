@@ -111,6 +111,30 @@ def _parse_opencode_stdout(stdout: str) -> Dict[str, str]:
     return {'session_id': session_id, 'text': '\n'.join(text_chunks).strip()}
 
 
+def _normalize_repo_relative_path(root: Path, file_path: str) -> str:
+    raw = _as_text(file_path).replace('\\', '/')
+    if not raw:
+        return ''
+    candidate = Path(raw)
+    if candidate.is_absolute():
+        try:
+            return candidate.resolve().relative_to(root.resolve()).as_posix()
+        except Exception:
+            return ''
+    return raw.strip('/')
+
+
+def _collect_output_paths(root: Path, snippet_blocks: List[Dict[str, Any]], implementation_targets: List[Dict[str, Any]]) -> List[str]:
+    paths: List[str] = []
+    for item in [*snippet_blocks, *implementation_targets]:
+        if not isinstance(item, dict):
+            continue
+        normalized = _normalize_repo_relative_path(root, _as_text(item.get('file_path')))
+        if normalized and normalized not in paths:
+            paths.append(normalized)
+    return paths
+
+
 def _build_message(user_query: str, task_mode: str, retrieval_bundle: Dict[str, Any], advisor_packet: Dict[str, Any], output_protocol: Dict[str, Any]) -> str:
     selected_path = _as_dict(retrieval_bundle.get('selected_path'))
     system_context = _as_dict(_as_dict(output_protocol.get('opencode')).get('system_context'))
@@ -265,14 +289,41 @@ def run_opencode_kernel(*, project_path: str, user_query: str, task_mode: str, r
     implementation_targets = [item for item in _as_list(structured.get('implementation_targets')) if isinstance(item, dict)]
     validation_commands = [str(item).strip() for item in _as_list(structured.get('validation_commands')) if str(item).strip()]
 
-    status = 'ready' if (snippet_blocks or edit_plan or implementation_targets or structured) else 'no_structured_output'
-    if completed.returncode != 0 and status == 'no_structured_output':
-        status = 'error'
+    required_files = [
+        _normalize_repo_relative_path(root, str(item).strip())
+        for item in _as_list(_as_dict(_as_dict(output_protocol.get('opencode')).get('system_context')).get('required_files'))
+        if str(item).strip()
+    ]
+    required_files = [item for item in required_files if item]
+    output_paths = _collect_output_paths(root, snippet_blocks, implementation_targets)
+    matched_required_files = [item for item in required_files if item in output_paths]
+    actionable = bool(snippet_blocks or edit_plan or implementation_targets)
+    required_files_fully_covered = not required_files or len(matched_required_files) == len(required_files)
+    accepted = bool(actionable and completed.returncode == 0 and required_files_fully_covered)
+
+    if accepted:
+        status = 'ready'
+        reason = None
+    elif actionable and required_files and not matched_required_files:
+        status = 'rejected_irrelevant_output'
+        reason = 'required_files_not_covered'
+    elif actionable and required_files and not required_files_fully_covered:
+        status = 'rejected_irrelevant_output'
+        reason = 'required_files_partially_covered'
+    elif actionable and completed.returncode != 0:
+        status = 'partial'
+        reason = f'opencode_exit_{completed.returncode}'
+    elif structured:
+        status = 'no_actionable_output'
+        reason = 'structured_without_actionable_blocks'
+    else:
+        status = 'error' if completed.returncode != 0 else 'no_structured_output'
+        reason = f'opencode_exit_{completed.returncode}'
 
     return {
         'type': 'OpenCodeKernelResult',
         'status': status,
-        'reason': None if status == 'ready' else f'opencode_exit_{completed.returncode}',
+        'reason': reason,
         'duration_ms': int((time.perf_counter() - started_at) * 1000),
         'returncode': completed.returncode,
         'model': model,
@@ -285,6 +336,13 @@ def run_opencode_kernel(*, project_path: str, user_query: str, task_mode: str, r
         'generated_code_blocks': generated_code_blocks,
         'implementation_targets': implementation_targets,
         'validation_commands': validation_commands,
+        'actionable': actionable,
+        'accepted': accepted,
+        'snippet_block_count': len(snippet_blocks),
+        'implementation_target_count': len(implementation_targets),
+        'matched_required_files': matched_required_files,
+        'required_files': required_files,
+        'required_files_fully_covered': required_files_fully_covered,
         'structured': structured,
         'text': text_output[:6000],
         'stdout_tail': (completed.stdout or '')[-2000:],

@@ -55,6 +55,7 @@ interface UseSigmaOptions {
   onStageClick?: () => void;
   highlightedNodeIds?: Set<string>;
   secondaryHighlightedNodeIds?: Set<string>;
+  highlightPalette?: 'community' | 'path' | 'node';
   blastRadiusNodeIds?: Set<string>;
   animatedNodes?: Map<string, NodeAnimation>;
   visibleEdgeTypes?: EdgeType[];
@@ -135,6 +136,7 @@ export const useSigma = (options: UseSigmaOptions = {}): UseSigmaReturn => {
   const blastRadiusRef = useRef<Set<string>>(new Set());
   const animatedNodesRef = useRef<Map<string, NodeAnimation>>(new Map());
   const visibleEdgeTypesRef = useRef<EdgeType[] | null>(null);
+  const highlightPaletteRef = useRef<'community' | 'path' | 'node'>('community');
   const layoutTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const [isLayoutRunning, setIsLayoutRunning] = useState(false);
@@ -146,8 +148,9 @@ export const useSigma = (options: UseSigmaOptions = {}): UseSigmaReturn => {
     blastRadiusRef.current = options.blastRadiusNodeIds || new Set();
     animatedNodesRef.current = options.animatedNodes || new Map();
     visibleEdgeTypesRef.current = options.visibleEdgeTypes || null;
+    highlightPaletteRef.current = options.highlightPalette || 'community';
     sigmaRef.current?.refresh();
-  }, [options.highlightedNodeIds, options.secondaryHighlightedNodeIds, options.blastRadiusNodeIds, options.animatedNodes, options.visibleEdgeTypes]);
+  }, [options.highlightedNodeIds, options.secondaryHighlightedNodeIds, options.blastRadiusNodeIds, options.animatedNodes, options.visibleEdgeTypes, options.highlightPalette]);
 
   // Animation loop for node effects
   useEffect(() => {
@@ -336,32 +339,45 @@ export const useSigma = (options: UseSigmaOptions = {}): UseSigmaReturn => {
             res.zIndex = 3;
             res.highlighted = true;
           } else if (isQueryHighlighted) {
-            // Regular cyan highlight for non-blast-radius nodes
-            res.color = '#06b6d4';
+            // Regular highlight for non-blast-radius nodes
+            const pal = highlightPaletteRef.current;
+            res.color = pal === 'node' ? '#ef4444' : pal === 'path' ? '#a855f7' : brightenColor(data.color, 2.0);
             res.size = (data.size || 8) * 1.4;
             res.zIndex = 2;
             res.highlighted = true;
           } else {
-            res.color = dimColor(data.color, 0.15);
-            res.size = (data.size || 8) * 0.4;
+            res.color = dimColor(data.color, 0.08);
+            res.size = (data.size || 8) * 0.3;
             res.zIndex = 0;
           }
           return res;
         }
         
         if ((hasHighlights || hasSecondaryHighlights) && !currentSelected) {
+          const pal = highlightPaletteRef.current;
           if (isQueryHighlighted) {
-            res.color = '#06b6d4';
-            res.size = (data.size || 8) * 1.6;
+            if (pal === 'community') {
+              // Keep original type color brightened — preserves internal community structure
+              res.color = brightenColor(data.color, 2.2);
+              res.size = (data.size || 8) * 3.0;
+            } else if (pal === 'node') {
+              res.color = '#ef4444';
+              res.size = (data.size || 8) * 2.0;
+            } else {
+              res.color = '#a855f7';
+              res.size = (data.size || 8) * 1.8;
+            }
             res.zIndex = 2;
             res.highlighted = true;
           } else if (isSecondaryHighlighted) {
-            res.color = brightenColor(data.color, 1.2);
-            res.size = (data.size || 8) * 1.15;
+            res.color = pal === 'node' ? '#fca5a5' : pal === 'path' ? '#67e8f9' : brightenColor(data.color, 1.5);
+            res.size = (data.size || 8) * 1.6;
             res.zIndex = 1;
+            res.highlighted = true;
           } else {
-            res.color = dimColor(data.color, 0.2);
-            res.size = (data.size || 8) * 0.5;
+            // Non-community nodes: nearly invisible so community pops out
+            res.color = dimColor(data.color, pal === 'community' ? 0.05 : 0.15);
+            res.size = (data.size || 8) * (pal === 'community' ? 0.25 : 0.5);
             res.zIndex = 0;
           }
           return res;
@@ -427,23 +443,25 @@ export const useSigma = (options: UseSigmaOptions = {}): UseSigmaReturn => {
             const bothHighlighted = isSourceActive && isTargetActive;
             const oneHighlighted = isSourceActive || isTargetActive;
             
+            const pal = highlightPaletteRef.current;
+            const edgeHL = pal === 'node' ? '#f87171' : pal === 'path' ? '#c084fc' : '#06b6d4';
             if (bothHighlighted) {
               // If both nodes are in blast radius, use red edge
               if (blastRadius.has(source) && blastRadius.has(target)) {
                 res.color = '#ef4444';
               } else if (highlighted.has(source) && highlighted.has(target)) {
-                res.color = '#06b6d4';
+                res.color = edgeHL;
               } else {
-                res.color = dimColor('#06b6d4', 0.55);
+                res.color = dimColor(edgeHL, 0.55);
               }
               res.size = Math.max(2, (data.size || 1) * 3);
               res.zIndex = 2;
             } else if (oneHighlighted) {
-              res.color = dimColor('#06b6d4', 0.4);
+              res.color = dimColor(edgeHL, 0.4);
               res.size = 1;
               res.zIndex = 1;
             } else {
-              res.color = dimColor(data.color, 0.08);
+              res.color = dimColor(data.color, pal === 'community' ? 0.03 : 0.08);
               res.size = 0.2;
               res.zIndex = 0;
             }

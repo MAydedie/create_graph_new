@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { Code, PanelLeftClose, PanelLeft, Trash2, X, Target, FileCode, Sparkles, MousePointerClick } from 'lucide-react';
+import { PanelLeftClose, PanelLeft, Trash2, X, Target, FileCode, Sparkles } from 'lucide-react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useAppState } from '../hooks/useAppState';
@@ -29,6 +29,48 @@ export interface CodeReferencesPanelProps {
   onFocusNode: (nodeId: string) => void;
 }
 
+type DetailTabKey = 'snippet' | 'properties' | 'cfg' | 'dfg' | 'io';
+
+type DetailTab = {
+  key: DetailTabKey;
+  label: string;
+};
+
+const ENTITY_TYPE_TEXT: Record<string, string> = {
+  class: '类',
+  function: '函数',
+  method: '方法',
+  '函数/方法': '函数/方法',
+  variable: '变量',
+  interface: '接口',
+  file: '文件',
+};
+
+const getEntityTypeText = (kind?: string, fallbackLabel?: string): string => {
+  const normalizedKind = String(kind || '').trim().toLowerCase();
+  if (normalizedKind === 'function' || normalizedKind === 'method') return '函数/方法';
+  if (normalizedKind && ENTITY_TYPE_TEXT[normalizedKind]) return ENTITY_TYPE_TEXT[normalizedKind];
+  if (fallbackLabel === 'Function' || fallbackLabel === 'Method') return '函数/方法';
+  if (fallbackLabel === 'Class') return '类';
+  if (fallbackLabel === 'Variable') return '变量';
+  if (fallbackLabel === 'Interface') return '接口';
+  return kind || fallbackLabel || '未知类型';
+};
+
+const formatPropertyValue = (value: unknown): string => {
+  if (value === null || value === undefined) return '暂无';
+  if (Array.isArray(value)) return value.length > 0 ? value.join('、') : '暂无';
+  if (typeof value === 'boolean') return value ? '是' : '否';
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch {
+      return String(value);
+    }
+  }
+  return String(value);
+};
+
 export const CodeReferencesPanel = ({ onFocusNode }: CodeReferencesPanelProps) => {
   const {
     graph,
@@ -48,6 +90,7 @@ export const CodeReferencesPanel = ({ onFocusNode }: CodeReferencesPanelProps) =
   const [nodeDetail, setNodeDetail] = useState<CreateGraphNodeDetailResponse | null>(null);
   const [nodeDetailLoading, setNodeDetailLoading] = useState(false);
   const [nodeDetailError, setNodeDetailError] = useState<string | null>(null);
+  const [activeDetailTab, setActiveDetailTab] = useState<DetailTabKey>('snippet');
   const panelRef = useRef<HTMLElement | null>(null);
   const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const refCardEls = useRef<Map<string, HTMLDivElement | null>>(new Map());
@@ -227,8 +270,6 @@ export const CodeReferencesPanel = ({ onFocusNode }: CodeReferencesPanelProps) =
   }, [aiReferences, fileContents]);
 
   const selectedFilePath = selectedNode?.properties?.filePath;
-  const selectedFileContent = selectedFilePath ? fileContents.get(selectedFilePath) : undefined;
-  const selectedIsFile = selectedNode?.label === 'File' && !!selectedFilePath;
   const showSelectedViewer = !!selectedNode;
   const showCitations = aiReferences.length > 0;
   const detailLanguage =
@@ -237,6 +278,132 @@ export const CodeReferencesPanel = ({ onFocusNode }: CodeReferencesPanelProps) =
       selectedFilePath?.endsWith('.js') || selectedFilePath?.endsWith('.jsx') ? 'javascript' :
         selectedFilePath?.endsWith('.ts') || selectedFilePath?.endsWith('.tsx') ? 'typescript' :
           'text');
+
+  const resolvedAbsolutePath = nodeDetail?.source?.file_path
+    || nodeDetail?.file_path
+    || selectedNode?.properties?.filePath
+    || '';
+
+  const propertyItems = useMemo(() => {
+    if (!selectedNode) return [] as Array<{ label: string; value: string }>;
+    const props = selectedNode.properties;
+    const detailProps = (nodeDetail?.properties && typeof nodeDetail.properties === 'object')
+      ? nodeDetail.properties as Record<string, unknown>
+      : {};
+    const rows: Array<{ label: string; value: string }> = [];
+    const pushIfPresent = (label: string, value: unknown, predicate?: boolean) => {
+      if (predicate === false) return;
+      if (value === undefined || value === null) return;
+      if (Array.isArray(value) && value.length === 0) return;
+      if (typeof value === 'string' && value.trim() === '') return;
+      rows.push({ label, value: formatPropertyValue(value) });
+    };
+
+    pushIfPresent('语言', props.language);
+    pushIfPresent('起始行', typeof props.startLine === 'number' ? props.startLine + 1 : undefined);
+    pushIfPresent('结束行', typeof props.endLine === 'number' ? props.endLine + 1 : undefined);
+    pushIfPresent('是否导出', props.isExported, typeof props.isExported === 'boolean');
+    pushIfPresent('启发式标签', props.heuristicLabel);
+    pushIfPresent('内聚度', props.cohesion);
+    pushIfPresent('符号数量', props.symbolCount);
+    pushIfPresent('关键词', props.keywords);
+    pushIfPresent('描述', props.description);
+    pushIfPresent('增强来源', props.enrichedBy);
+    pushIfPresent('流程类型', props.processType);
+    pushIfPresent('步骤数', props.stepCount);
+    pushIfPresent('关联社区', props.communities);
+    pushIfPresent('入口点 ID', props.entryPointId);
+    pushIfPresent('终点 ID', props.terminalId);
+    pushIfPresent('入口评分', props.entryPointScore);
+    pushIfPresent('入口原因', props.entryPointReason);
+
+    Object.entries(detailProps).forEach(([key, value]) => {
+      if (['owner', 'owner_method', 'owner_function', 'signature', 'return_type', 'class_name', 'variable_kind', 'owner_kind', 'owner_signature', 'owner_parameters', 'modifiers', 'decorators', 'parent_class', 'interfaces', 'docstring', 'method_names', 'fields', 'source'].includes(key)) {
+        const labelMap: Record<string, string> = {
+          owner: '所属对象',
+          owner_method: '所属方法',
+          owner_function: '所属函数',
+          signature: '签名',
+          return_type: '返回类型',
+          class_name: '所属类',
+          variable_kind: '变量类型',
+          owner_kind: '所属对象类型',
+          owner_signature: '所属对象签名',
+          owner_parameters: '所属对象参数',
+          modifiers: '修饰符',
+          decorators: '装饰器',
+          parent_class: '父类',
+          interfaces: '接口',
+          docstring: '说明',
+          method_names: '方法列表',
+          fields: '字段列表',
+          source: '来源',
+        };
+        pushIfPresent(labelMap[key] || key, value);
+      }
+    });
+    return rows;
+  }, [nodeDetail?.properties, selectedNode]);
+
+  const variablePropertyItems = useMemo(() => {
+    if (selectedNode?.label !== 'Variable') return [] as Array<{ label: string; value: string }>;
+    const detailProps = (nodeDetail?.properties && typeof nodeDetail.properties === 'object')
+      ? nodeDetail.properties as Record<string, unknown>
+      : {};
+    return [
+      { label: '变量名', value: selectedNode.properties.name || nodeDetail?.display_name || '暂无' },
+      { label: '变量类别', value: formatPropertyValue(detailProps.variable_kind || '暂无') },
+      { label: '所属函数/方法', value: formatPropertyValue(detailProps.owner || detailProps.owner_method || detailProps.owner_function || '暂无') },
+      { label: '所属函数签名', value: formatPropertyValue(detailProps.owner_signature || detailProps.signature || '暂无') },
+      { label: '文件绝对路径', value: resolvedAbsolutePath || '暂无绝对路径' },
+      {
+        label: '行号',
+        value: nodeDetail?.line_start
+          ? `${nodeDetail.line_start}${nodeDetail.line_end && nodeDetail.line_end !== nodeDetail.line_start ? ` - ${nodeDetail.line_end}` : ''}`
+          : '暂无',
+      },
+    ];
+  }, [nodeDetail, resolvedAbsolutePath, selectedNode]);
+
+  const supportsPropertiesTab = selectedNode?.label === 'Class'
+    || selectedNode?.label === 'Variable'
+    || selectedNode?.label === 'Interface'
+    || propertyItems.length > 0;
+
+  const hasIoData = useMemo(() => {
+    const io = nodeDetail?.io;
+    if (!io) return false;
+    return Boolean(
+      (io.inputs && io.inputs.length > 0)
+      || (io.outputs && io.outputs.length > 0)
+      || (io.global_reads && io.global_reads.length > 0)
+      || (io.global_writes && io.global_writes.length > 0)
+    );
+  }, [nodeDetail]);
+
+  const availableDetailTabs = useMemo<DetailTab[]>(() => {
+    const tabs: DetailTab[] = [];
+    if (nodeDetail?.source?.snippet) tabs.push({ key: 'snippet', label: '源码片段' });
+    if (supportsPropertiesTab) tabs.push({ key: 'properties', label: '属性信息' });
+    if (nodeDetail?.cfg) tabs.push({ key: 'cfg', label: '控制流图' });
+    if (nodeDetail?.dfg) tabs.push({ key: 'dfg', label: '数据流图' });
+    if (hasIoData) tabs.push({ key: 'io', label: '输入输出' });
+    return tabs;
+  }, [hasIoData, nodeDetail, supportsPropertiesTab]);
+
+  useEffect(() => {
+    const firstAvailable = availableDetailTabs[0]?.key;
+    setActiveDetailTab(firstAvailable || 'snippet');
+  }, [selectedNode?.id]);
+
+  useEffect(() => {
+    const firstAvailable = availableDetailTabs[0]?.key;
+    if (!firstAvailable) {
+      setActiveDetailTab('snippet');
+      return;
+    }
+    setActiveDetailTab((prev) => (availableDetailTabs.some((tab) => tab.key === prev) ? prev : firstAvailable));
+  }, [availableDetailTabs]);
 
   if (isCollapsed) {
     return (
@@ -281,8 +448,22 @@ export const CodeReferencesPanel = ({ onFocusNode }: CodeReferencesPanelProps) =
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-border-subtle bg-gradient-to-r from-elevated/60 to-surface/60">
         <div className="flex items-center gap-2">
-          <Code className="w-4 h-4 text-cyan-400" />
-           <span className="text-sm font-semibold text-text-primary">代码检查面板</span>
+          <div className="min-w-0">
+            <div className="text-sm font-semibold text-text-primary">
+              {selectedNode?.properties?.name || nodeDetail?.display_name || '节点详情'}
+            </div>
+            {showSelectedViewer && (
+              <div className="mt-1 space-y-1 text-[11px] text-text-secondary">
+                <div>
+                  <span className="text-text-muted">实体类型：</span>
+                  <span className="text-text-primary">{getEntityTypeText(nodeDetail?.kind, selectedNode?.label)}</span>
+                </div>
+                <div className="whitespace-normal break-all leading-5 text-text-primary/90 font-mono">
+                  <span className="text-text-muted font-sans">绝对路径：</span>{resolvedAbsolutePath || '暂无绝对路径'}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-1.5">
           {showCitations && (
@@ -309,16 +490,20 @@ export const CodeReferencesPanel = ({ onFocusNode }: CodeReferencesPanelProps) =
       <div className="flex-1 min-h-0 flex flex-col">
         {/* Top: Selected file viewer (when a node is selected) */}
         {showSelectedViewer && (
-          <div className={`${showCitations ? 'h-[42%]' : 'flex-1'} min-h-0 flex flex-col`}>
-            <div className="px-3 py-2 bg-gradient-to-r from-amber-500/8 to-orange-500/5 border-b border-amber-500/20 flex items-center gap-2">
-              <div className="flex items-center gap-1.5 px-2 py-0.5 bg-amber-500/15 rounded-md border border-amber-500/25">
-                <MousePointerClick className="w-3 h-3 text-amber-400" />
-                 <span className="text-[10px] text-amber-300 font-semibold uppercase tracking-wide">当前节点</span>
+          <div className={`${showCitations ? 'h-[48%]' : 'flex-1'} min-h-0 flex flex-col`}>
+            <div className="px-3 py-2 bg-gradient-to-r from-amber-500/8 to-orange-500/5 border-b border-amber-500/20 flex items-start gap-2">
+              <FileCode className="w-3.5 h-3.5 text-amber-400/70 mt-0.5" />
+              <div className="min-w-0 flex-1 space-y-1">
+                <div className="text-sm font-medium text-text-primary break-all">
+                  {nodeDetail?.display_name || selectedNode?.properties?.name || selectedNode?.id}
+                </div>
+                <div className="text-[11px] text-text-secondary">
+                  实体类型：<span className="text-text-primary">{getEntityTypeText(nodeDetail?.kind, selectedNode?.label)}</span>
+                </div>
+                <div className="text-[11px] text-text-secondary whitespace-normal break-all leading-5 font-mono">
+                  {resolvedAbsolutePath || '暂无绝对路径'}
+                </div>
               </div>
-              <FileCode className="w-3.5 h-3.5 text-amber-400/70 ml-1" />
-              <span className="text-xs text-text-primary font-mono truncate flex-1">
-                {selectedNode?.properties?.filePath?.split('/').pop() ?? selectedNode?.properties?.name}
-              </span>
               <button
                 type="button"
                 onClick={() => setSelectedNode(null)}
@@ -330,38 +515,41 @@ export const CodeReferencesPanel = ({ onFocusNode }: CodeReferencesPanelProps) =
             </div>
 
             {/* Node Deep Analysis — independently scrollable section */}
-            {(nodeDetailLoading || nodeDetailError || nodeDetail) && (
-              <div className="flex-shrink-0 min-h-0 flex flex-col border-b border-border-subtle bg-elevated/40 max-h-[58%]">
-                <div className="px-3 py-2 flex items-center justify-between">
-                   <span className="text-[11px] font-semibold uppercase tracking-wide text-cyan-300">节点深入分析</span>
-                  {nodeDetail?.kind && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded border border-cyan-500/30 text-cyan-200 bg-cyan-500/10">
-                      {nodeDetail.kind}
-                    </span>
-                  )}
-                </div>
+            {(nodeDetailLoading || nodeDetailError || nodeDetail || supportsPropertiesTab) && (
+              <div className="flex-1 min-h-0 flex flex-col border-b border-border-subtle bg-elevated/40">
+                {availableDetailTabs.length > 0 && (
+                  <div className="px-3 py-2 border-b border-border-subtle flex flex-wrap gap-2">
+                    {availableDetailTabs.map((tab) => (
+                      <button
+                        key={tab.key}
+                        type="button"
+                        onClick={() => setActiveDetailTab(tab.key)}
+                        className={[
+                          'px-2.5 py-1 text-xs rounded-md border transition-colors',
+                          activeDetailTab === tab.key
+                            ? 'border-cyan-400/60 text-cyan-200 bg-cyan-500/15'
+                            : 'border-border-subtle text-text-secondary hover:text-text-primary hover:bg-hover',
+                        ].join(' ')}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
 
                 <div className="min-h-0 overflow-y-auto scrollbar-thin">
                   {nodeDetailLoading && (
-                     <div className="px-3 pb-2 text-xs text-text-muted">正在加载源码片段 / CFG / DFG / IO…</div>
+                     <div className="px-3 py-3 text-xs text-text-muted">正在加载节点详情…</div>
                   )}
 
                   {nodeDetailError && (
-                    <div className="px-3 pb-2 text-xs text-rose-300">{nodeDetailError}</div>
+                    <div className="px-3 py-3 text-xs text-rose-300">{nodeDetailError}</div>
                   )}
 
-                  {!nodeDetailLoading && nodeDetail && (
-                    <div className="px-3 pb-3 space-y-2">
-                      <div className="text-[11px] text-text-secondary">
-                         <span className="text-text-muted">实体：</span>{' '}
-                        <span className="text-text-primary">{nodeDetail.display_name || selectedNode?.properties?.name || selectedNode?.id}</span>
-                      </div>
-
-                      {nodeDetail.source?.snippet && (
+                  {!nodeDetailLoading && !nodeDetailError && (
+                    <div className="px-3 py-3 space-y-2">
+                      {activeDetailTab === 'snippet' && nodeDetail?.source?.snippet && (
                         <div className="rounded-lg border border-border-subtle overflow-hidden">
-                          <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-cyan-300 bg-cyan-500/10 border-b border-cyan-500/20">
-                             源码片段
-                          </div>
                           <SyntaxHighlighter
                             language={detailLanguage}
                             style={customTheme}
@@ -381,95 +569,60 @@ export const CodeReferencesPanel = ({ onFocusNode }: CodeReferencesPanelProps) =
                         </div>
                       )}
 
-                      {nodeDetail.cfg && (
+                      {activeDetailTab === 'properties' && (
+                        <div className="rounded-lg border border-border-subtle overflow-hidden">
+                          <div className="px-3 py-3 space-y-2 text-[12px] text-text-secondary">
+                            {(selectedNode?.label === 'Variable' ? variablePropertyItems : propertyItems).length > 0 ? (selectedNode?.label === 'Variable' ? variablePropertyItems : propertyItems).map((item) => (
+                              <div key={item.label} className="grid grid-cols-[100px_minmax(0,1fr)] gap-3 items-start">
+                                <span className="text-text-muted">{item.label}</span>
+                                <span className="text-text-primary whitespace-pre-wrap break-all">{item.value}</span>
+                              </div>
+                            )) : (
+                              <div className="text-text-muted">当前节点暂无额外属性信息。</div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {activeDetailTab === 'cfg' && nodeDetail?.cfg && (
                         <GraphVizBlock dotString={nodeDetail.cfg} color="violet" />
                       )}
 
-                      {nodeDetail.dfg && (
+                      {activeDetailTab === 'dfg' && nodeDetail?.dfg && (
                         <GraphVizBlock dotString={nodeDetail.dfg} color="fuchsia" />
                       )}
 
-                      {nodeDetail.io && (
+                      {activeDetailTab === 'io' && hasIoData && nodeDetail?.io && (
                         <div className="rounded-lg border border-border-subtle overflow-hidden">
-                           <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-emerald-300 bg-emerald-500/10 border-b border-emerald-500/20">输入 / 输出</div>
                           <div className="px-3 py-2 space-y-1 text-[11px] text-text-secondary">
                             <div>
-                               <span className="text-emerald-300">输入：</span>{' '}
+                              <span className="text-emerald-300">输入：</span>{' '}
                               <span>{JSON.stringify(nodeDetail.io.inputs ?? [])}</span>
                             </div>
                             <div>
-                               <span className="text-emerald-300">输出：</span>{' '}
+                              <span className="text-emerald-300">输出：</span>{' '}
                               <span>{JSON.stringify(nodeDetail.io.outputs ?? [])}</span>
                             </div>
                             <div>
-                               <span className="text-emerald-300">全局读取：</span>{' '}
+                              <span className="text-emerald-300">全局读取：</span>{' '}
                               <span>{JSON.stringify(nodeDetail.io.global_reads ?? [])}</span>
                             </div>
                             <div>
-                               <span className="text-emerald-300">全局写入：</span>{' '}
+                              <span className="text-emerald-300">全局写入：</span>{' '}
                               <span>{JSON.stringify(nodeDetail.io.global_writes ?? [])}</span>
                             </div>
                           </div>
                         </div>
+                      )}
+
+                      {!nodeDetailLoading && !nodeDetailError && availableDetailTabs.length === 0 && (
+                        <div className="text-sm text-text-muted">当前节点暂无可展示的详细内容。</div>
                       )}
                     </div>
                   )}
                 </div>
               </div>
             )}
-
-            <div className="flex-1 min-h-0 overflow-auto scrollbar-thin">
-              {selectedFileContent ? (
-                <SyntaxHighlighter
-                  language={
-                    selectedFilePath?.endsWith('.py') ? 'python' :
-                    selectedFilePath?.endsWith('.js') || selectedFilePath?.endsWith('.jsx') ? 'javascript' :
-                    selectedFilePath?.endsWith('.ts') || selectedFilePath?.endsWith('.tsx') ? 'typescript' :
-                    'text'
-                  }
-                  style={customTheme}
-                  showLineNumbers
-                  startingLineNumber={1}
-                  lineNumberStyle={{
-                    minWidth: '3em',
-                    paddingRight: '1em',
-                    color: '#5a5a70',
-                    textAlign: 'right',
-                    userSelect: 'none',
-                  }}
-                  lineProps={(lineNumber) => {
-                    const startLine = selectedNode?.properties?.startLine;
-                    const endLine = selectedNode?.properties?.endLine ?? startLine;
-                    const isHighlighted =
-                      typeof startLine === 'number' &&
-                      lineNumber >= startLine + 1 &&
-                      lineNumber <= (endLine ?? startLine) + 1;
-                    return {
-                      style: {
-                        display: 'block',
-                        backgroundColor: isHighlighted ? 'rgba(6, 182, 212, 0.14)' : 'transparent',
-                        borderLeft: isHighlighted ? '3px solid #06b6d4' : '3px solid transparent',
-                        paddingLeft: '12px',
-                        paddingRight: '16px',
-                      },
-                    };
-                  }}
-                  wrapLines
-                >
-                  {selectedFileContent}
-                </SyntaxHighlighter>
-              ) : (
-                <div className="px-3 py-3 text-sm text-text-muted">
-                  {!selectedFilePath ? (
-                     <>当前节点没有可预览的源码路径。</>
-                  ) : selectedIsFile ? (
-                     <>内存中暂无 <span className="font-mono">{selectedFilePath}</span> 的源码内容。</>
-                  ) : (
-                     <>请选择文件节点以预览其内容。</>
-                  )}
-                </div>
-              )}
-            </div>
           </div>
         )}
 

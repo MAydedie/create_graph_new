@@ -163,8 +163,8 @@ body {
    CHAT MESSAGE PROSE STYLES
 ═══════════════════════════════════════════════════════════════ */
 .chat-prose {
-  font-size: 14px;
-  line-height: 1.75;
+  font-size: 16px;
+  line-height: 1.9;
   color: var(--color-text-primary);
 }
 
@@ -210,11 +210,11 @@ body {
 }
 
 .chat-prose h1 {
-  font-size: 1.25em;
+  font-size: 1.4em;
 }
 
 .chat-prose h2 {
-  font-size: 1.125em;
+  font-size: 1.22em;
 }
 
 .chat-prose h3 {

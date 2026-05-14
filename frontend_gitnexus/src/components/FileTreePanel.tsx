@@ -2,42 +2,59 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Box,
   Braces,
+  CircleDot,
   ChevronDown,
   ChevronRight,
+  Component,
+  Database,
   FileCode,
   Filter,
   Folder,
   FolderOpen,
   Hash,
+  Network,
   PanelLeft,
   PanelLeftClose,
   Search,
+  Sparkles,
   Target,
   Variable,
 } from 'lucide-react';
 import type { GraphNode, NodeLabel } from '../core/graph/types';
 import { useAppState } from '../hooks/useAppState';
-import { ALL_EDGE_TYPES, EDGE_INFO, FILTERABLE_LABELS, NODE_COLORS, type EdgeType } from '../lib/constants';
+import { ALL_EDGE_TYPES, EDGE_INFO, NODE_COLORS, type EdgeType } from '../lib/constants';
+
+const VISIBLE_EDGE_TYPES = ALL_EDGE_TYPES.filter(t => t !== 'IMPLEMENTS');
 
 const NODE_LABEL_TEXT: Partial<Record<NodeLabel, string>> = {
-  Folder: '文件夹',
-  File: '文件',
   Class: '类',
-  Function: '函数',
-  Method: '方法',
+  Function: '函数/方法',
+  Method: '函数/方法',
   Variable: '变量',
   Interface: '接口',
-  Import: '导入',
 };
 
 const EDGE_LABEL_TEXT: Record<EdgeType, string> = {
   CONTAINS: '包含',
-  DEFINES: '定义',
-  IMPORTS: '导入',
   CALLS: '调用',
   EXTENDS: '继承',
   IMPLEMENTS: '实现',
 };
+
+type FilterItem = {
+  key: string;
+  labels: NodeLabel[];
+  text: string;
+  color: string;
+  iconLabel: NodeLabel;
+};
+
+const FILTER_ITEMS: FilterItem[] = [
+  { key: 'Class', labels: ['Class'], text: '类', color: NODE_COLORS.Class, iconLabel: 'Class' },
+  { key: 'FunctionMethod', labels: ['Function', 'Method'], text: '函数/方法', color: NODE_COLORS.Function, iconLabel: 'Function' },
+  { key: 'Variable', labels: ['Variable'], text: '变量', color: NODE_COLORS.Variable, iconLabel: 'Variable' },
+  { key: 'Interface', labels: ['Interface'], text: '接口', color: NODE_COLORS.Interface, iconLabel: 'Interface' },
+];
 
 // Tree node structure
 interface TreeNode {
@@ -200,13 +217,22 @@ const TreeItem = ({
 // Icon for node types
 const getNodeTypeIcon = (label: NodeLabel) => {
   switch (label) {
+    case 'Project': return Component;
+    case 'Package': return Component;
+    case 'Module': return Component;
     case 'Folder': return Folder;
     case 'File': return FileCode;
     case 'Class': return Box;
     case 'Function': return Braces;
     case 'Method': return Braces;
     case 'Interface': return Hash;
+    case 'Enum': return CircleDot;
+    case 'Decorator': return Sparkles;
     case 'Import': return FileCode;
+    case 'Type': return FileCode;
+    case 'CodeElement': return FileCode;
+    case 'Community': return Network;
+    case 'Process': return Database;
     default: return Variable;
   }
 };
@@ -225,7 +251,8 @@ export const FileTreePanel = ({ onFocusNode }: FileTreePanelProps) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
-  const [activeTab, setActiveTab] = useState<'files' | 'filters'>('files');
+  // [2026-05-10 调整]: 默认使用 filters，并在前端隐藏 files。随时可以调整回 'files'。
+  const [activeTab, setActiveTab] = useState<'files' | 'filters'>('filters');
 
   // Build file tree from graph
   const fileTree = useMemo(() => {
@@ -235,6 +262,17 @@ export const FileTreePanel = ({ onFocusNode }: FileTreePanelProps) => {
 
   const firstLevelPaths = useMemo(() => fileTree.map(node => node.path), [fileTree]);
   const selectedNodePath = selectedNode?.properties?.filePath;
+
+  const toggleFilterItem = useCallback((labels: NodeLabel[]) => {
+    const allVisible = labels.every((label) => visibleLabels.includes(label));
+    labels.forEach((label) => {
+      const isVisible = visibleLabels.includes(label);
+      const shouldBeVisible = !allVisible;
+      if (isVisible !== shouldBeVisible) {
+        toggleLabelVisibility(label);
+      }
+    });
+  }, [toggleLabelVisibility, visibleLabels]);
 
   // Auto-expand first level on initial load
   useEffect(() => {
@@ -308,6 +346,7 @@ export const FileTreePanel = ({ onFocusNode }: FileTreePanelProps) => {
           <PanelLeft className="w-5 h-5" />
         </button>
         <div className="w-6 h-px bg-border-subtle my-1" />
+        {/* [2026-05-10 调整]: 前端删除，后端保留，随时可以调整回来
         <button
           type="button"
           onClick={() => { setIsCollapsed(false); setActiveTab('files'); }}
@@ -316,6 +355,7 @@ export const FileTreePanel = ({ onFocusNode }: FileTreePanelProps) => {
         >
           <Folder className="w-5 h-5" />
         </button>
+        */}
         <button
           type="button"
           onClick={() => { setIsCollapsed(false); setActiveTab('filters'); }}
@@ -333,6 +373,7 @@ export const FileTreePanel = ({ onFocusNode }: FileTreePanelProps) => {
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-border-subtle">
         <div className="flex items-center gap-1">
+          {/* [2026-05-10 调整]: 前端删除文件和筛选的切换按钮，后端保留，随时可以调整回来
           <button
             type="button"
             onClick={() => setActiveTab('files')}
@@ -353,6 +394,8 @@ export const FileTreePanel = ({ onFocusNode }: FileTreePanelProps) => {
           >
             筛选
           </button>
+          */}
+          <span className="px-2 py-1 text-xs font-medium text-text-primary">筛选</span>
         </div>
         <button
           type="button"
@@ -364,9 +407,9 @@ export const FileTreePanel = ({ onFocusNode }: FileTreePanelProps) => {
         </button>
       </div>
 
+      {/* [2026-05-10 调整]: 前端删除文件树Tab内容，后端保留，随时可以调整回来
       {activeTab === 'files' && (
         <>
-          {/* Search */}
           <div className="px-3 py-2 border-b border-border-subtle">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted" />
@@ -380,7 +423,6 @@ export const FileTreePanel = ({ onFocusNode }: FileTreePanelProps) => {
             </div>
           </div>
 
-          {/* File tree */}
           <div className="flex-1 overflow-y-auto scrollbar-thin py-2">
             {fileTree.length === 0 ? (
               <div className="px-3 py-4 text-center text-text-muted text-xs">
@@ -403,6 +445,7 @@ export const FileTreePanel = ({ onFocusNode }: FileTreePanelProps) => {
           </div>
         </>
       )}
+      */}
 
       {activeTab === 'filters' && (
         <div className="flex-1 overflow-y-auto scrollbar-thin p-3">
@@ -413,18 +456,21 @@ export const FileTreePanel = ({ onFocusNode }: FileTreePanelProps) => {
             <p className="text-[11px] text-text-muted mb-3">
               切换图谱中各类节点的显示
             </p>
+            <p className="text-[11px] text-text-muted mb-3 leading-5">
+              当前前端仅保留类、函数/方法、变量、接口四类实体，后端仍保留完整类型能力，后续可按需恢复到前端。
+            </p>
           </div>
 
           <div className="flex flex-col gap-1">
-            {FILTERABLE_LABELS.map((label) => {
-              const Icon = getNodeTypeIcon(label);
-              const isVisible = visibleLabels.includes(label);
+            {FILTER_ITEMS.map((item) => {
+              const Icon = getNodeTypeIcon(item.iconLabel);
+              const isVisible = item.labels.every((label) => visibleLabels.includes(label));
 
               return (
                 <button
                   type="button"
-                  key={label}
-                  onClick={() => toggleLabelVisibility(label)}
+                  key={item.key}
+                  onClick={() => toggleFilterItem(item.labels)}
                   className={`
                     flex items-center gap-2.5 px-2 py-1.5 rounded text-left transition-colors
                     ${isVisible
@@ -435,11 +481,11 @@ export const FileTreePanel = ({ onFocusNode }: FileTreePanelProps) => {
                   >
                   <div
                     className={`w-5 h-5 rounded flex items-center justify-center ${isVisible ? '' : 'opacity-40'}`}
-                    style={{ backgroundColor: `${NODE_COLORS[label]}20` }}
+                    style={{ backgroundColor: `${item.color}20` }}
                   >
-                    <Icon className="w-3 h-3" style={{ color: NODE_COLORS[label] }} />
+                    <Icon className="w-3 h-3" style={{ color: item.color }} />
                   </div>
-                  <span className="text-xs flex-1">{getNodeLabelText(label)}</span>
+                  <span className="text-xs flex-1">{item.text}</span>
                   <div
                     className={`w-2 h-2 rounded-full transition-colors ${isVisible ? 'bg-accent' : 'bg-border-subtle'}`}
                   />
@@ -458,7 +504,7 @@ export const FileTreePanel = ({ onFocusNode }: FileTreePanelProps) => {
             </p>
 
             <div className="flex flex-col gap-1">
-              {ALL_EDGE_TYPES.map((edgeType) => {
+              {VISIBLE_EDGE_TYPES.map((edgeType) => {
                 const info = EDGE_INFO[edgeType];
                 const isVisible = visibleEdgeTypes.includes(edgeType);
 
@@ -490,6 +536,7 @@ export const FileTreePanel = ({ onFocusNode }: FileTreePanelProps) => {
           </div>
 
           {/* Depth Filter */}
+          {/* [2026-05-10 调整]: 前端删除聚焦深度筛选，后端保留，随时可以调整回来
           <div className="mt-6 pt-4 border-t border-border-subtle">
             <h3 className="text-xs font-medium text-text-secondary uppercase tracking-wide mb-2">
               <Target className="w-3 h-3 inline mr-1.5" />
@@ -530,6 +577,7 @@ export const FileTreePanel = ({ onFocusNode }: FileTreePanelProps) => {
               </p>
             )}
           </div>
+          */}
 
           {/* Legend */}
           <div className="mt-6 pt-4 border-t border-border-subtle">
@@ -537,13 +585,18 @@ export const FileTreePanel = ({ onFocusNode }: FileTreePanelProps) => {
               颜色说明
             </h3>
             <div className="grid grid-cols-2 gap-2">
-              {(['Folder', 'File', 'Class', 'Function', 'Interface', 'Method'] as NodeLabel[]).map(label => (
-                <div key={label} className="flex items-center gap-1.5">
+              {[
+                { key: 'Class', text: '类', color: NODE_COLORS.Class },
+                { key: 'FunctionMethod', text: '函数/方法', color: NODE_COLORS.Function },
+                { key: 'Variable', text: '变量', color: NODE_COLORS.Variable },
+                { key: 'Interface', text: '接口', color: NODE_COLORS.Interface },
+              ].map(item => (
+                <div key={item.key} className="flex items-center gap-1.5">
                   <div
                     className="w-2.5 h-2.5 rounded-full"
-                    style={{ backgroundColor: NODE_COLORS[label] }}
+                    style={{ backgroundColor: item.color }}
                   />
-                  <span className="text-[10px] text-text-muted">{getNodeLabelText(label)}</span>
+                  <span className="text-[10px] text-text-muted">{item.text}</span>
                 </div>
               ))}
             </div>

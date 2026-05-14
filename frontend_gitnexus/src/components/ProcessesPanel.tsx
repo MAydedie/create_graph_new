@@ -10,48 +10,7 @@ import { GitBranch, Search, Eye, Zap, Home, ChevronDown, ChevronRight, Sparkles,
 import { useAppState } from '../hooks/useAppState';
 import { ProcessFlowModal } from './ProcessFlowModal';
 import type { ProcessData, ProcessStep } from '../lib/mermaid-generator';
-
-const readNumericStepCount = (value: unknown): number | null => {
-    return typeof value === 'number' && Number.isFinite(value) ? value : null;
-};
-
-const getProcessStepRelsFromGraph = (
-    graph: ReturnType<typeof useAppState>['graph'],
-    processId: string,
-) => {
-    if (!graph) return [];
-    return graph.relationships.filter((rel) => rel.type === 'STEP_IN_PROCESS' && rel.targetId === processId);
-};
-
-const getProcessStepIdsFromGraph = (
-    graph: ReturnType<typeof useAppState>['graph'],
-    processId: string,
-): string[] => {
-    return getProcessStepRelsFromGraph(graph, processId).map((rel) => rel.sourceId);
-};
-
-const buildProcessStepsFromGraph = (
-    graph: ReturnType<typeof useAppState>['graph'],
-    processId: string,
-): ProcessStep[] => {
-    if (!graph) return [];
-    const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
-    const rels = [...getProcessStepRelsFromGraph(graph, processId)].sort((left, right) => {
-        const leftStep = typeof left.step === 'number' ? left.step : Number.MAX_SAFE_INTEGER;
-        const rightStep = typeof right.step === 'number' ? right.step : Number.MAX_SAFE_INTEGER;
-        return leftStep - rightStep;
-    });
-
-    return rels.map((rel, index) => {
-        const stepNode = nodeById.get(rel.sourceId);
-        return {
-            id: rel.sourceId,
-            name: stepNode?.properties?.name || rel.sourceId,
-            filePath: stepNode?.properties?.filePath,
-            stepNumber: typeof rel.step === 'number' ? rel.step : index + 1,
-        };
-    });
-};
+import { buildProcessStepsFromGraph, deriveProcessesFromGraph, getProcessStepIdsFromGraph } from './processes-panel-helpers';
 
 export const ProcessesPanel = () => {
     const { graph, runQuery, setHighlightedNodeIds, highlightedNodeIds } = useAppState();
@@ -62,44 +21,7 @@ export const ProcessesPanel = () => {
     const [focusedProcessId, setFocusedProcessId] = useState<string | null>(null);
 
     // Extract processes from graph
-    const processes = useMemo(() => {
-        if (!graph) return { cross: [], intra: [] };
-
-        const processNodes = graph.nodes.filter(n => n.label === 'Process');
-        const relDerivedStepCount = new Map<string, number>();
-        for (const rel of graph.relationships) {
-            if (rel.type !== 'STEP_IN_PROCESS') continue;
-            relDerivedStepCount.set(rel.targetId, (relDerivedStepCount.get(rel.targetId) || 0) + 1);
-        }
-
-        const cross: Array<{ id: string; label: string; stepCount: number; clusters: string[] }> = [];
-        const intra: Array<{ id: string; label: string; stepCount: number; clusters: string[] }> = [];
-
-        for (const node of processNodes) {
-            const nodeProps = node.properties as Record<string, unknown>;
-            const directStepCount = readNumericStepCount(nodeProps.stepCount) ?? readNumericStepCount(nodeProps.step_count);
-            const item = {
-                id: node.id,
-                label: node.properties.heuristicLabel || node.properties.name || node.id,
-                stepCount: directStepCount && directStepCount > 0
-                    ? directStepCount
-                    : (relDerivedStepCount.get(node.id) || 0),
-                clusters: node.properties.communities || [],
-            };
-
-            if (node.properties.processType === 'cross_community') {
-                cross.push(item);
-            } else {
-                intra.push(item);
-            }
-        }
-
-        // Sort by step count (most complex first)
-        cross.sort((a, b) => b.stepCount - a.stepCount);
-        intra.sort((a, b) => b.stepCount - a.stepCount);
-
-        return { cross, intra };
-    }, [graph]);
+    const processes = useMemo(() => deriveProcessesFromGraph(graph), [graph]);
 
     // Filter by search
     const filteredProcesses = useMemo(() => {
@@ -146,17 +68,31 @@ export const ProcessesPanel = () => {
                 RETURN s.id AS id, s.name AS name, s.filePath AS filePath, r.step AS stepNumber
             `;
 
-            const stepsResult = await runQuery(allStepsQuery);
+            try {
+                const stepsResult = await runQuery(allStepsQuery);
 
-            for (const row of stepsResult) {
-                const stepId = row.id || row[0];
-                if (!allStepsMap.has(stepId)) {
-                    allStepsMap.set(stepId, {
-                        id: stepId,
-                        name: row.name || row[1] || 'Unknown',
-                        filePath: row.filePath || row[2],
-                        stepNumber: row.stepNumber || row.step || row[3] || 0,
-                    });
+                for (const row of stepsResult) {
+                    const stepId = row.id || row[0];
+                    if (!allStepsMap.has(stepId)) {
+                        allStepsMap.set(stepId, {
+                            id: stepId,
+                            name: row.name || row[1] || 'Unknown',
+                            filePath: row.filePath || row[2],
+                            stepNumber: row.stepNumber || row.step || row[3] || 0,
+                        });
+                    }
+                }
+            } catch (error) {
+                console.warn('Failed to query combined process steps, falling back to graph relationships:', error);
+            }
+
+            if (allStepsMap.size === 0 && graph) {
+                for (const processId of allProcessIds) {
+                    for (const step of buildProcessStepsFromGraph(graph, processId)) {
+                        if (!allStepsMap.has(step.id)) {
+                            allStepsMap.set(step.id, step);
+                        }
+                    }
                 }
             }
 
@@ -183,7 +119,14 @@ export const ProcessesPanel = () => {
                         }))
                         .filter(edge => edge.from !== edge.to));
                 } catch (err) {
-                    console.warn('Could not fetch combined edges:', err);
+                    console.warn('Could not fetch combined edges, falling back to graph relationships:', err);
+                    if (graph) {
+                        const stepIdSet = new Set(stepIds);
+                        allEdges.push(...graph.relationships
+                            .filter((rel) => rel.type === 'CALLS' && stepIdSet.has(rel.sourceId) && stepIdSet.has(rel.targetId))
+                            .map((rel) => ({ from: rel.sourceId, to: rel.targetId, type: rel.type }))
+                            .filter((edge) => edge.from !== edge.to));
+                    }
                 }
             }
 
@@ -202,7 +145,7 @@ export const ProcessesPanel = () => {
         } finally {
             setLoadingProcess(null);
         }
-    }, [processes, runQuery]);
+    }, [graph, processes, runQuery]);
 
     // Load process steps and open modal
     const handleViewProcess = useCallback(async (processId: string, label: string, processType: string) => {

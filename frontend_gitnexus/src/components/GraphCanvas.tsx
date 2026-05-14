@@ -10,6 +10,19 @@ export interface GraphCanvasHandle {
   focusNode: (nodeId: string) => void;
 }
 
+const ENTITY_DETAIL_NODE_LABELS = new Set([
+  'Class',
+  'Function',
+  'Method',
+  'Interface',
+  'Variable',
+  'File',
+  'Folder',
+  'Enum',
+  'Type',
+  'CodeElement',
+]);
+
 export const GraphCanvas = forwardRef<GraphCanvasHandle>((_, ref) => {
   const {
     graph,
@@ -21,6 +34,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle>((_, ref) => {
     depthFilter,
     highlightedNodeIds,
     secondaryHighlightedNodeIds,
+    graphHighlightMode,
     setHighlightedNodeIds,
     aiCitationHighlightedNodeIds,
     aiToolHighlightedNodeIds,
@@ -57,7 +71,9 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle>((_, ref) => {
     const node = graph.nodes.find(n => n.id === nodeId);
     if (node) {
       setSelectedNode(node);
-      openCodePanel();
+      if (ENTITY_DETAIL_NODE_LABELS.has(node.label)) {
+        openCodePanel();
+      }
     }
   }, [graph, setSelectedNode, openCodePanel]);
 
@@ -98,22 +114,21 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle>((_, ref) => {
     blastRadiusNodeIds: effectiveBlastRadiusNodeIds,
     animatedNodes: effectiveAnimatedNodes,
     visibleEdgeTypes,
+    highlightPalette: graphHighlightMode,
   });
 
   // Expose focusNode to parent via ref
   useImperativeHandle(ref, () => ({
     focusNode: (nodeId: string) => {
-      // Also update app state so the selection syncs properly
       if (graph) {
         const node = graph.nodes.find(n => n.id === nodeId);
         if (node) {
           setSelectedNode(node);
-          openCodePanel();
         }
       }
       focusNode(nodeId);
     }
-  }), [focusNode, graph, setSelectedNode, openCodePanel]);
+  }), [focusNode, graph, setSelectedNode]);
 
   // Update Sigma graph when KnowledgeGraph changes
   useEffect(() => {

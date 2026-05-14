@@ -15,6 +15,8 @@ import json
 import os
 import hashlib
 
+from data.data_accessor import get_data_accessor
+
 
 class ExperiencePathStorage:
     """经验路径存储服务"""
@@ -55,12 +57,13 @@ class ExperiencePathStorage:
         project_name = os.path.basename(project_path) or "unknown_project"
 
         data: Dict[str, Any] = {
-            "version": "0.3",
+            "version": "0.4",
             "project_path": project_path,
             "project_name": project_name,
             "analysis_timestamp": datetime.now().isoformat(),
             "total_paths": len(experience_paths),
             "partitions": [],
+            "resolution_coverage": self._build_resolution_coverage(experience_paths),
         }
 
         # 按分区聚合路径
@@ -92,8 +95,57 @@ class ExperiencePathStorage:
         with filepath.open("w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
 
-        print(f"[ExperiencePathStorage] ✅ 经验路径已保存到: {filepath}")
+        print(f"[ExperiencePathStorage] Experience paths saved to: {filepath}")
         return filepath
+
+    @staticmethod
+    def _build_resolution_coverage(experience_paths: List[Dict[str, Any]]) -> Dict[str, Any]:
+        total_paths = 0
+        fully_exact_paths = 0
+        paths_with_fallback = 0
+        total_method_entries = 0
+        exact_owner_count = 0
+        heuristic_owner_count = 0
+        fallback_owner_count = 0
+        non_empty_absolute_path_count = 0
+        for path in experience_paths or []:
+            if not isinstance(path, dict):
+                continue
+            total_paths += 1
+            raw_coverage = path.get('ownership_coverage')
+            coverage: Dict[str, Any] = raw_coverage if isinstance(raw_coverage, dict) else {}
+            total_entries = int(coverage.get('total_method_entries') or 0)
+            exact_entries = int(coverage.get('exact_owner_count') or 0)
+            heuristic_entries = int(coverage.get('heuristic_owner_count') or 0)
+            fallback_entries = int(coverage.get('fallback_owner_count') or 0)
+            non_empty_entries = int(coverage.get('non_empty_absolute_path_count') or 0)
+            total_method_entries += total_entries
+            exact_owner_count += exact_entries
+            heuristic_owner_count += heuristic_entries
+            fallback_owner_count += fallback_entries
+            non_empty_absolute_path_count += non_empty_entries
+            if total_entries > 0 and exact_entries == total_entries:
+                fully_exact_paths += 1
+            if fallback_entries > 0:
+                paths_with_fallback += 1
+
+        unresolved_owner_count = max(total_method_entries - exact_owner_count - heuristic_owner_count - fallback_owner_count, 0)
+        return {
+            'total_paths': total_paths,
+            'paths_with_full_exact_ownership': fully_exact_paths,
+            'paths_with_fallback_ownership': paths_with_fallback,
+            'full_exact_path_percent': round((fully_exact_paths / total_paths) * 100, 2) if total_paths else 0.0,
+            'total_method_entries': total_method_entries,
+            'exact_owner_count': exact_owner_count,
+            'heuristic_owner_count': heuristic_owner_count,
+            'fallback_owner_count': fallback_owner_count,
+            'unresolved_owner_count': unresolved_owner_count,
+            'non_empty_absolute_path_count': non_empty_absolute_path_count,
+            'exact_owner_percent': round((exact_owner_count / total_method_entries) * 100, 2) if total_method_entries else 0.0,
+            'heuristic_owner_percent': round((heuristic_owner_count / total_method_entries) * 100, 2) if total_method_entries else 0.0,
+            'fallback_owner_percent': round((fallback_owner_count / total_method_entries) * 100, 2) if total_method_entries else 0.0,
+            'non_empty_absolute_path_percent': round((non_empty_absolute_path_count / total_method_entries) * 100, 2) if total_method_entries else 0.0,
+        }
 
     def load_experience_paths(self, project_path: str) -> Optional[Dict[str, Any]]:
         """
@@ -110,6 +162,18 @@ class ExperiencePathStorage:
         try:
             with filepath.open("r", encoding="utf-8") as f:
                 data = json.load(f)
+            accessor = get_data_accessor()
+            resolver = accessor._build_method_file_path_resolver(project_path)
+            for partition in data.get('partitions', []) or []:
+                if not isinstance(partition, dict):
+                    continue
+                paths = partition.get('paths')
+                if not isinstance(paths, list):
+                    continue
+                partition['paths'] = [
+                    accessor._enrich_experience_path_payload(item, project_path=project_path, resolver=resolver) if isinstance(item, dict) else item
+                    for item in paths
+                ]
             # 轻量校验
             if data.get("project_path") and os.path.normpath(data["project_path"]) != project_path:
                 # 同名工程但路径不一致，视为不匹配

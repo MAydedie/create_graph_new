@@ -36,12 +36,16 @@ class PythonASTVisitor(ast.NodeVisitor):
         if node.bases:
             base_names = [self._get_name_from_node(base) for base in node.bases]
 
-            # Python 中没有强制 interface 语法，这里使用命名与常见基类做启发式判断
-            for base_name in base_names:
+            # Python 中没有强制 interface 语法，这里使用命名与常见基类做启发式判断。
+            # 另外，多继承场景下第一个非接口样式基类视为 parent，其余基类视为接口/能力契约，
+            # 避免只保留一个 parent 而丢失后续可能对应 implements 的关系。
+            for index, base_name in enumerate(base_names):
                 if self._is_interface_like(base_name):
                     interfaces.append(base_name)
                 elif parent_class is None:
                     parent_class = base_name
+                elif index > 0:
+                    interfaces.append(base_name)
 
             # 如果全部都被判定为 interface，则回退到第一个作为 parent
             if parent_class is None and base_names:
@@ -254,6 +258,9 @@ class PythonASTVisitor(ast.NodeVisitor):
 
     def _is_interface_like(self, base_name: str) -> bool:
         """启发式判断基类是否更像接口类型"""
+        if not base_name:
+            return False
+
         normalized = (base_name or "").lower()
         interface_tokens = (
             "interface",
@@ -263,7 +270,14 @@ class PythonASTVisitor(ast.NodeVisitor):
             "typing.protocol",
             "abc.abc",
         )
-        return any(token in normalized for token in interface_tokens)
+        if any(token in normalized for token in interface_tokens):
+            return True
+
+        short_name = base_name.split('.')[-1]
+        if len(short_name) > 1 and short_name.startswith('I') and short_name[1].isupper():
+            return True
+
+        return False
     
     def _get_annotation_str(self, node) -> str:
         """获取注解的字符串表示"""

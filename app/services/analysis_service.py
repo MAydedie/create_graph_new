@@ -175,7 +175,7 @@ def _get_deepseek_runtime_settings() -> Dict[str, str]:
     return {
         'api_key': str(settings.get('api_key') or '').strip(),
         'base_url': str(settings.get('base_url') or 'https://api.deepseek.com/v1').strip(),
-        'model': str(settings.get('model') or 'deepseek-chat').strip(),
+        'model': str(settings.get('model') or 'deepseek-v4-flash').strip(),
     }
 
 

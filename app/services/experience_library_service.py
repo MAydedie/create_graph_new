@@ -11,9 +11,11 @@ from typing import Any, Dict, List, Optional, Tuple
 from flask import jsonify, request
 
 from data.project_library_storage import ProjectLibraryStorage
+from data.experience_path_storage import ExperiencePathStorage
 
 
 _project_library_storage = ProjectLibraryStorage()
+_experience_path_storage = ExperiencePathStorage()
 _APP_ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_EXPERIENCE_OUTPUT_ROOT = _APP_ROOT / 'output_analysis'
 
@@ -71,12 +73,20 @@ def _sanitize_import_stem(stem: str) -> str:
     return sanitized[:64] or 'entry'
 
 
+def _architecture_digest_filename(project_path: str) -> str:
+    name = _safe_project_name(project_path)
+    h = _project_hash(project_path)
+    return f'architecture_digest_{name}_{h}.json'
+
+
 def _is_allowed_filename(project_path: str, filename: str) -> bool:
     if not filename or os.path.basename(filename) != filename:
         return False
     if not filename.endswith('.json'):
         return False
     if filename == _generated_filename(project_path):
+        return True
+    if filename == _architecture_digest_filename(project_path):
         return True
     return filename.startswith(_import_prefix(project_path))
 
@@ -140,7 +150,7 @@ def _extract_entry_metadata(project_path: str, path: Path) -> Dict[str, Any]:
         'relativePath': filename,
         'absolutePath': str(path),
         'filename': filename,
-        'type': 'generated' if filename == _generated_filename(project_path) else 'imported',
+        'type': 'generated' if filename == _generated_filename(project_path) else ('digest' if filename == _architecture_digest_filename(project_path) else 'imported'),
         'projectName': payload.get('project_name') if isinstance(payload, dict) else None,
         'analysisTimestamp': analysis_timestamp,
         'updatedAt': datetime.fromtimestamp(path.stat().st_mtime).isoformat(),
@@ -192,7 +202,7 @@ def _to_markdown_experience_payload(project_path: str, source_name: str, markdow
     stripped = markdown_text.strip()
     path_description = stripped or f'Imported markdown from {source_name}'
     return {
-        'version': '0.3',
+        'version': '0.4',
         'project_path': normalized_project_path,
         'project_name': os.path.basename(normalized_project_path) or 'unknown_project',
         'analysis_timestamp': now,
@@ -211,6 +221,31 @@ def _to_markdown_experience_payload(project_path: str, source_name: str, markdow
                         'path_description': path_description,
                         'function_chain': [path_signature],
                         'path': [path_signature],
+                        'method_path_entries': [
+                            {
+                                'step_index': 1,
+                                'method_signature': path_signature,
+                                'display_name': path_signature,
+                                'chain_role': 'entry_method',
+                                'is_entry': True,
+                                'is_leaf': True,
+                                'prev_method': None,
+                                'next_method': None,
+                                'path_to_method': path_signature,
+                            }
+                        ],
+                        'chained_call_path': {
+                            'chain_version': 'callpath.v1',
+                            'path_methods': [path_signature],
+                            'method_count': 1,
+                            'path_links': [],
+                            'main_method': path_signature,
+                            'intermediate_methods': [],
+                            'leaf_node': path_signature,
+                            'entry_method': path_signature,
+                            'chain_text': path_signature,
+                            'explanation': '导入 Markdown 经验，仅包含单节点路径。',
+                        },
                         'leaf_node': path_signature,
                         'semantics': {
                             'semantic_label': Path(source_name).stem or 'Imported Markdown',
@@ -311,6 +346,364 @@ def api_experience_library_file_save():
             'size': len(normalized_text.encode('utf-8')),
         }
     )
+
+
+# ---------------------------------------------------------------------------
+# Architecture Digest: 自顶向下的架构摘要，补充经验库缺失的全局上下文
+# ---------------------------------------------------------------------------
+
+_TECH_STACK_INDICATORS = {
+    'requirements.txt': 'Python',
+    'setup.py': 'Python',
+    'pyproject.toml': 'Python',
+    'package.json': 'Node.js / JavaScript',
+    'tsconfig.json': 'TypeScript',
+    'Cargo.toml': 'Rust',
+    'go.mod': 'Go',
+    'pom.xml': 'Java (Maven)',
+    'build.gradle': 'Java (Gradle)',
+    'Gemfile': 'Ruby',
+    'composer.json': 'PHP',
+    'CMakeLists.txt': 'C/C++',
+}
+
+_FRAMEWORK_INDICATORS = {
+    'flask': 'Flask',
+    'django': 'Django',
+    'fastapi': 'FastAPI',
+    'express': 'Express.js',
+    'react': 'React',
+    'vue': 'Vue.js',
+    'angular': 'Angular',
+    'next': 'Next.js',
+    'vite': 'Vite',
+    'spring': 'Spring',
+    'gin': 'Gin',
+    'actix': 'Actix',
+}
+
+_DESIGN_PATTERN_HEURISTICS = [
+    {'pattern': 'singleton', 'files': ['**/data_accessor*', '**/get_*_instance*'], 'name': '单例模式', 'description': '通过全局访问器确保唯一实例'},
+    {'pattern': 'factory', 'files': ['**/*factory*', '**/*create_app*'], 'name': '工厂模式', 'description': '通过工厂函数创建对象/应用实例'},
+    {'pattern': 'blueprint', 'files': ['**/routes/*', '**/blueprint*'], 'name': 'Blueprint/路由模式', 'description': '将路由按功能分组注册'},
+    {'pattern': 'service_layer', 'files': ['**/services/*'], 'name': '服务层模式', 'description': '业务逻辑与路由/视图分离'},
+    {'pattern': 'storage_abstraction', 'files': ['**/*storage*'], 'name': '存储抽象', 'description': '通过存储类封装持久化细节'},
+]
+
+
+def _detect_tech_stack(project_path: str) -> List[str]:
+    detected: List[str] = []
+    for indicator_file, label in _TECH_STACK_INDICATORS.items():
+        if os.path.exists(os.path.join(project_path, indicator_file)):
+            if label not in detected:
+                detected.append(label)
+    return detected
+
+
+def _detect_frameworks(project_path: str) -> List[str]:
+    detected: List[str] = []
+    requirements_path = os.path.join(project_path, 'requirements.txt')
+    package_json_path = os.path.join(project_path, 'package.json')
+    texts: List[str] = []
+    for candidate in [requirements_path, package_json_path]:
+        if os.path.isfile(candidate):
+            try:
+                texts.append(Path(candidate).read_text(encoding='utf-8').lower())
+            except Exception:
+                pass
+    combined = ' '.join(texts)
+    for keyword, label in _FRAMEWORK_INDICATORS.items():
+        if keyword in combined and label not in detected:
+            detected.append(label)
+    return detected
+
+
+def _detect_design_patterns(project_path: str) -> List[Dict[str, str]]:
+    import glob
+    patterns_found: List[Dict[str, str]] = []
+    for heuristic in _DESIGN_PATTERN_HEURISTICS:
+        for file_glob in heuristic['files']:
+            full_glob = os.path.join(project_path, file_glob)
+            matches = glob.glob(full_glob, recursive=True)
+            if matches:
+                patterns_found.append({
+                    'name': heuristic['name'],
+                    'description': heuristic['description'],
+                    'evidence': os.path.relpath(matches[0], project_path).replace('\\', '/'),
+                })
+                break
+    return patterns_found
+
+
+def _scan_top_modules(project_path: str, max_depth: int = 2) -> List[Dict[str, Any]]:
+    modules: List[Dict[str, Any]] = []
+    try:
+        for entry in sorted(os.scandir(project_path), key=lambda e: e.name):
+            if not entry.is_dir():
+                continue
+            name = entry.name
+            if name.startswith('.') or name.startswith('__') or name in {
+                'node_modules', 'dist', 'build', '.git', 'venv', 'env', '__pycache__',
+                'output_analysis', '.vscode', '.idea', 'logs', 'tmp',
+            }:
+                continue
+            file_count = 0
+            key_files: List[str] = []
+            try:
+                for root, _dirs, files in os.walk(entry.path):
+                    depth = root.replace(entry.path, '').count(os.sep)
+                    if depth >= max_depth:
+                        continue
+                    for f in files:
+                        if f.endswith(('.py', '.ts', '.tsx', '.js', '.jsx', '.java', '.go')):
+                            file_count += 1
+                            if len(key_files) < 5:
+                                rel = os.path.relpath(os.path.join(root, f), project_path).replace('\\', '/')
+                                key_files.append(rel)
+            except Exception:
+                pass
+            if file_count > 0:
+                modules.append({
+                    'name': name,
+                    'path': name + '/',
+                    'file_count': file_count,
+                    'key_files': key_files,
+                })
+    except Exception:
+        pass
+    return modules
+
+
+def _read_readme_summary(project_path: str, max_chars: int = 800) -> Optional[str]:
+    for candidate in ['README.md', 'readme.md', 'README.txt', 'README']:
+        readme_path = os.path.join(project_path, candidate)
+        if os.path.isfile(readme_path):
+            try:
+                text = Path(readme_path).read_text(encoding='utf-8')
+                lines = text.strip().split('\n')
+                summary_lines: List[str] = []
+                char_count = 0
+                for line in lines:
+                    if char_count > max_chars:
+                        break
+                    summary_lines.append(line)
+                    char_count += len(line)
+                return '\n'.join(summary_lines)
+            except Exception:
+                pass
+    return None
+
+
+def _detect_entry_point(project_path: str) -> Optional[str]:
+    for candidate in ['app.py', 'main.py', 'manage.py', 'server.py', 'run.py', 'index.js', 'index.ts']:
+        if os.path.isfile(os.path.join(project_path, candidate)):
+            return candidate
+    return None
+
+
+def _collect_api_routes_from_flask(project_path: str) -> List[Dict[str, Any]]:
+    route_groups: List[Dict[str, Any]] = []
+    routes_dir = os.path.join(project_path, 'app', 'routes')
+    if not os.path.isdir(routes_dir):
+        return route_groups
+    try:
+        for fname in sorted(os.listdir(routes_dir)):
+            if not fname.endswith('.py') or fname.startswith('__'):
+                continue
+            fpath = os.path.join(routes_dir, fname)
+            content = Path(fpath).read_text(encoding='utf-8')
+            routes: List[str] = []
+            for line in content.split('\n'):
+                line_stripped = line.strip()
+                if 'add_url_rule' in line_stripped:
+                    match = re.search(r'["\']([^"\']*/[^"\']*)["\'\)]', line_stripped)
+                    if match:
+                        routes.append(match.group(1))
+                elif '@' in line_stripped and '.route(' in line_stripped:
+                    match = re.search(r'\.route\(["\']([^"\']+)', line_stripped)
+                    if match:
+                        routes.append(match.group(1))
+            if routes:
+                route_groups.append({
+                    'source_file': f'app/routes/{fname}',
+                    'route_count': len(routes),
+                    'routes': routes[:20],
+                })
+    except Exception:
+        pass
+    return route_groups
+
+
+def _gather_experience_library_stats(project_path: str) -> Dict[str, Any]:
+    stats: Dict[str, Any] = {}
+    profile = _project_library_storage.load_project_profile(project_path)
+    if isinstance(profile, dict):
+        stats['has_graph'] = bool(profile.get('has_graph'))
+        stats['has_hierarchy'] = bool(profile.get('has_hierarchy'))
+        stats['path_count'] = int(profile.get('path_count') or 0)
+
+    experience_root = _resolve_project_experience_output_root(project_path)
+
+    community_shadow_dir = experience_root / 'community_shadow'
+    if community_shadow_dir.is_dir():
+        cs_file = community_shadow_dir / _generated_filename(project_path)
+        if cs_file.is_file():
+            try:
+                cs_data = json.loads(cs_file.read_text(encoding='utf-8'))
+                communities = cs_data.get('communities', [])
+                stats['community_count'] = len(communities)
+                stats['top_communities'] = [
+                    {'label': c.get('label', ''), 'size': c.get('size', 0), 'cohesion': c.get('cohesion', 0)}
+                    for c in (communities[:5] if isinstance(communities, list) else [])
+                ]
+            except Exception:
+                pass
+
+    process_shadow_dir = experience_root / 'process_shadow'
+    if process_shadow_dir.is_dir():
+        ps_file = process_shadow_dir / _generated_filename(project_path)
+        if ps_file.is_file():
+            try:
+                ps_data = json.loads(ps_file.read_text(encoding='utf-8'))
+                stats['process_count'] = len(ps_data.get('processes', []))
+                summary = ps_data.get('summary', {})
+                stats['step_edge_count'] = summary.get('step_edge_count', 0)
+            except Exception:
+                pass
+
+    experience_paths_dir = experience_root / 'experience_paths'
+    if experience_paths_dir.is_dir():
+        ep_file = experience_paths_dir / _generated_filename(project_path)
+        if ep_file.is_file():
+            try:
+                ep_data = json.loads(ep_file.read_text(encoding='utf-8'))
+                stats['experience_path_total'] = ep_data.get('total_paths', 0)
+                stats['experience_partition_count'] = len(ep_data.get('partitions', []))
+            except Exception:
+                pass
+
+    conversations_dir = experience_root / 'conversations'
+    if conversations_dir.is_dir():
+        try:
+            stats['conversation_count'] = sum(1 for f in conversations_dir.iterdir() if f.is_file() and f.suffix == '.json')
+        except Exception:
+            pass
+
+    return stats
+
+
+def generate_architecture_digest(project_path: str) -> Dict[str, Any]:
+    normalized = _normalize_project_path(project_path)
+    project_name = os.path.basename(normalized) or 'unknown_project'
+
+    tech_stack = _detect_tech_stack(normalized)
+    frameworks = _detect_frameworks(normalized)
+    design_patterns = _detect_design_patterns(normalized)
+    modules = _scan_top_modules(normalized)
+    readme_summary = _read_readme_summary(normalized)
+    entry_point = _detect_entry_point(normalized)
+    api_routes = _collect_api_routes_from_flask(normalized)
+    experience_stats = _gather_experience_library_stats(normalized)
+
+    total_route_count = sum(g.get('route_count', 0) for g in api_routes)
+    total_module_files = sum(m.get('file_count', 0) for m in modules)
+
+    digest: Dict[str, Any] = {
+        'version': '1.0',
+        'digest_type': 'architecture_digest',
+        'project_path': normalized,
+        'project_name': project_name,
+        'generated_at': datetime.utcnow().isoformat() + 'Z',
+        'overview': {
+            'purpose': readme_summary.split('\n')[0] if readme_summary else f'{project_name} 项目',
+            'tech_stack': tech_stack,
+            'frameworks': frameworks,
+            'entry_point': entry_point,
+            'module_count': len(modules),
+            'total_code_files': total_module_files,
+            'api_route_count': total_route_count,
+        },
+        'modules': modules,
+        'design_patterns': design_patterns,
+        'api_catalog': api_routes,
+        'readme_summary': readme_summary,
+        'experience_library_stats': experience_stats,
+        'quick_start': {
+            'run_command': f'python {entry_point}' if entry_point and entry_point.endswith('.py') else None,
+            'url': 'http://localhost:5000' if entry_point == 'app.py' else None,
+            'prerequisites': ['pip install -r requirements.txt'] if 'Python' in tech_stack else [],
+        },
+        'cross_conversation_context': _build_cross_conversation_context(
+            project_name, tech_stack, frameworks, design_patterns, modules, experience_stats, entry_point, total_route_count,
+        ),
+    }
+    return digest
+
+
+def _build_cross_conversation_context(
+    project_name: str,
+    tech_stack: List[str],
+    frameworks: List[str],
+    design_patterns: List[Dict[str, str]],
+    modules: List[Dict[str, Any]],
+    experience_stats: Dict[str, Any],
+    entry_point: Optional[str],
+    total_route_count: int,
+) -> str:
+    lines: List[str] = []
+    lines.append(f'## {project_name} 架构摘要（可跨对话复用）')
+    lines.append('')
+    lines.append(f'**技术栈**: {" / ".join(tech_stack) if tech_stack else "未检测到"}')
+    lines.append(f'**框架**: {" / ".join(frameworks) if frameworks else "未检测到"}')
+    if entry_point:
+        lines.append(f'**入口**: `{entry_point}`')
+    lines.append(f'**API路由**: {total_route_count} 条')
+    lines.append('')
+
+    if modules:
+        lines.append('### 模块结构')
+        for m in modules[:12]:
+            lines.append(f'- **{m["name"]}/**: {m.get("file_count", 0)} 个代码文件')
+        lines.append('')
+
+    if design_patterns:
+        lines.append('### 设计模式')
+        for p in design_patterns:
+            lines.append(f'- **{p["name"]}**: {p["description"]} (证据: `{p.get("evidence", "")}`)')
+        lines.append('')
+
+    if experience_stats:
+        lines.append('### 经验库数据量')
+        if experience_stats.get('community_count'):
+            lines.append(f'- 社区分区: {experience_stats["community_count"]} 个')
+        if experience_stats.get('process_count'):
+            lines.append(f'- 业务流程: {experience_stats["process_count"]} 个')
+        if experience_stats.get('experience_path_total'):
+            lines.append(f'- 经验路径: {experience_stats["experience_path_total"]} 条')
+        if experience_stats.get('conversation_count'):
+            lines.append(f'- 历史对话: {experience_stats["conversation_count"]} 次')
+        lines.append('')
+
+    lines.append('### 如何使用此摘要')
+    lines.append('1. 在新对话框中，AI 可直接读取此摘要快速理解项目全貌')
+    lines.append('2. QA 回答时此摘要作为全局上下文提升答案相关性')
+    lines.append('3. 前端展示此摘要帮助用户一目了然地学习项目结构')
+
+    return '\n'.join(lines)
+
+
+def api_experience_library_architecture_digest():
+    try:
+        project_path = _normalize_project_path(request.args.get('project_path', ''))
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+
+    try:
+        digest = generate_architecture_digest(project_path)
+    except Exception as exc:
+        return jsonify({'error': f'架构摘要生成失败: {exc}'}), 500
+
+    return jsonify(digest)
 
 
 def api_experience_library_import():

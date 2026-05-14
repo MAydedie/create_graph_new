@@ -182,6 +182,33 @@ def _build_query_plans(query: str) -> List[Dict[str, Any]]:
         return []
 
     plans: List[Dict[str, Any]] = []
+    root_path_hints = _extract_path_hints(root_query)
+    root_exact_identifiers = _extract_exact_identifiers(root_query)
+    if root_path_hints or root_exact_identifiers:
+        anchor_terms = _dedupe_terms(
+            [
+                *root_exact_identifiers,
+                *[os.path.basename(str(item).replace("\\", "/")) for item in root_path_hints],
+                *[
+                    part
+                    for item in root_path_hints
+                    for part in re.split(r"[\\/._-]+", str(item).strip())
+                    if str(part).strip()
+                ],
+            ],
+            20,
+        )
+        plans.append(
+            {
+                "query": root_query,
+                "weight": 1.18,
+                "kind": "anchor",
+                "terms": _dedupe_terms([*anchor_terms, *_extract_query_terms(root_query)], 24),
+                "symbol_terms": _dedupe_terms([*anchor_terms, *_extract_symbol_candidates(root_query)], 24),
+                "exact_identifiers": root_exact_identifiers,
+                "path_hints": root_path_hints,
+            }
+        )
     plans.append(
         {
             "query": root_query,
@@ -189,8 +216,8 @@ def _build_query_plans(query: str) -> List[Dict[str, Any]]:
             "kind": "primary",
             "terms": _extract_query_terms(root_query),
             "symbol_terms": _extract_symbol_candidates(root_query),
-            "exact_identifiers": _extract_exact_identifiers(root_query),
-            "path_hints": _extract_path_hints(root_query),
+            "exact_identifiers": root_exact_identifiers,
+            "path_hints": root_path_hints,
         }
     )
 
@@ -337,6 +364,12 @@ def _score_match(
             score += 3.0
         elif hint_name and hint_name in path_lower:
             score += 2.0
+        if hint_name and path_lower.endswith(hint_name):
+            score += 5.5
+        hint_stem, _ = os.path.splitext(hint_name)
+        path_stem, _ = os.path.splitext(os.path.basename(path_lower))
+        if hint_stem and path_stem and hint_stem == path_stem:
+            score += 4.2
 
     if query_lower and len(query_lower) >= 6 and query_lower in content_lower:
         score += 2.5

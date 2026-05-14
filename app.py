@@ -8,7 +8,7 @@ Creates the app and registers Blueprints; all business logic lives in app/servic
 import os
 from dotenv import load_dotenv
 
-from app import create_app
+from create_graph_app_factory import create_app
 
 # Ensure environment variables are loaded for local runs
 load_dotenv()
@@ -20,4 +20,4 @@ app = create_app()
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "5000"))
-    app.run(host="0.0.0.0", port=port, debug=False)
+    app.run(host="0.0.0.0", port=port, debug=False, threaded=True, use_reloader=False)

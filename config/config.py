@@ -141,7 +141,7 @@ load_dotenv()
 # MiniMax（OpenAI 兼容）默认配置
 _DEFAULT_MINIMAX_API_KEY = ""
 _DEFAULT_MINIMAX_BASE_URL = "https://api.minimax.io/v1"
-_DEFAULT_MINIMAX_MODEL = "MiniMax-M2.7-highspeed"
+_DEFAULT_MINIMAX_MODEL = "deepseek-v4-flash"
 
 MINIMAX_API_KEY = os.getenv('MINIMAX_API_KEY', _DEFAULT_MINIMAX_API_KEY)
 MINIMAX_BASE_URL = os.getenv('MINIMAX_BASE_URL', _DEFAULT_MINIMAX_BASE_URL)
@@ -211,7 +211,7 @@ def get_deepseek_settings():
         or _normalize_optional_string(MINIMAX_MODEL)
         or _normalize_optional_string(os.getenv('DEEPSEEK_MODEL'))
         or _normalize_optional_string(DEEPSEEK_MODEL)
-        or 'MiniMax-M2.7-highspeed'
+        or 'deepseek-v4-flash'
     )
     return {
         'api_key': api_key,

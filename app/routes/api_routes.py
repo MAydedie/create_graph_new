@@ -9,6 +9,7 @@ from app.services import analysis_service as svc
 from app.services import conversation_service as cs
 from app.services import experience_library_service as els
 from app.services import multi_agent_service as mas
+from app.services import persona_skill_service as pss
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 
@@ -24,6 +25,7 @@ api_bp.add_url_rule("/graph", view_func=svc.api_gn_graph, methods=["GET"])
 api_bp.add_url_rule("/file", view_func=svc.api_gn_file, methods=["GET"])
 api_bp.add_url_rule("/workbench/session/start", view_func=svc.api_workbench_session_start, methods=["POST"])
 api_bp.add_url_rule("/workbench/session/<session_id>/status", view_func=svc.api_workbench_session_status, methods=["GET"])
+api_bp.add_url_rule("/workbench/session/<session_id>/logs", view_func=svc.api_workbench_session_logs, methods=["GET"])
 api_bp.add_url_rule("/workbench/session/<session_id>/bootstrap", view_func=svc.api_workbench_session_bootstrap, methods=["GET"])
 api_bp.add_url_rule("/workbench/project_status", view_func=svc.api_workbench_project_status, methods=["GET"])
 api_bp.add_url_rule("/benchmark/fixed_scenario/start", view_func=svc.api_fixed_scenario_benchmark_start, methods=["POST"])
@@ -69,6 +71,13 @@ api_bp.add_url_rule("/experience/library", view_func=els.api_experience_library_
 api_bp.add_url_rule("/experience/library/file", view_func=els.api_experience_library_file, methods=["GET"])
 api_bp.add_url_rule("/experience/library/file/save", view_func=els.api_experience_library_file_save, methods=["POST"])
 api_bp.add_url_rule("/experience/library/import", view_func=els.api_experience_library_import, methods=["POST"])
+api_bp.add_url_rule("/experience/library/project/delete", view_func=els.api_experience_library_project_delete, methods=["POST"])
+api_bp.add_url_rule("/skills/persona/import", view_func=pss.api_persona_skill_import, methods=["POST"])
+api_bp.add_url_rule("/skills/persona/list", view_func=pss.api_persona_skill_list, methods=["GET"])
+api_bp.add_url_rule("/skills/persona/activate", view_func=pss.api_persona_skill_activate, methods=["POST"])
+api_bp.add_url_rule("/skills/persona/deactivate", view_func=pss.api_persona_skill_deactivate, methods=["POST"])
+api_bp.add_url_rule("/skills/persona/active", view_func=pss.api_persona_skill_active, methods=["GET"])
+api_bp.add_url_rule("/skills/persona/<persona_id>", view_func=pss.api_persona_skill_delete, methods=["DELETE"])
 
 # 功能分区相关接口
 api_bp.add_url_rule("/partition/<partition_id>/analysis", view_func=svc.api_partition_analysis, methods=["GET"])

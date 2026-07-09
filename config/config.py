@@ -140,7 +140,7 @@ load_dotenv()
 
 # MiniMax（OpenAI 兼容）默认配置
 _DEFAULT_MINIMAX_API_KEY = ""
-_DEFAULT_MINIMAX_BASE_URL = "https://api.minimax.io/v1"
+_DEFAULT_MINIMAX_BASE_URL = "https://api.deepseek.com/v1"
 _DEFAULT_MINIMAX_MODEL = "deepseek-v4-flash"
 
 MINIMAX_API_KEY = os.getenv('MINIMAX_API_KEY', _DEFAULT_MINIMAX_API_KEY)
@@ -162,7 +162,12 @@ MODEL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 # 设置环境变量
 os.environ["HF_HOME"] = str(MODEL_CACHE_DIR)
 os.environ["TRANSFORMERS_CACHE"] = str(MODEL_CACHE_DIR)
+os.environ["SENTENCE_TRANSFORMERS_HOME"] = str(MODEL_CACHE_DIR)
 os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"  # 使用镜像加速
+
+# 本地模型目录（用于彻底离线运行）
+LOCAL_MODEL_DIR = PROJECT_ROOT / "models" / "local"
+LOCAL_MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # OpenAI API Key (保留兼容性)
@@ -223,6 +228,50 @@ def get_deepseek_settings():
 def has_deepseek_config():
     return bool(get_deepseek_settings().get('api_key'))
 
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return bool(default)
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None:
+        return float(default)
+    try:
+        return float(str(raw).strip())
+    except (TypeError, ValueError):
+        return float(default)
+
+
+MODEL_LOCAL_ONLY = _env_bool("MODEL_LOCAL_ONLY", False)
+FH_LLM_PARTITION_THRESHOLD = _env_float("FH_LLM_PARTITION_THRESHOLD", 0.4)
+FH_FORCE_LLM_PARTITION = _env_bool("FH_FORCE_LLM_PARTITION", False)
+FH_COMMUNITY_LLM_THRESHOLD = _env_float("FH_COMMUNITY_LLM_THRESHOLD", 0.4)
+FH_FORCE_COMMUNITY_LLM = _env_bool("FH_FORCE_COMMUNITY_LLM", False)
+
+EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "BAAI/bge-small-zh-v1.5")
+EMBEDDING_LOCAL_MODEL_DIR = os.getenv(
+    "EMBEDDING_LOCAL_MODEL_DIR",
+    str((LOCAL_MODEL_DIR / "bge-small-zh-v1.5").resolve()),
+)
+EMBEDDING_ALLOW_REMOTE_DOWNLOAD = _env_bool(
+    "EMBEDDING_ALLOW_REMOTE_DOWNLOAD",
+    not MODEL_LOCAL_ONLY,
+)
+
+RERANKER_MODEL_NAME = os.getenv("RERANKER_MODEL_NAME", "BAAI/bge-reranker-base")
+RERANKER_LOCAL_MODEL_DIR = os.getenv(
+    "RERANKER_LOCAL_MODEL_DIR",
+    str((LOCAL_MODEL_DIR / "bge-reranker-base").resolve()),
+)
+RERANKER_ALLOW_REMOTE_DOWNLOAD = _env_bool(
+    "RERANKER_ALLOW_REMOTE_DOWNLOAD",
+    not MODEL_LOCAL_ONLY,
+)
+
 # RAG Configuration
 RAG_CONFIG = {
     "retrieval_top_k": 25,
@@ -239,13 +288,19 @@ VECTOR_DB_CONFIG = {
 
 # Embedding Model Configuration
 EMBEDDING_CONFIG = {
-    "model_name": "BAAI/bge-small-zh-v1.5",
+    "model_name": EMBEDDING_MODEL_NAME,
+    "local_model_dir": EMBEDDING_LOCAL_MODEL_DIR,
+    "prefer_local": True,
+    "allow_remote_download": EMBEDDING_ALLOW_REMOTE_DOWNLOAD,
     "batch_size": 32,
 }
 
 # Re-ranker Configuration
 RERANKER_CONFIG = {
-    "model_name": "BAAI/bge-reranker-base",
+    "model_name": RERANKER_MODEL_NAME,
+    "local_model_dir": RERANKER_LOCAL_MODEL_DIR,
+    "prefer_local": True,
+    "allow_remote_download": RERANKER_ALLOW_REMOTE_DOWNLOAD,
 }
 
 # Data Paths (Updated references to create_graph structure)

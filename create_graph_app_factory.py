@@ -15,7 +15,16 @@ def create_app() -> Flask:
 
     from app.routes.main_routes import main_bp
     from app.routes.api_routes import api_bp
+    from app.routes.se_team_api_routes import se_team_api_bp
 
     app.register_blueprint(main_bp)
     app.register_blueprint(api_bp)
+    app.register_blueprint(se_team_api_bp)
+
+    try:
+        from app.services.persona_skill_service import deactivate_persona_skill
+        deactivate_persona_skill()
+    except Exception:
+        pass
+
     return app

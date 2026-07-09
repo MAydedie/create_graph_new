@@ -456,9 +456,6 @@ export const FileTreePanel = ({ onFocusNode }: FileTreePanelProps) => {
             <p className="text-[11px] text-text-muted mb-3">
               切换图谱中各类节点的显示
             </p>
-            <p className="text-[11px] text-text-muted mb-3 leading-5">
-              当前前端仅保留类、函数/方法、变量、接口四类实体，后端仍保留完整类型能力，后续可按需恢复到前端。
-            </p>
           </div>
 
           <div className="flex flex-col gap-1">

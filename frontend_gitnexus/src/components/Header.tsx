@@ -4,6 +4,7 @@ import type { GraphNode } from '../core/graph/types';
 import { useAppState } from '../hooks/useAppState';
 import { createGraphExtensionsApi } from '../services/create-graph-extensions';
 import type { RepoSummary } from '../services/server-connection';
+import { resolveRepoProjectPath } from '../services/server-connection';
 import { EmbeddingStatus } from './EmbeddingStatus';
 
 // Color mapping for node types in search results
@@ -49,14 +50,16 @@ export const Header = ({ onFocusNode, availableRepos = [], onSwitchRepo }: Heade
   const nodeCount = graph?.nodes.length ?? 0;
   const edgeCount = graph?.relationships.length ?? 0;
   const activeProjectPath = useMemo(() => {
-    if (availableRepos.length === 0) return undefined;
-    const matchedPath = projectName
-      ? availableRepos.find((repo) => repo.name === projectName)?.path
-      : undefined;
-    if (matchedPath) return matchedPath;
-    if (availableRepos.length === 1) return availableRepos[0].path;
-    return undefined;
+    return resolveRepoProjectPath(availableRepos, projectName);
   }, [availableRepos, projectName]);
+
+  const seTeamHref = useMemo(() => {
+    if (!activeProjectPath) {
+      return '/se_team_full';
+    }
+    const params = new URLSearchParams({ project_path: activeProjectPath });
+    return `/se_team_full?${params.toString()}`;
+  }, [activeProjectPath]);
 
   const refreshHierarchyStatus = useCallback(async () => {
     if (!projectName) {
@@ -177,7 +180,7 @@ export const Header = ({ onFocusNode, availableRepos = [], onSwitchRepo }: Heade
           <div className="w-7 h-7 flex items-center justify-center bg-gradient-to-br from-accent to-node-interface rounded-md shadow-glow text-white text-sm font-bold">
             ◇
           </div>
-          <span className="font-semibold text-[15px] tracking-tight">create_graph</span>
+			<span className="font-semibold text-[15px] tracking-tight">ForgeFlow</span>
         </div>
 
         {/* Project badge / Repo selector dropdown */}

@@ -12,7 +12,7 @@ import { loadSettings, getActiveProviderConfig, buildBackendConversationLLMConfi
 import type { AgentMessage } from '../core/llm/agent';
 import { DEFAULT_VISIBLE_EDGES, type EdgeType } from '../lib/constants';
 import type { RepoSummary, ConnectToServerResult } from '../services/server-connection';
-import { fetchRepos, connectToServer } from '../services/server-connection';
+import { fetchRepos, connectToServer, resolveRepoProjectPath } from '../services/server-connection';
 import { createGraphExtensionsApi, type CreateGraphConversationListItem } from '../services/create-graph-extensions';
 
 export type ViewMode = 'onboarding' | 'loading' | 'exploring';
@@ -643,11 +643,8 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
 
   const resolveActiveProjectPath = useCallback(async (): Promise<string | undefined> => {
     if (availableRepos.length > 0) {
-      const matchedPath = projectName
-        ? availableRepos.find((repo) => repo.name === projectName)?.path
-        : undefined;
+      const matchedPath = resolveRepoProjectPath(availableRepos, projectName);
       if (matchedPath) return matchedPath;
-      if (availableRepos.length === 1) return availableRepos[0].path;
     }
 
     if (!serverBaseUrl) return undefined;
@@ -862,6 +859,8 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
           clarification_context: clarificationContext,
           llm_config: llmConfig || undefined,
           auto_start_multi_agent: true,
+          advisor_enabled: true,
+          opencode_enabled: true,
           output_root: effectiveOutputRoot || undefined,
           auto_apply_output: shouldAutoApplyOutput,
         });

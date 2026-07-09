@@ -198,6 +198,45 @@ def test_stale_running_session_with_latest_task_handoff_reconciles_to_multi_agen
     assert b'"status": "completed"' in events_response.data
 
 
+def test_stale_running_session_prefers_task_result_over_older_task_handoff(monkeypatch):
+    _install_stale_running_session(
+        monkeypatch,
+        session_payload=_make_running_session(),
+        conversation_payload={
+            "conversationId": "conversation-1",
+            "status": "active",
+            "pendingQuestion": None,
+            "parts": [
+                {
+                    "type": "task_handoff",
+                    "content": "需求已达到进入代码流条件。你可以继续调用 multi_agent 会话执行。",
+                    "metadata": {"planId": "handoff-1", "autoStarted": True},
+                },
+                {
+                    "type": "task_result",
+                    "content": "multi-agent 执行已完成，结果已回写。",
+                    "metadata": {"mode": "team", "multiAgentSessionId": "ma-1"},
+                },
+            ],
+            "messages": [
+                {"role": "assistant", "content": "multi-agent 执行已完成，结果已回写。"},
+            ],
+            "updatedAt": "2026-04-24T00:00:02Z",
+        },
+    )
+
+    client = _make_test_client()
+
+    status_response = client.get("/api/conversations/session/session-1/status")
+    result_response = client.get("/api/conversations/session/session-1/result")
+
+    assert status_response.status_code == 200
+    assert _get_json(status_response)["status"] == "completed"
+    assert result_response.status_code == 200
+    assert _get_json(result_response)["nextStep"] == "send_chat"
+    assert _get_json(result_response)["answer"] == "multi-agent 执行已完成，结果已回写。"
+
+
 def test_stale_running_session_with_latest_assistant_answer_reconciles_to_completed_chat_result(monkeypatch):
     _install_stale_running_session(
         monkeypatch,

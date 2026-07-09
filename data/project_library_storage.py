@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -13,7 +14,10 @@ from typing import Any, Dict, List, Optional
 
 class ProjectLibraryStorage:
     def __init__(self, storage_dir: str = 'output_analysis/project_library') -> None:
-        self.storage_dir = Path(storage_dir)
+        configured_path = Path(storage_dir)
+        if not configured_path.is_absolute():
+            configured_path = (Path(__file__).resolve().parent.parent / configured_path).resolve()
+        self.storage_dir = configured_path
         self.storage_dir.mkdir(parents=True, exist_ok=True)
 
     def _normalize_path(self, project_path: str) -> str:
@@ -54,6 +58,13 @@ class ProjectLibraryStorage:
 
     def _hierarchy_path(self, project_path: str) -> Path:
         return self._project_dir(project_path) / 'function_hierarchy.json'
+
+    def _graph_db_path(self, project_path: str) -> Path:
+        return self._project_dir(project_path) / 'graph.db'
+
+    def graph_db_path(self, project_path: str) -> Path:
+        normalized = self._normalize_path(project_path)
+        return self._graph_db_path(normalized)
 
     def save_project_profile(self, project_path: str, profile: Dict[str, Any]) -> Path:
         normalized = self._normalize_path(project_path)
@@ -178,3 +189,15 @@ class ProjectLibraryStorage:
             )
         items.sort(key=lambda item: item.get('updated_at') or item.get('analysis_timestamp') or '', reverse=True)
         return items
+
+    def delete_project(self, project_path: str) -> bool:
+        normalized = self._normalize_path(project_path)
+        if not normalized:
+            return False
+        target_dir = self.storage_dir / self._project_id(normalized)
+        if not target_dir.exists():
+            return False
+        if not target_dir.is_dir():
+            return False
+        shutil.rmtree(target_dir, ignore_errors=True)
+        return not target_dir.exists()

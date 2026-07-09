@@ -2,6 +2,7 @@
 Embedding模型模块
 功能：加载Embedding模型，将文本转换为向量
 """
+from pathlib import Path
 from typing import List, Union, Optional
 import numpy as np
 from sentence_transformers import SentenceTransformer
@@ -12,42 +13,81 @@ import pickle
 class EmbeddingModel:
     """Embedding模型类"""
     
-    def __init__(self, model_name: str = "BAAI/bge-small-zh-v1.5", device: Optional[str] = None):
+    def __init__(
+        self,
+        model_name: str = "BAAI/bge-small-zh-v1.5",
+        device: Optional[str] = None,
+        allow_remote_download: bool = True,
+        local_model_dir: Optional[str] = None,
+        prefer_local: bool = True,
+    ):
         """
         初始化Embedding模型
         
         Args:
             model_name: 模型名称，默认使用BAAI/bge-small-zh-v1.5（中文优化）
             device: 设备类型，None表示自动选择（优先GPU，否则CPU）
+            allow_remote_download: 是否允许联网下载模型，False 时仅使用本地缓存
+            local_model_dir: 本地模型目录，存在时优先从目录加载
+            prefer_local: 是否优先使用 local_model_dir
         """
-        self.model_name = model_name
+        from config.config import EMBEDDING_CONFIG, MODEL_CACHE_DIR
+
+        configured_model_name = str(EMBEDDING_CONFIG.get("model_name") or model_name).strip()
+        configured_allow_remote = bool(EMBEDDING_CONFIG.get("allow_remote_download", allow_remote_download))
+        configured_prefer_local = bool(EMBEDDING_CONFIG.get("prefer_local", prefer_local))
+        configured_local_dir = str(EMBEDDING_CONFIG.get("local_model_dir") or local_model_dir or "").strip()
+
+        self.model_name = str(model_name or configured_model_name).strip() or "BAAI/bge-small-zh-v1.5"
+        self.allow_remote_download = bool(allow_remote_download if allow_remote_download is not None else configured_allow_remote)
+        self.prefer_local = bool(prefer_local if prefer_local is not None else configured_prefer_local)
+        self.local_model_dir = str(local_model_dir or configured_local_dir).strip()
+
+        load_target = self.model_name
+        local_dir_exists = False
+        if self.local_model_dir:
+            local_dir_exists = Path(self.local_model_dir).is_dir()
+            if self.prefer_local and local_dir_exists:
+                load_target = self.local_model_dir
+            elif self.prefer_local and not self.allow_remote_download:
+                raise RuntimeError(
+                    f"Embedding本地模型目录不存在: {self.local_model_dir}。离线模式已开启，无法联网下载。"
+                )
         
         # 确保缓存目录存在
-        from config.config import MODEL_CACHE_DIR
         os.environ["HF_HOME"] = str(MODEL_CACHE_DIR)
         os.environ["TRANSFORMERS_CACHE"] = str(MODEL_CACHE_DIR)
+        os.environ["SENTENCE_TRANSFORMERS_HOME"] = str(MODEL_CACHE_DIR)
         
-        print(f"正在加载Embedding模型: {model_name}")
+        print(f"正在加载Embedding模型: {load_target}")
         print(f"缓存目录: {MODEL_CACHE_DIR}")
         
         # 检查模型是否已缓存
-        cache_exists = self._check_model_cache(model_name)
+        cache_exists = self._check_model_cache(load_target)
         if cache_exists:
             print("✓ 从缓存加载模型...")
         else:
-            print("⚠ 首次运行，正在下载模型（约400MB），请耐心等待...")
+            if self.allow_remote_download:
+                print("⚠ 首次运行，正在下载模型（约400MB），请耐心等待...")
+            else:
+                raise RuntimeError(
+                    f"Embedding模型缓存缺失: {load_target}。当前为离线模式，已禁用远程下载。"
+                )
         
         try:
              # 加载模型（会自动使用缓存）
              self.model = SentenceTransformer(
-                 model_name, 
+                 load_target,
                  device=device,
-                 cache_folder=str(MODEL_CACHE_DIR)
+                 cache_folder=str(MODEL_CACHE_DIR),
+                 local_files_only=not self.allow_remote_download,
              )
         except Exception as e:
              print(f"模型加载失败: {e}")
+             if not self.allow_remote_download:
+                 raise
              print("尝试使用默认配置重试...")
-             self.model = SentenceTransformer(model_name, device=device)
+             self.model = SentenceTransformer(load_target, device=device, local_files_only=False)
         
         # 获取向量维度
         self.embedding_dim = self.model.get_sentence_embedding_dimension()
@@ -58,9 +98,21 @@ class EmbeddingModel:
     def _check_model_cache(self, model_name: str) -> bool:
         """检查模型是否已缓存"""
         from config.config import MODEL_CACHE_DIR
-        # SentenceTransformer缓存路径格式
-        model_path = MODEL_CACHE_DIR / "models--" / model_name.replace("/", "--")
-        return model_path.exists()
+        maybe_local = Path(str(model_name))
+        if maybe_local.is_dir():
+            return True
+        # HuggingFace 缓存目录格式：models--org--name
+        model_dir_name = f"models--{model_name.replace('/', '--')}"
+        model_path = MODEL_CACHE_DIR / model_dir_name
+        if not model_path.exists():
+            return False
+        snapshots_dir = model_path / "snapshots"
+        if not snapshots_dir.exists():
+            return False
+        try:
+            return any(snapshots_dir.iterdir())
+        except Exception:
+            return False
     
     def encode(self, texts: Union[str, List[str]], batch_size: int = 32, 
                show_progress: bool = True, normalize_embeddings: bool = True) -> np.ndarray:

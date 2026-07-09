@@ -134,13 +134,13 @@ class FunctionCallHypergraph:
                     chains.append(path + [node])
                 return
             
-            for callee in call_graph[node]:
+            for callee in sorted(call_graph[node]):
                 if callee in partition_methods:
                     dfs(callee, path + [node], depth + 1)
                 elif len(path) >= 2:
                     chains.append(path + [node])
         
-        for method in partition_methods:
+        for method in sorted(partition_methods):
             if method not in visited:
                 dfs(method, [], 0)
                 visited.add(method)
@@ -158,7 +158,7 @@ class FunctionCallHypergraph:
         """查找扇出模式"""
         fanouts = {}
         
-        for caller in partition_methods:
+        for caller in sorted(partition_methods):
             if caller in call_graph:
                 callees = {c for c in call_graph[caller] if c in partition_methods}
                 if len(callees) >= 2:
@@ -173,14 +173,15 @@ class FunctionCallHypergraph:
         
         # 构建反向调用图
         reverse_graph: Dict[str, Set[str]] = {}
-        for caller, callees in call_graph.items():
-            for callee in callees:
+        for caller in sorted(call_graph):
+            callees = call_graph[caller]
+            for callee in sorted(callees):
                 if callee in partition_methods and caller in partition_methods:
                     if callee not in reverse_graph:
                         reverse_graph[callee] = set()
                     reverse_graph[callee].add(caller)
         
-        for callee, callers in reverse_graph.items():
+        for callee, callers in sorted(reverse_graph.items()):
             if len(callers) >= 2:
                 fanins[callee] = callers
         
@@ -207,11 +208,11 @@ class FunctionCallHypergraph:
             visited.add(node)
             
             if node in call_graph:
-                for callee in call_graph[node]:
+                for callee in sorted(call_graph[node]):
                     if callee in partition_methods:
                         dfs(callee, path + [node])
         
-        for method in partition_methods:
+        for method in sorted(partition_methods):
             if method not in visited:
                 dfs(method, [])
         
@@ -228,16 +229,17 @@ class FunctionCallHypergraph:
         """
         # 只保存分区内的调用图，确保不显示跨分区的调用关系
         partition_call_graph = {}
-        for caller, callees in call_graph.items():
+        for caller in sorted(call_graph):
+            callees = call_graph[caller]
             if caller in partition_methods:
                 # 只保留分区内的被调用者
                 partition_callees = {c for c in callees if c in partition_methods}
                 if partition_callees:
-                    partition_call_graph[caller] = partition_callees
+                    partition_call_graph[caller] = set(sorted(partition_callees))
         self.call_graph = partition_call_graph  # ✅ 只保存分区内的调用图
         
         # 添加所有节点
-        for method_sig in partition_methods:
+        for method_sig in sorted(partition_methods):
             self.add_node(method_sig, {
                 "id": method_sig,
                 "label": method_sig,
@@ -248,7 +250,7 @@ class FunctionCallHypergraph:
         patterns = self.identify_call_patterns(call_graph, partition_methods)
         
         # 为每个模式创建超边
-        for pattern_id, method_sigs in patterns.items():
+        for pattern_id, method_sigs in sorted(patterns.items()):
             hyperedge = HyperEdge(
                 hyperedge_id=pattern_id,
                 nodes=method_sigs,
@@ -583,7 +585,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
 
 

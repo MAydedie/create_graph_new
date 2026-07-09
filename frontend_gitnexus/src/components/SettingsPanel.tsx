@@ -441,14 +441,15 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
             <div className="block text-sm font-medium text-text-secondary">
                提供方
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-2.5">
               {providers.map(provider => (
                 <button
                   type="button"
                   key={provider}
                   onClick={() => handleProviderChange(provider)}
                   className={`
-                    flex items-center gap-3 p-4 rounded-xl border-2 transition-all
+                    group flex items-center gap-2.5 px-3 py-2.5 min-h-[44px] rounded-xl border-2 transition-all
+                    overflow-hidden text-left
                     ${settings.activeProvider === provider
                       ? 'border-accent bg-accent/10 text-text-primary'
                       : 'border-border-subtle bg-elevated hover:border-accent/50 text-text-secondary'
@@ -456,12 +457,14 @@ export const SettingsPanel = ({ isOpen, onClose, onSettingsSaved, backendUrl, is
                   `}
                 >
                   <div className={`
-                    w-8 h-8 rounded-lg flex items-center justify-center text-lg
+                    w-7 h-7 rounded-md flex items-center justify-center text-base flex-shrink-0
                     ${settings.activeProvider === provider ? 'bg-accent/20' : 'bg-surface'}
                   `}>
                     {provider === 'openai' ? '🤖' : provider === 'deepseek' ? '🧭' : provider === 'qwen' ? '🌀' : provider === 'glm' ? '🧠' : provider === 'kimi' ? '🌙' : provider === 'minimax' ? '⚡' : provider === 'doubao' ? '🫘' : provider === 'gemini' ? '💎' : provider === 'anthropic' ? '🧠' : provider === 'ollama' ? '🦙' : provider === 'openrouter' ? '🌐' : '☁️'}
                   </div>
-                  <span className="font-medium">{getProviderDisplayName(provider)}</span>
+                  <span className="font-medium text-[13px] leading-tight truncate min-w-0 flex-1" title={getProviderDisplayName(provider)}>
+                    {getProviderDisplayName(provider)}
+                  </span>
                 </button>
               ))}
             </div>

@@ -16,6 +16,7 @@ try:
     import community.community_louvain as community_louvain
     LOUVAIN_AVAILABLE = True
 except ImportError:
+    community_louvain = None
     LOUVAIN_AVAILABLE = False
     logger.warning("python-louvain 未安装，将使用 networkx 内置算法")
 
@@ -23,6 +24,7 @@ try:
     import leidenalg
     LEIDEN_AVAILABLE = True
 except ImportError:
+    leidenalg = None
     LEIDEN_AVAILABLE = False
     logger.warning("leidenalg 未安装，将使用 Louvain 算法")
 
@@ -37,7 +39,8 @@ class CommunityDetector:
     def detect_communities(self, 
                           call_graph: Dict[str, Set[str]], 
                           algorithm: str = "louvain",
-                          weight_threshold: float = 0.0) -> List[Dict[str, Any]]:
+                          weight_threshold: float = 0.0,
+                          random_state: int = 42) -> List[Dict[str, Any]]:
         """
         检测社区（功能分区）
         
@@ -60,7 +63,7 @@ class CommunityDetector:
             return []
         
         # 选择算法
-        communities = self._run_algorithm(algorithm)
+        communities = self._run_algorithm(algorithm, random_state=random_state)
         
         # 计算每个社区的模块度
         partitions = []
@@ -92,7 +95,7 @@ class CommunityDetector:
         
         total_edges = 0
         for caller, callees in call_graph.items():
-            for callee in callees:
+            for callee in sorted(callees):
                 # 计算边权重
                 weight = self._calculate_edge_weight(caller, callee, call_graph)
                 
@@ -140,42 +143,51 @@ class CommunityDetector:
         weight = base_count + depth_bonus + uniqueness_bonus
         return weight
     
-    def _run_algorithm(self, algorithm: str) -> List[Set[str]]:
+    def _run_algorithm(self, algorithm: str, random_state: int = 42) -> List[Set[str]]:
         """运行社区检测算法"""
         # 转换为无向图（大多数社区检测算法需要无向图）
+        if self.graph is None:
+            return []
         G_undirected = self.graph.to_undirected()
         
         if algorithm == "louvain":
-            return self._louvain_algorithm(G_undirected)
+            return self._louvain_algorithm(G_undirected, random_state=random_state)
         elif algorithm == "leiden":
-            return self._leiden_algorithm(G_undirected)
+            return self._leiden_algorithm(G_undirected, random_state=random_state)
         elif algorithm == "greedy_modularity":
             return self._greedy_modularity_algorithm(G_undirected)
         elif algorithm == "label_propagation":
             return self._label_propagation_algorithm(G_undirected)
         else:
             logger.warning(f"未知算法 {algorithm}，使用 louvain")
-            return self._louvain_algorithm(G_undirected)
-    
-    def _louvain_algorithm(self, G: nx.Graph) -> List[Set[str]]:
+            return self._louvain_algorithm(G_undirected, random_state=random_state)
+
+    def _louvain_algorithm(self, G: nx.Graph, random_state: int = 42) -> List[Set[str]]:
         """Louvain算法"""
         if LOUVAIN_AVAILABLE:
-            partition = community_louvain.best_partition(G, weight='weight')
+            assert community_louvain is not None
+            partition = community_louvain.best_partition(
+                G,
+                weight='weight',
+                random_state=random_state,
+                randomize=False,
+            )
             # 转换为社区列表
             communities = {}
             for node, comm_id in partition.items():
                 if comm_id not in communities:
                     communities[comm_id] = set()
                 communities[comm_id].add(node)
-            return list(communities.values())
+            return [set(sorted(comm)) for _, comm in sorted(communities.items(), key=lambda item: item[0])]
         else:
             # 使用networkx内置的greedy_modularity作为后备
             logger.warning("python-louvain 未安装，使用 greedy_modularity")
             return self._greedy_modularity_algorithm(G)
-    
-    def _leiden_algorithm(self, G: nx.Graph) -> List[Set[str]]:
+
+    def _leiden_algorithm(self, G: nx.Graph, random_state: int = 42) -> List[Set[str]]:
         """Leiden算法"""
         if LEIDEN_AVAILABLE:
+            assert leidenalg is not None
             # 转换为igraph格式
             import igraph as ig
             edges = [(u, v) for u, v in G.edges()]
@@ -184,12 +196,14 @@ class CommunityDetector:
             g_ig = ig.Graph(edges, directed=False)
             g_ig.es['weight'] = weights
             
-            partition = leidenalg.find_partition(g_ig, leidenalg.ModularityVertexPartition)
+            partition = leidenalg.find_partition(g_ig, leidenalg.ModularityVertexPartition, seed=random_state)
             
             # 转换为社区列表
-            communities = []
+            communities: List[Set[str]] = []
             for comm in partition:
-                communities.append(set(G.nodes()[i] for i in comm))
+                members: List[str] = sorted([str(G.nodes()[i]) for i in comm])
+                communities.append(set(members))
+            communities.sort(key=lambda comm: sorted(comm)[0] if comm else "")
             return communities
         else:
             logger.warning("leidenalg 未安装，使用 louvain")

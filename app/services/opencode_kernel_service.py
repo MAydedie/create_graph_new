@@ -12,6 +12,8 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List
 
+from config.config import get_deepseek_settings
+
 
 def _as_dict(value: Any) -> Dict[str, Any]:
     return value if isinstance(value, dict) else {}
@@ -43,6 +45,40 @@ def _build_opencode_command(executable: str) -> List[str]:
     if suffix in {'.cmd', '.bat'}:
         return ['cmd', '/c', executable, 'run', '--format', 'json']
     return [executable, 'run', '--format', 'json']
+
+
+def _build_opencode_env() -> Dict[str, str]:
+    env = os.environ.copy()
+    settings = get_deepseek_settings()
+    api_key = _as_text(settings.get('api_key'))
+    base_url = _as_text(settings.get('base_url'))
+    if api_key:
+        env.setdefault('OPENAI_API_KEY', api_key)
+        env.setdefault('DEEPSEEK_API_KEY', api_key)
+        env.setdefault('MINIMAX_API_KEY', api_key)
+    if base_url:
+        env.setdefault('OPENAI_BASE_URL', base_url)
+        env.setdefault('DEEPSEEK_BASE_URL', base_url)
+        env.setdefault('MINIMAX_BASE_URL', base_url)
+    return env
+
+
+def _resolve_opencode_model(model: str) -> str:
+    explicit = _as_text(model)
+    settings = get_deepseek_settings()
+    configured = explicit or _as_text(settings.get('model'))
+    base_url = _as_text(settings.get('base_url')).lower()
+    if not configured:
+        return ''
+    if '/' in configured:
+        return configured
+    if 'minimax' in base_url:
+        provider = 'minimax'
+    elif 'deepseek' in base_url:
+        provider = 'deepseek'
+    else:
+        provider = 'openai'
+    return f'{provider}/{configured}'
 
 
 def _extract_existing_files(project_path: str, impacted_files: Any, limit: int = 8) -> List[str]:
@@ -219,8 +255,9 @@ def run_opencode_kernel(*, project_path: str, user_query: str, task_mode: str, r
 
     command: List[str] = _build_opencode_command(executable)
     command.extend(['--dir', str(root)])
-    if model:
-        command.extend(['--model', model])
+    resolved_model = _resolve_opencode_model(model)
+    if resolved_model:
+        command.extend(['--model', resolved_model])
     if agent:
         command.extend(['--agent', agent])
     for file_path in attach_files:
@@ -238,7 +275,7 @@ def run_opencode_kernel(*, project_path: str, user_query: str, task_mode: str, r
             text=True,
             encoding='utf-8',
             errors='replace',
-            env=os.environ.copy(),
+            env=_build_opencode_env(),
         )
     except subprocess.TimeoutExpired:
         return {
@@ -326,7 +363,7 @@ def run_opencode_kernel(*, project_path: str, user_query: str, task_mode: str, r
         'reason': reason,
         'duration_ms': int((time.perf_counter() - started_at) * 1000),
         'returncode': completed.returncode,
-        'model': model,
+        'model': resolved_model,
         'agent': agent,
         'session_id': _as_text(parsed.get('session_id')),
         'attached_files': attach_files,

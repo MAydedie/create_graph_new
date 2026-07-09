@@ -12,6 +12,8 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from config.config import get_deepseek_settings
+
 
 def _as_dict(value: Any) -> Dict[str, Any]:
     return value if isinstance(value, dict) else {}
@@ -70,6 +72,7 @@ def _looks_like_process_text(text: str) -> bool:
     if not lowered:
         return False
     process_markers = [
+        "我把这个问题读作",
         "i read this as",
         "i'm gathering",
         "i am gathering",
@@ -111,6 +114,40 @@ def _build_message(
     )
 
 
+def _build_opencode_env() -> Dict[str, str]:
+    env = os.environ.copy()
+    settings = get_deepseek_settings()
+    api_key = _as_text(settings.get("api_key"))
+    base_url = _as_text(settings.get("base_url"))
+    if api_key:
+        env.setdefault("OPENAI_API_KEY", api_key)
+        env.setdefault("DEEPSEEK_API_KEY", api_key)
+        env.setdefault("MINIMAX_API_KEY", api_key)
+    if base_url:
+        env.setdefault("OPENAI_BASE_URL", base_url)
+        env.setdefault("DEEPSEEK_BASE_URL", base_url)
+        env.setdefault("MINIMAX_BASE_URL", base_url)
+    return env
+
+
+def _resolve_opencode_model(model: str) -> str:
+    explicit = _as_text(model)
+    settings = get_deepseek_settings()
+    configured = explicit or _as_text(settings.get("model"))
+    base_url = _as_text(settings.get("base_url")).lower()
+    if not configured:
+        return ""
+    if "/" in configured:
+        return configured
+    if "minimax" in base_url:
+        provider = "minimax"
+    elif "deepseek" in base_url:
+        provider = "deepseek"
+    else:
+        provider = "openai"
+    return f"{provider}/{configured}"
+
+
 def run_opencode_qa(
     *,
     project_path: str,
@@ -143,8 +180,9 @@ def run_opencode_qa(
     normalized_session_id = _as_text(opencode_session_id)
     if normalized_session_id:
         command.extend(["--session", normalized_session_id])
-    if model:
-        command.extend(["--model", model])
+    resolved_model = _resolve_opencode_model(model)
+    if resolved_model:
+        command.extend(["--model", resolved_model])
     normalized_agent = _as_text(agent)
     if normalized_agent:
         command.extend(["--agent", normalized_agent])
@@ -169,7 +207,7 @@ def run_opencode_qa(
             text=True,
             encoding="utf-8",
             errors="replace",
-            env=os.environ.copy(),
+            env=_build_opencode_env(),
         )
     except subprocess.TimeoutExpired:
         return {
@@ -209,7 +247,7 @@ def run_opencode_qa(
         ),
         "duration_ms": int((time.perf_counter() - started_at) * 1000),
         "returncode": completed.returncode,
-        "model": model,
+        "model": resolved_model,
         "agent": normalized_agent,
         "session_id": _as_text(parsed.get("session_id")) or normalized_session_id,
         "text": text_output[:6000],

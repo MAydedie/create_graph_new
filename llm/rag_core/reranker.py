@@ -2,6 +2,7 @@
 Cross-encoder重排模块
 功能：使用Cross-encoder对召回结果进行精排，选出最相关的片段
 """
+from pathlib import Path
 from typing import List, Dict, Optional
 import numpy as np
 import os
@@ -11,35 +12,72 @@ from sentence_transformers import CrossEncoder
 class Reranker:
     """重排器类"""
     
-    def __init__(self, model_name: str = "BAAI/bge-reranker-base"):
+    def __init__(
+        self,
+        model_name: str = "BAAI/bge-reranker-base",
+        allow_remote_download: bool = True,
+        local_model_dir: Optional[str] = None,
+        prefer_local: bool = True,
+    ):
         """
         初始化重排器
         
         Args:
             model_name: Cross-encoder模型名称
                 默认使用 cross-encoder/ms-marco-MiniLM-L-6-v2（免费开源）
+            allow_remote_download: 是否允许联网下载模型，False 时仅使用本地模型/缓存
+            local_model_dir: 本地模型目录，存在时优先从目录加载
+            prefer_local: 是否优先使用 local_model_dir
         """
-        self.model_name = model_name
+        from config.config import MODEL_CACHE_DIR, RERANKER_CONFIG
+
+        configured_model_name = str(RERANKER_CONFIG.get("model_name") or model_name).strip()
+        configured_allow_remote = bool(RERANKER_CONFIG.get("allow_remote_download", allow_remote_download))
+        configured_prefer_local = bool(RERANKER_CONFIG.get("prefer_local", prefer_local))
+        configured_local_dir = str(RERANKER_CONFIG.get("local_model_dir") or local_model_dir or "").strip()
+
+        self.model_name = str(model_name or configured_model_name).strip() or "BAAI/bge-reranker-base"
+        self.allow_remote_download = bool(
+            allow_remote_download if allow_remote_download is not None else configured_allow_remote
+        )
+        self.prefer_local = bool(prefer_local if prefer_local is not None else configured_prefer_local)
+        self.local_model_dir = str(local_model_dir or configured_local_dir).strip()
+
+        load_target = self.model_name
+        if self.local_model_dir:
+            local_dir_exists = Path(self.local_model_dir).is_dir()
+            if self.prefer_local and local_dir_exists:
+                load_target = self.local_model_dir
+            elif self.prefer_local and not self.allow_remote_download:
+                raise RuntimeError(
+                    f"Reranker本地模型目录不存在: {self.local_model_dir}。离线模式已开启，无法联网下载。"
+                )
         
         # 确保缓存目录存在
-        from config.config import MODEL_CACHE_DIR
         os.environ["HF_HOME"] = str(MODEL_CACHE_DIR)
         os.environ["TRANSFORMERS_CACHE"] = str(MODEL_CACHE_DIR)
+        os.environ["SENTENCE_TRANSFORMERS_HOME"] = str(MODEL_CACHE_DIR)
         
-        print(f"正在加载Reranker模型: {model_name}")
+        print(f"正在加载Reranker模型: {load_target}")
         print(f"缓存目录: {MODEL_CACHE_DIR}")
         
         # 检查模型是否已缓存
-        cache_exists = self._check_model_cache(model_name)
+        cache_exists = self._check_model_cache(load_target)
         if cache_exists:
             print("✓ 从缓存加载模型...")
         else:
-            print("⚠ 首次运行，正在下载模型（约90MB），请耐心等待...")
+            if self.allow_remote_download:
+                print("⚠ 首次运行，正在下载模型（约90MB），请耐心等待...")
+            else:
+                raise RuntimeError(
+                    f"Reranker模型缓存缺失: {load_target}。当前为离线模式，已禁用远程下载。"
+                )
         
         # 加载Cross-encoder模型（首次运行会自动下载）
         self.model = CrossEncoder(
-            model_name,
-            cache_folder=str(MODEL_CACHE_DIR)
+            load_target,
+            cache_folder=str(MODEL_CACHE_DIR),
+            local_files_only=not self.allow_remote_download,
         )
         
         print("✓ Reranker模型加载成功！")
@@ -47,8 +85,17 @@ class Reranker:
     def _check_model_cache(self, model_name: str) -> bool:
         """检查模型是否已缓存"""
         from config.config import MODEL_CACHE_DIR
-        model_path = MODEL_CACHE_DIR / "models--" / model_name.replace("/", "--")
-        return model_path.exists()
+        maybe_local = Path(str(model_name))
+        if maybe_local.is_dir():
+            return True
+        model_path = MODEL_CACHE_DIR / f"models--{model_name.replace('/', '--')}"
+        snapshots_dir = model_path / "snapshots"
+        if not snapshots_dir.exists():
+            return False
+        try:
+            return any(snapshots_dir.iterdir())
+        except Exception:
+            return False
     
     def rerank(self, query: str, documents: List[str], top_k: Optional[int] = None) -> List[Dict]:
         """

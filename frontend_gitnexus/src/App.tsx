@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { AppStateProvider, useAppState } from './hooks/useAppState';
 import { DropZone } from './components/DropZone';
+import { ShowcaseDropZone } from './components/ShowcaseDropZone';
 import { LoadingOverlay } from './components/LoadingOverlay';
 import { Header } from './components/Header';
 import { GraphCanvas, GraphCanvasHandle } from './components/GraphCanvas';
@@ -259,34 +260,48 @@ const AppContent = () => {
   }, [refreshLLMSettings, initializeAgent]);
 
   // Render based on view mode
+  const settingsPanel = (
+    <SettingsPanel
+      isOpen={isSettingsPanelOpen}
+      onClose={() => setSettingsPanelOpen(false)}
+      onSettingsSaved={handleSettingsSaved}
+    />
+  );
+
   if (viewMode === 'onboarding') {
+    const useLegacyEntry = new URLSearchParams(window.location.search).get('legacy_entry') === '1';
+    const EntryComponent = useLegacyEntry ? DropZone : ShowcaseDropZone;
+
     return (
-            <DropZone
-              onFileSelect={handleFileSelect}
-              onGitClone={handleGitClone}
-              onServerConnectStart={(message) => {
-                setProgress({
-                  phase: 'extracting',
-                  percent: 5,
-                  message: message || '正在连接服务…',
-                  detail: '正在校验服务可用性',
-                });
-                setViewMode('loading');
-              }}
-              onServerConnect={async (result, serverUrl) => {
-                if (serverUrl) {
-                  const baseUrl = normalizeServerUrl(serverUrl);
-                  setServerBaseUrl(baseUrl);
-                  try {
-                    const repos = await fetchRepos(baseUrl);
-                    setAvailableRepos(repos);
-                  } catch (e) {
-                    console.warn('Failed to fetch repo list:', e);
-                  }
-                }
-                handleServerConnect(result);
-              }}
-            />
+      <>
+        <EntryComponent
+          onFileSelect={handleFileSelect}
+          onGitClone={handleGitClone}
+          onServerConnectStart={(message) => {
+            setProgress({
+              phase: 'extracting',
+              percent: 5,
+              message: message || '正在连接服务…',
+              detail: '正在校验服务可用性',
+            });
+            setViewMode('loading');
+          }}
+          onServerConnect={async (result, serverUrl) => {
+            if (serverUrl) {
+              const baseUrl = normalizeServerUrl(serverUrl);
+              setServerBaseUrl(baseUrl);
+              try {
+                const repos = await fetchRepos(baseUrl);
+                setAvailableRepos(repos);
+              } catch (e) {
+                console.warn('Failed to fetch repo list:', e);
+              }
+            }
+            handleServerConnect(result);
+          }}
+        />
+        {settingsPanel}
+      </>
     );
   }
 
@@ -321,12 +336,7 @@ const AppContent = () => {
 
       <StatusBar />
 
-      {/* Settings Panel (modal) */}
-      <SettingsPanel
-        isOpen={isSettingsPanelOpen}
-        onClose={() => setSettingsPanelOpen(false)}
-        onSettingsSaved={handleSettingsSaved}
-      />
+      {settingsPanel}
 
     </div>
   );

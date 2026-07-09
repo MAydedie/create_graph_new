@@ -40,11 +40,19 @@ venv.bak/
 
 # Project specific
 output_analysis/
+# Ignore HTML / JSON output artifacts (reports, snapshots) by default
 *.html
 *.json
+# But allow legitimate project files everywhere
 !requirements.txt
 !package.json
 !tsconfig.json
+!tsconfig.app.json
+!tsconfig.node.json
+!index.html
+!package-lock.json
+# Templates directory contains source HTML templates
+!templates/
 
 # Test coverage
 .coverage
@@ -69,3 +77,96 @@ Thumbs.db
 *.swp
 
 node_modules/
+
+# === Project-specific (added 2026-07-09 for server-sync) ===
+
+# Dev / agent tooling configs
+.agent/
+.playwright-mcp/
+.skill/
+.claude/
+
+# Large model & data files (models/ is 5.6 GB - DO NOT upload)
+models/
+*.bin
+*.pt
+*.onnx
+*.safetensors
+data/faiss_index.bin
+data/metadata.pkl
+data/graph_index/
+data/personas/
+data/qna_source/
+
+# Generated outputs, reports, logs
+benchmark_reports/
+output_self_analysis/
+output_analysis/
+logs/
+*.log
+run_log.txt
+*.tsbuildinfo
+
+# Generated segment / stage outputs
+segment_*/
+
+# Runtime caches
+advisor_consultant_lab/runtime/
+skill_callchain_v1/runtime/
+skill_callchain_v2/runtime/
+skill_callchain_v1/_verified_*/
+skill_callchain_v2/_verified_*/
+
+# Test artifacts
+test_reports/
+test_sandbox/
+tmp/
+tmp_*/
+.tmp_*
+
+# Frontend build outputs (already excluded by node_modules/ above)
+dist/
+
+# Snapshots / screenshots / PDFs
+*.png
+*.pdf
+snapshot-*.yml
+snapshot-*.md
+*-snapshot.md
+after-*.md
+after_*.md
+homepage_snapshot.md
+rag_tab_open.md
+ai_assistant_open.md
+
+# Big transient JSON results
+tmp_*.json
+test_reports/*.json
+
+# Personal / scratch (Chinese-named)
+实验/
+数据集/
+_待确认文件_*/
+test_example/
+demo_code_package/
+server_export_pdf_experiment_*/
+汇报/4.18/
+
+# Build artifacts at frontend roots (vite.config.d.ts/.js are tsc outputs)
+frontend_gitnexus/vite.config.d.ts
+frontend_gitnexus/vite.config.js
+ui/edict_frontend/vite.config.d.ts
+ui/edict_frontend/vite.config.js
+ui/se_team_frontend/vite.config.d.ts
+ui/se_team_frontend/vite.config.js
+
+# Debug session outputs in tests/
+tests/debug_*/
+
+# One-off scratch scripts (not part of regular codebase)
+run_qa_tests.py
+test_final.py
+tmp_collect_qa_results.py
+
+# Stray empty file at repo root
+/0

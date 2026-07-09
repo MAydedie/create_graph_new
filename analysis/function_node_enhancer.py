@@ -34,7 +34,7 @@ def identify_leaf_nodes_in_partition(
     """
     leaf_nodes = []
     
-    for node_id in hypergraph.nodes.keys():
+    for node_id in sorted(hypergraph.nodes.keys()):
         # 确保节点在分区内
         if node_id not in partition_methods:
             continue
@@ -78,10 +78,11 @@ def explore_paths_in_partition(
     """
     # 构建反向调用图：{callee: Set[callers]}（只考虑分区内的调用关系）
     reverse_call_graph: Dict[str, Set[str]] = {}
-    for caller, callees in call_graph.items():
+    for caller in sorted(call_graph):
+        callees = call_graph[caller]
         # 只考虑调用者和被调用者都在分区内的情况
         if caller in partition_methods:
-            for callee in callees:
+            for callee in sorted(callees):
                 if callee in partition_methods:  # 关键：只考虑分区内的被调用者
                     if callee not in reverse_call_graph:
                         reverse_call_graph[callee] = set()
@@ -89,7 +90,7 @@ def explore_paths_in_partition(
     
     paths_map: Dict[str, List[List[str]]] = {}
     
-    for leaf_node in leaf_nodes:
+    for leaf_node in sorted(leaf_nodes):
         # 确保叶子节点在分区内
         if leaf_node not in partition_methods:
             continue
@@ -134,7 +135,7 @@ def explore_paths_in_partition(
                         visited_paths.add(path_tuple)
             else:
                 # 继续回溯到分区内的调用者
-                for caller in callers_in_partition:
+                for caller in sorted(callers_in_partition):
                     # 关键约束：调用者必须在分区内，且不在当前路径中（避免循环）
                     if caller in partition_methods and caller not in current_path:
                         backtrack(caller, current_path + [caller], depth + 1)
@@ -193,7 +194,7 @@ def explore_paths_from_entries(
             return
 
         extended = False
-        for callee in callees:
+        for callee in sorted(callees):
             if callee in path:
                 continue
             extended = True
@@ -256,7 +257,7 @@ def explore_intermediate_paths(
                 continue
             dfs(callee, path + [callee])
 
-    for seed in candidates:
+    for seed in sorted(candidates):
         dfs(seed, [seed])
 
     return results
@@ -273,7 +274,7 @@ def merge_paths(
     - 以 leaf_paths_map 为主
     - 入口点与中间路径按“末尾节点”归并到对应 leaf（若末尾是 leaf）
     """
-    merged: Dict[str, List[List[str]]] = {k: [p[:] for p in v] for k, v in (leaf_paths_map or {}).items()}
+    merged: Dict[str, List[List[str]]] = {k: [p[:] for p in v] for k, v in sorted((leaf_paths_map or {}).items())}
 
     def add_to_leaf(leaf: str, path: List[str]):
         if not path:
@@ -289,11 +290,11 @@ def merge_paths(
         if len(merged[leaf]) > max_per_leaf:
             merged[leaf] = merged[leaf][:max_per_leaf]
 
-    for p in entry_paths or []:
+    for p in sorted((entry_paths or []), key=lambda item: tuple(item)):
         if p:
             add_to_leaf(p[-1], p)
 
-    for p in intermediate_paths or []:
+    for p in sorted((intermediate_paths or []), key=lambda item: tuple(item)):
         if p:
             add_to_leaf(p[-1], p)
 
@@ -447,7 +448,7 @@ def _cap_paths_map(
 
     capped: Dict[str, List[List[str]]] = {}
     total_collected = 0
-    for leaf_node, paths in (paths_map or {}).items():
+    for leaf_node, paths in sorted((paths_map or {}).items()):
         if total_collected >= max_total_paths:
             break
         selected_paths: List[List[str]] = []
@@ -567,7 +568,7 @@ def enhance_hypergraph_with_function_nodes(
     
     # 步骤3：生成功能描述（目前只使用启发式方法，LLM支持待后续实现）
     descriptions_map = {}
-    for leaf_node, paths in paths_map.items():
+    for leaf_node, paths in sorted(paths_map.items()):
         descriptions = []
         for path in paths:
             # 验证路径在分区内（安全措施）

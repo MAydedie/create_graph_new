@@ -55,6 +55,12 @@ class QuestionDetector:
         "test", "logging", "metric", "constraint", "priority", "accuracy", "readability", "risk",
     ]
 
+    STRONG_CODE_ACTION_HINTS = [
+        "请修改", "请实现", "请修复", "请重构", "请新增", "请生成", "帮我修改", "帮我实现", "帮我修复",
+        "写一个", "写一段", "新增一个", "补一个", "生成一个", "create", "generate", "modify", "fix",
+        "refactor", "implement", "write", "patch",
+    ]
+
     CODEBASE_FACT_QUERY_KEYWORDS = [
         "多少个类", "多少类", "多少个方法", "多少方法", "几个类", "几个方法", "哪些类", "哪些方法",
         "最重要的方法", "核心方法", "主要方法", "主要是干嘛", "是干嘛的", "做什么的",
@@ -136,6 +142,7 @@ class QuestionDetector:
         target_present = cls._has_target_hint(combined_text, has_context)
         expectation_present = cls._has_expectation_hint(combined_text)
         indicator_present = cls._has_indicator_hint(combined_text, selected_option_labels)
+        strong_code_action = cls._has_strong_code_action(combined_text)
 
         inferred_intent = cls._build_inferred_intent(combined_text, task_mode)
         missing_slots: List[str] = []
@@ -146,7 +153,7 @@ class QuestionDetector:
         if not indicator_present:
             missing_slots.append("constraints")
 
-        if analysis.get("is_question") and not task_signal and round_index == 0:
+        if analysis.get("is_question") and not task_signal and not strong_code_action and round_index == 0:
             if cls._is_codebase_fact_question(combined_text, has_context=has_context):
                 return {
                     "route": "run_retrieval",
@@ -193,7 +200,7 @@ class QuestionDetector:
                     "clarification_round": round_index,
                 }
 
-        if not task_signal:
+        if not task_signal and not strong_code_action:
             return cls._build_clarification_result(
                 route="clarify",
                 confidence=0.42,
@@ -288,6 +295,11 @@ class QuestionDetector:
             "missing_slots": [],
             "clarification_round": round_index,
         }
+
+    @classmethod
+    def _has_strong_code_action(cls, text: str) -> bool:
+        lowered = text.lower()
+        return any(keyword in lowered for keyword in cls.STRONG_CODE_ACTION_HINTS)
 
     @classmethod
     def _contains_any(cls, text: str, keywords: List[str]) -> bool:

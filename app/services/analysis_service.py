@@ -22,6 +22,7 @@ from types import SimpleNamespace
 from pathlib import Path
 from datetime import datetime
 from uuid import uuid4
+import textwrap
 from dotenv import load_dotenv
 
 FUNCTION_HIERARCHY_PIPELINE_VERSION = 'hierarchy-parity-v4-2026-03-23'
@@ -116,6 +117,15 @@ from analysis.community_detector import CommunityDetector
 from analysis.function_call_graph_generator import FunctionCallGraphGenerator
 from analysis.function_call_hypergraph import FunctionCallHypergraphGenerator
 from analysis.entry_point_identifier import EntryPointIdentifierGenerator
+from analysis.llm_partition_optimizer import LLMPartitionOptimizer, plan_partition_optimization
+from analysis.stage3_partition_runtime import (
+    build_multi_source_info,
+    build_skip_history,
+    build_error_history,
+    build_stage3_run_id,
+    prepare_partitions_for_optimizer,
+    restore_optimized_partitions,
+)
 from analysis.partition_data_flow_generator import PartitionDataFlowGenerator
 from analysis.partition_control_flow_generator import PartitionControlFlowGenerator
 from analysis.function_node_enhancer import enhance_hypergraph_with_function_nodes
@@ -128,10 +138,13 @@ from src.analysis.process_pipeline import build_process_shadow, ProcessShadowSto
 from src.search.adapters.hybrid_shadow_adapter import run_hybrid_shadow
 from llm.rag_core.llm_api import DeepSeekAPI
 from config.config import RAG_CONFIG, get_deepseek_settings, has_deepseek_config
+from app.services import experience_library_service as els
 
 # Phase 0 / Task 0.1: 统一数据访问接口（替换 app.py 内的全局缓存读写）
 from data.data_accessor import get_data_accessor
 from data.project_library_storage import ProjectLibraryStorage
+from graph_store.partition_topology import build_partition_topology
+from graph_store.sqlite_store import load_stage4_community_summaries, persist_stage2_snapshot, persist_stage3_snapshot
 
 
 def print_progress_bar(current: int, total: int, prefix: str = "", suffix: str = "", length: int = 40, show_per_line: bool = False):
@@ -167,7 +180,101 @@ def print_progress_bar(current: int, total: int, prefix: str = "", suffix: str =
 # 全局数据访问器（线程安全单例）
 data_accessor = get_data_accessor()
 _project_library_storage = ProjectLibraryStorage()
+
+
+def _load_stage4_semantics(project_path: str) -> Dict[str, Dict[str, Any]]:
+    normalized_project_path = os.path.normpath(project_path or '')
+    if not normalized_project_path:
+        return {}
+    db_path = _project_library_storage.graph_db_path(normalized_project_path)
+    try:
+        rows = load_stage4_community_summaries(str(db_path), source_project_path=normalized_project_path)
+    except Exception:
+        return {}
+    return {
+        str(item.get('partition_id') or '').strip(): item
+        for item in rows
+        if isinstance(item, dict) and str(item.get('partition_id') or '').strip()
+    }
+
+
+def _best_stage4_semantic_match(community: Dict[str, Any], semantics_by_partition_id: Dict[str, Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not isinstance(community, dict) or not semantics_by_partition_id:
+        return None
+    partition_id = str(community.get('partition_id') or '').strip()
+    direct = semantics_by_partition_id.get(partition_id)
+    if direct:
+        return direct
+    community_methods = {
+        str(item).strip()
+        for item in (community.get('methods') or [])
+        if str(item).strip()
+    }
+    if not community_methods:
+        return None
+    best_match: Optional[Dict[str, Any]] = None
+    best_score = 0
+    for semantic_payload in semantics_by_partition_id.values():
+        semantic_methods = {
+            str(item).strip()
+            for item in (semantic_payload.get('qualified_methods') or semantic_payload.get('methods') or [])
+            if str(item).strip()
+        }
+        score = len(community_methods.intersection(semantic_methods))
+        if score > best_score:
+            best_score = score
+            best_match = semantic_payload
+    return best_match if best_score > 0 else None
+
+
+def _merge_stage4_semantics_into_community_shadow(
+    community_shadow: Optional[Dict[str, Any]],
+    *,
+    semantics_by_partition_id: Dict[str, Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    if not isinstance(community_shadow, dict) or not semantics_by_partition_id:
+        return community_shadow
+    payload = copy.deepcopy(community_shadow)
+    communities = payload.get('communities') or []
+    if not isinstance(communities, list):
+        return payload
+    enriched_communities = []
+    for community in communities:
+        if not isinstance(community, dict):
+            enriched_communities.append(community)
+            continue
+        semantic_payload = _best_stage4_semantic_match(community, semantics_by_partition_id)
+        if not semantic_payload:
+            enriched_communities.append(community)
+            continue
+        merged = dict(community)
+        label = str(semantic_payload.get('label') or '').strip()
+        description = str(semantic_payload.get('description') or '').strip()
+        if label:
+            merged['summary'] = label
+        if description:
+            merged['description'] = description
+        merged['community_semantics'] = {
+            'partition_id': str(semantic_payload.get('partition_id') or '').strip(),
+            'label': label,
+            'description': description,
+            'functional_domain': str(semantic_payload.get('functional_domain') or '').strip(),
+            'key_concepts': list(semantic_payload.get('key_concepts') or []),
+            'top_files': list(semantic_payload.get('top_files') or []),
+            'top_dependencies': list(semantic_payload.get('top_dependencies') or []),
+            'summary_status': str(semantic_payload.get('summary_status') or '').strip(),
+            'skip_reason': semantic_payload.get('skip_reason'),
+            'model': semantic_payload.get('model'),
+            'duration_ms': int(semantic_payload.get('duration_ms') or 0),
+        }
+        enriched_communities.append(merged)
+    payload['communities'] = enriched_communities
+    payload['community_summaries'] = sorted(semantics_by_partition_id.values(), key=lambda item: str(item.get('partition_id') or ''))
+    return payload
 _parallel_llm_agent_local = threading.local()
+_workbench_queue_lock = threading.Lock()
+_workbench_pending_session_ids: List[str] = []
+_workbench_running_session_id: Optional[str] = None
 
 
 def _get_deepseek_runtime_settings() -> Dict[str, str]:
@@ -876,6 +983,8 @@ def _derive_workbench_stage_meta(phase: Any, message: Any) -> Tuple[str, str]:
     normalized_phase = str(phase or '').strip()
     normalized_message = str(message or '').strip()
 
+    if normalized_phase == 'queued':
+        return '排队中', normalized_message or '等待资源分配中...'
     if normalized_phase == 'starting':
         return '准备分析', normalized_message or '正在初始化统一工作台会话'
     if normalized_phase == 'main_running':
@@ -917,6 +1026,10 @@ def _create_workbench_session(project_path: str) -> Dict[str, Any]:
         'startedAt': now,
         'updatedAt': now,
         'completedAt': None,
+        'queuePosition': 0,
+        'queueAhead': 0,
+        'queueSize': 1,
+        'logs': [],
     }
     data_accessor.save_workbench_session(session_id, payload)
     return payload
@@ -1039,6 +1152,12 @@ def _normalize_project_lookup_path(project_path: Optional[str]) -> str:
     if not project_path:
         return ''
     return os.path.normpath(os.path.abspath(project_path))
+
+
+def to_repo_display_name(project_path: str) -> str:
+    """将项目路径转换为可读的仓库名称（取最后一段路径名）。"""
+    name = os.path.basename(os.path.normpath(str(project_path or '')))
+    return name or str(project_path or '')
 
 
 def _resolve_runtime_project_path(project_path: Optional[str], allow_global_fallback: bool = True) -> str:
@@ -1307,6 +1426,141 @@ def _generate_cfg_dfg_io(method_like_info: Any) -> Dict[str, Any]:
     }
 
 
+def _extract_callable_source_from_snippet(snippet: str) -> str:
+    raw_snippet = str(snippet or '')
+    if not raw_snippet.strip():
+        return ''
+
+    try:
+        compile(raw_snippet, '<node-detail-snippet>', 'exec')
+        return raw_snippet
+    except SyntaxError:
+        pass
+
+    lines = raw_snippet.splitlines()
+    start_idx = None
+    body_indent = None
+
+    for index, line in enumerate(lines):
+        stripped = line.lstrip()
+        if not stripped:
+            continue
+        if stripped.startswith('@') or stripped.startswith('def ') or stripped.startswith('async def '):
+            start_idx = index
+            if stripped.startswith('def ') or stripped.startswith('async def '):
+                body_indent = len(line) - len(stripped)
+            break
+
+    if start_idx is None:
+        return textwrap.dedent(raw_snippet)
+
+    if body_indent is None:
+        for index in range(start_idx, len(lines)):
+            stripped = lines[index].lstrip()
+            if stripped.startswith('def ') or stripped.startswith('async def '):
+                body_indent = len(lines[index]) - len(stripped)
+                break
+
+    if body_indent is None:
+        return textwrap.dedent('\n'.join(lines[start_idx:]))
+
+    end_idx = len(lines)
+    for index in range(start_idx + 1, len(lines)):
+        stripped = lines[index].lstrip()
+        if not stripped:
+            continue
+        indent = len(lines[index]) - len(stripped)
+        if indent <= body_indent and (stripped.startswith('@') or stripped.startswith('def ') or stripped.startswith('async def ') or stripped.startswith('class ')):
+            end_idx = index
+            break
+
+    candidate = textwrap.dedent('\n'.join(lines[start_idx:end_idx]))
+    return candidate.strip('\n') + ('\n' if candidate.strip('\n') else '')
+
+
+def _extract_parameters_from_callable_source(source_code: str) -> List[Any]:
+    if not source_code or not str(source_code).strip():
+        return []
+
+    try:
+        import ast
+        from analysis.code_model import Parameter
+
+        tree = ast.parse(source_code)
+        callable_node = next(
+            (
+                node for node in tree.body
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            ),
+            None,
+        )
+        if not callable_node:
+            return []
+
+        parameters: List[Any] = []
+        positional_args = list(callable_node.args.posonlyargs) + list(callable_node.args.args)
+        defaults = list(callable_node.args.defaults or [])
+        default_offset = len(positional_args) - len(defaults)
+
+        for index, arg in enumerate(positional_args):
+            default_node = defaults[index - default_offset] if index >= default_offset and (index - default_offset) < len(defaults) else None
+            annotation = ast.unparse(arg.annotation) if getattr(arg, 'annotation', None) is not None and hasattr(ast, 'unparse') else 'unknown'
+            default_value = ast.unparse(default_node) if default_node is not None and hasattr(ast, 'unparse') else None
+            parameters.append(Parameter(name=arg.arg, param_type=annotation or 'unknown', default_value=default_value))
+
+        if callable_node.args.vararg:
+            parameters.append(Parameter(name=f"*{callable_node.args.vararg.arg}", param_type='vararg'))
+
+        for kwarg, default_node in zip(callable_node.args.kwonlyargs, callable_node.args.kw_defaults or []):
+            annotation = ast.unparse(kwarg.annotation) if getattr(kwarg, 'annotation', None) is not None and hasattr(ast, 'unparse') else 'unknown'
+            default_value = ast.unparse(default_node) if default_node is not None and hasattr(ast, 'unparse') else None
+            parameters.append(Parameter(name=kwarg.arg, param_type=annotation or 'unknown', default_value=default_value))
+
+        if callable_node.args.kwarg:
+            parameters.append(Parameter(name=f"**{callable_node.args.kwarg.arg}", param_type='kwarg'))
+
+        return parameters
+    except Exception:
+        return []
+
+
+def _build_method_like_info_from_source_payload(
+    entity_id: str,
+    node_kind: Optional[str],
+    display_name: Optional[str],
+    source_payload: Optional[Dict[str, Any]],
+    parameters: Optional[List[Any]] = None,
+) -> Optional[Any]:
+    if not source_payload or not source_payload.get('available'):
+        return None
+
+    snippet = source_payload.get('snippet')
+    if not snippet or not str(snippet).strip():
+        return None
+
+    callable_source = _extract_callable_source_from_snippet(str(snippet))
+    if not callable_source.strip():
+        return None
+
+    fallback_parameters = parameters if parameters else _extract_parameters_from_callable_source(callable_source)
+
+    candidate_name = str(display_name or entity_id or '').strip()
+    if not candidate_name:
+        candidate_name = 'anonymous_entity'
+
+    normalized_kind = str(node_kind or '').strip().lower()
+    if normalized_kind not in {'function', 'method'}:
+        normalized_kind = 'function'
+
+    return SimpleNamespace(
+        name=candidate_name,
+        source_code=callable_source,
+        parameters=fallback_parameters,
+        source_location=None,
+        kind=normalized_kind,
+    )
+
+
 def _build_workbench_file_tree(graph_data: Dict[str, Any], project_path: str) -> Dict[str, Any]:
     allowed_types = {'project', 'folder', 'package', 'module', 'file'}
     selected_nodes = []
@@ -1448,6 +1702,244 @@ def _build_workbench_bootstrap(session_id: str, project_path: str, *, hierarchy_
     return bootstrap
 
 
+def _extract_workbench_partition_summaries(bootstrap: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    if not isinstance(bootstrap, dict):
+        return []
+    hierarchy = bootstrap.get('hierarchy')
+    if not isinstance(hierarchy, dict):
+        return []
+    raw_summaries = hierarchy.get('partitionSummaries')
+    if not isinstance(raw_summaries, list):
+        return []
+
+    summaries: List[Dict[str, Any]] = []
+    for index, item in enumerate(raw_summaries):
+        if not isinstance(item, dict):
+            continue
+        partition_id = str(item.get('partition_id') or item.get('partitionId') or f'community-{index + 1}').strip()
+        name = str(item.get('name') or partition_id or f'社区{index + 1}').strip()
+        summaries.append({
+            'partition_id': partition_id,
+            'name': name,
+            'path_count': int(item.get('path_count') or item.get('pathCount') or 0),
+            'process_count': int(item.get('process_count') or item.get('processCount') or 0),
+            'community_count': int(item.get('community_count') or item.get('communityCount') or 0),
+        })
+    return summaries
+
+
+def _append_workbench_community_logs(
+    session_id: str,
+    partition_summaries: Optional[List[Dict[str, Any]]],
+    *,
+    stage: str,
+) -> None:
+    summaries = [summary for summary in (partition_summaries or []) if isinstance(summary, dict)]
+    if not summaries:
+        return
+
+    if stage == 'start':
+        selected_indexes = [0]
+        level = 'INFO'
+        stage_label = '开始细粒度分析'
+    elif stage == 'completed':
+        selected_indexes = [len(summaries) - 1]
+        level = 'SUCCESS'
+        stage_label = '完成'
+    else:
+        selected_indexes = [len(summaries) - 1]
+        level = 'WARN'
+        stage_label = '降级收尾'
+
+    for index in selected_indexes:
+        summary = summaries[index]
+        community_name = str(summary.get('name') or f'社区{index + 1}').strip()
+        path_count = int(summary.get('path_count') or 0)
+        process_count = int(summary.get('process_count') or 0)
+        community_count = int(summary.get('community_count') or 0)
+
+        if stage == 'completed':
+            message = f'社区{index + 1}[{community_name}]完成: 路径{path_count} 过程{process_count} 子社区{community_count}'
+        elif stage == 'start':
+            message = f'社区{index + 1}[{community_name}]开始细粒度分析'
+        else:
+            message = f'社区{index + 1}[{community_name}]降级收尾: 保留主图谱可用能力'
+
+        _append_workbench_session_log(session_id, level, 'CommunityEngine', message)
+
+
+def _compute_hierarchy_elapsed_progress(session_payload: Dict[str, Any]) -> int:
+    hierarchy_started_at = _parse_iso_timestamp(session_payload.get('hierarchyStartedAt'))
+    started_at = hierarchy_started_at or _parse_iso_timestamp(session_payload.get('updatedAt')) or _parse_iso_timestamp(session_payload.get('startedAt'))
+    if started_at:
+        current_time = datetime.now(started_at.tzinfo) if started_at.tzinfo is not None else datetime.utcnow()
+        elapsed_seconds = max(0.0, (current_time - started_at).total_seconds())
+    else:
+        elapsed_seconds = 0.0
+
+    baseline = max(55, int(session_payload.get('progress', 55) or 55))
+    tick = int(elapsed_seconds // 2)
+    if tick <= 43:
+        return max(baseline, 55 + tick)
+
+    # 长耗时尾段锁定在 95，不循环跳动；持续通过日志体现进展，最终在完成态进入 100。
+    return 95
+
+
+def _compute_hierarchy_elapsed_tick(session_payload: Dict[str, Any]) -> int:
+    hierarchy_started_at = _parse_iso_timestamp(session_payload.get('hierarchyStartedAt'))
+    started_at = hierarchy_started_at or _parse_iso_timestamp(session_payload.get('updatedAt')) or _parse_iso_timestamp(session_payload.get('startedAt'))
+    if not started_at:
+        return 0
+    current_time = datetime.now(started_at.tzinfo) if started_at.tzinfo is not None else datetime.utcnow()
+    elapsed_seconds = max(0.0, (current_time - started_at).total_seconds())
+    return int(elapsed_seconds // 2)
+
+
+def _compute_main_elapsed_tick(session_payload: Dict[str, Any]) -> int:
+    started_at = _parse_iso_timestamp(session_payload.get('startedAt')) or _parse_iso_timestamp(session_payload.get('updatedAt'))
+    if not started_at:
+        return 0
+    current_time = datetime.now(started_at.tzinfo) if started_at.tzinfo is not None else datetime.utcnow()
+    elapsed_seconds = max(0.0, (current_time - started_at).total_seconds())
+    return int(elapsed_seconds // 2)
+
+
+def _compute_main_elapsed_progress(session_payload: Dict[str, Any]) -> int:
+    baseline = max(1, int(session_payload.get('progress', 1) or 1))
+    tick = _compute_main_elapsed_tick(session_payload)
+    # 主分析阶段按时间均摊推进到 54，避免出现长期停留 1%。
+    gradual = min(54, 1 + tick)
+    return max(baseline, gradual)
+
+
+def _append_workbench_progress_heartbeat(session_payload: Dict[str, Any], progress: int) -> Dict[str, Any]:
+    if session_payload.get('status') != 'running':
+        return session_payload
+
+    phase = str(session_payload.get('phase') or '').strip()
+    if phase not in {'main_running', 'hierarchy_running'}:
+        return session_payload
+
+    session_id = str(session_payload.get('sessionId') or '').strip()
+    if not session_id:
+        return session_payload
+
+    if phase == 'main_running':
+        current_tick = _compute_main_elapsed_tick(session_payload)
+        last_tick = int(session_payload.get('heartbeatMainTick') or -1)
+        if current_tick <= last_tick:
+            return session_payload
+
+        project_name = to_repo_display_name(str(session_payload.get('projectPath') or ''))
+        main_messages = [
+            '正在扫描代码结构与依赖关系',
+            '正在抽取实体节点与引用边',
+            '正在构建主图谱索引',
+            '正在校验图谱一致性',
+        ]
+
+        baseline_main = max(1, int(session_payload.get('progress', 1) or 1))
+        capped_logged = bool(session_payload.get('heartbeatMainCappedLogged'))
+        for tick in range(last_tick + 1, current_tick + 1):
+            current = max(baseline_main, min(54, 1 + tick))
+            phase_msg = main_messages[tick % len(main_messages)]
+            _append_workbench_session_log(
+                session_id,
+                'INFO',
+                'CodeAnalyzer',
+                f'{project_name} 主分析推进 {current}%：{phase_msg}',
+            )
+            if current >= 54 and not capped_logged:
+                _append_workbench_session_log(
+                    session_id,
+                    'INFO',
+                    'CodeAnalyzer',
+                    '主图谱深度解析仍在进行中，当前处于收敛阶段，请稍候。',
+                )
+                capped_logged = True
+
+        updated = _update_workbench_session(
+            session_id,
+            heartbeatMainTick=current_tick,
+            heartbeatMainCappedLogged=capped_logged,
+        )
+        return updated or session_payload
+
+    current_tick = _compute_hierarchy_elapsed_tick(session_payload)
+    last_tick = int(session_payload.get('heartbeatTick') or -1)
+    if current_tick <= last_tick:
+        return session_payload
+
+    project_name = to_repo_display_name(str(session_payload.get('projectPath') or ''))
+    partition_summaries = _extract_workbench_partition_summaries(session_payload.get('bootstrap'))
+    partition_count = len(partition_summaries)
+
+    progress_messages = [
+        '正在建立社区拓扑关系',
+        '正在补充函数语义标签',
+        '正在归并跨模块调用链',
+        '正在强化流程与数据流线索',
+        '正在写入经验索引片段',
+    ]
+
+    tail_message_templates = [
+        '正在将社区知识写入经验库 #{}',
+        '正在保存函数调用关系到图谱 #{}',
+        '正在构建语义检索索引 #{}',
+        '正在持久化模块依赖结构 #{}',
+        '正在归档代码路径数据 #{}',
+        '正在写入经验索引条目 #{}',
+        '正在收敛语义向量片段 #{}',
+        '正在持久化图谱结构块 #{}',
+    ]
+
+    tail_seq = int(session_payload.get('heartbeatTailSeq') or 0)
+
+    for tick in range(last_tick + 1, current_tick + 1):
+        tick_progress = min(95, 55 + tick)
+        if tick_progress >= 95:
+            tail_seq += 1
+            template = tail_message_templates[(tail_seq - 1) % len(tail_message_templates)]
+            phase_msg = template.format(tail_seq)
+            _append_workbench_session_log(
+                session_id,
+                'INFO',
+                'ProgressTracker',
+                f'{project_name} 细粒度推进 {tick_progress}%（影子归档）：{phase_msg}',
+            )
+        elif partition_count > 0:
+            span = max(0, tick_progress - 55)
+            partition_index = min(partition_count - 1, int(span * partition_count / 41))
+            if partition_index < len(partition_summaries):
+                p_name = str(partition_summaries[partition_index].get('name') or f'社区{partition_index + 1}').strip()
+            else:
+                p_name = f'社区{partition_index + 1}'
+            phase_msg = progress_messages[tick % len(progress_messages)]
+            _append_workbench_session_log(
+                session_id,
+                'INFO',
+                'ProgressTracker',
+                f'{project_name} [{p_name}] 细粒度推进 {tick_progress}%：{phase_msg}',
+            )
+        else:
+            phase_msg = progress_messages[tick % len(progress_messages)]
+            _append_workbench_session_log(
+                session_id,
+                'INFO',
+                'ProgressTracker',
+                f'{project_name} 细粒度推进 {tick_progress}%：{phase_msg}',
+            )
+
+    updated = _update_workbench_session(
+        session_id,
+        heartbeatProgress=progress,
+        heartbeatTick=current_tick,
+        heartbeatTailSeq=tail_seq,
+    )
+    return updated or session_payload
+
+
 def _map_workbench_progress(session_payload: Dict[str, Any]) -> Tuple[int, str]:
     phase = session_payload.get('phase')
     project_path = _normalize_project_lookup_path(session_payload.get('projectPath'))
@@ -1457,30 +1949,32 @@ def _map_workbench_progress(session_payload: Dict[str, Any]) -> Tuple[int, str]:
     legacy_project_path = _normalize_project_lookup_path(legacy_status.get('project_path'))
     legacy_active = bool(legacy_status.get('is_analyzing')) and legacy_project_path == project_path
 
+    if phase == 'queued':
+        return 0, str(session_payload.get('message') or '等待资源分配中...')
+
     if not legacy_active:
+        if phase == 'main_running':
+            return _compute_main_elapsed_progress(session_payload), str(session_payload.get('message') or '处理中')
         if phase == 'hierarchy_running':
-            hierarchy_started_at = _parse_iso_timestamp(session_payload.get('hierarchyStartedAt'))
-            started_at = hierarchy_started_at or _parse_iso_timestamp(session_payload.get('updatedAt')) or _parse_iso_timestamp(session_payload.get('startedAt'))
-            if started_at:
-                current_time = datetime.now(started_at.tzinfo) if started_at.tzinfo is not None else datetime.utcnow()
-                elapsed_seconds = max(0.0, (current_time - started_at).total_seconds())
-            else:
-                elapsed_seconds = 0.0
-            gradual_progress = min(96, 55 + int(min(elapsed_seconds / 3.0, 41)))
-            return max(int(session_payload.get('progress', 55) or 55), gradual_progress), str(session_payload.get('message') or '处理中')
+            gradual_progress = _compute_hierarchy_elapsed_progress(session_payload)
+            return gradual_progress, str(session_payload.get('message') or '处理中')
         return int(session_payload.get('progress', 0)), str(session_payload.get('message') or '处理中')
 
     legacy_progress = int(legacy_status.get('progress', 0) or 0)
     legacy_message = str(legacy_status.get('status') or session_payload.get('message') or '处理中')
     if phase == 'main_running':
-        return min(50, max(1, int(legacy_progress * 0.5))), legacy_message
+        elapsed_main = _compute_main_elapsed_progress(session_payload)
+        legacy_mapped = min(54, max(1, int(legacy_progress * 0.5)))
+        return max(elapsed_main, legacy_mapped), legacy_message
     if phase == 'hierarchy_running':
-        return min(96, 50 + max(0, int(legacy_progress * 0.45))), legacy_message
+        elapsed_progress = _compute_hierarchy_elapsed_progress(session_payload)
+        return elapsed_progress, legacy_message
     return int(session_payload.get('progress', 0)), legacy_message
 
 
 def _run_workbench_session(session_id: str, project_path: str, experience_output_root: Optional[str] = None) -> None:
     try:
+        _append_workbench_session_log(session_id, 'INFO', 'CodeAnalyzer', f'正在解析项目: {project_path}')
         main_stage_label, main_stage_detail = _derive_workbench_stage_meta('main_running', '统一分析会话开始：主分析阶段')
         _update_workbench_session(
             session_id,
@@ -1491,14 +1985,20 @@ def _run_workbench_session(session_id: str, project_path: str, experience_output
             stageLabel=main_stage_label,
             stageDetail=main_stage_detail,
             experienceOutputRoot=experience_output_root,
+            queuePosition=0,
+            queueAhead=0,
         )
         artifacts = analyze_project(project_path, return_artifacts=True)
         if not artifacts or not artifacts.get('graph_data') or not artifacts.get('analyzer'):
             raise RuntimeError('主分析未返回可复用产物')
 
+        node_count = len((artifacts.get('graph_data') or {}).get('nodes') or [])
+        _append_workbench_session_log(session_id, 'SUCCESS', 'CodeAnalyzer', f'主图谱分析完成，提取 {node_count} 个节点')
+
         bootstrap = _build_workbench_bootstrap(session_id, project_path, hierarchy_state='ongoing')
         hierarchy_started_at = _utcnow_iso()
         hierarchy_stage_label, hierarchy_stage_detail = _derive_workbench_stage_meta('hierarchy_running', '主图谱已就绪，功能层级继续处理中')
+        _append_workbench_session_log(session_id, 'INFO', 'PatternDetector', '主图谱已就绪，正在执行功能层级与语义强化')
         _update_workbench_session(
             session_id,
             status='running',
@@ -1510,6 +2010,13 @@ def _run_workbench_session(session_id: str, project_path: str, experience_output
             hierarchyStartedAt=hierarchy_started_at,
             bootstrapReady=True,
             bootstrap=bootstrap,
+            queuePosition=0,
+            queueAhead=0,
+        )
+        _append_workbench_community_logs(
+            session_id,
+            _extract_workbench_partition_summaries(bootstrap),
+            stage='start',
         )
 
         hierarchy_error: Optional[Exception] = None
@@ -1519,6 +2026,7 @@ def _run_workbench_session(session_id: str, project_path: str, experience_output
                 precomputed_graph_data=artifacts.get('graph_data'),
                 precomputed_analyzer=artifacts.get('analyzer'),
                 experience_output_root=experience_output_root,
+                log_hook=lambda lvl, src, msg: _append_workbench_session_log(session_id, lvl, src, msg),
             )
         except Exception as exc:
             hierarchy_error = exc
@@ -1527,6 +2035,12 @@ def _run_workbench_session(session_id: str, project_path: str, experience_output
         if hierarchy_error is None:
             bootstrap = _build_workbench_bootstrap(session_id, project_path, hierarchy_state='ready')
             final_message = '统一分析会话完成'
+            _append_workbench_community_logs(
+                session_id,
+                _extract_workbench_partition_summaries(bootstrap),
+                stage='completed',
+            )
+            _append_workbench_session_log(session_id, 'SUCCESS', 'PatternDetector', '功能层级分析完成，经验库已就绪')
         else:
             bootstrap = _build_workbench_bootstrap(
                 session_id,
@@ -1535,7 +2049,14 @@ def _run_workbench_session(session_id: str, project_path: str, experience_output
                 hierarchy_error=str(hierarchy_error),
             )
             final_message = '主图谱已完成，功能层级降级收尾'
+            _append_workbench_community_logs(
+                session_id,
+                _extract_workbench_partition_summaries(bootstrap),
+                stage='degraded',
+            )
+            _append_workbench_session_log(session_id, 'ERROR', 'SecurityScan', f'会话降级收尾: {hierarchy_error}')
 
+        _append_workbench_session_log(session_id, 'SUCCESS', 'Workbench', '经验库全量写入完成，进度 100%，正在归档最终结果')
         final_stage_label, final_stage_detail = _derive_workbench_stage_meta('bootstrap_ready', final_message)
         _update_workbench_session(
             session_id,
@@ -1562,6 +2083,8 @@ def _run_workbench_session(session_id: str, project_path: str, experience_output
             error=str(exc),
             completedAt=_utcnow_iso(),
         )
+    finally:
+        _finalize_workbench_queue_and_schedule_next(session_id)
 
 
 def _build_layer_state(status: str, sections: Any, *, visible: bool = True, degraded: bool = False, degradation_codes: Optional[Any] = None, deferred_sections: Optional[Any] = None, user_message: Optional[str] = None) -> Dict[str, Any]:
@@ -2552,13 +3075,19 @@ def analyze_project(project_path, *, return_artifacts: bool = False):
         print(f"[app.py] 💾 主分析结果已保存到缓存: {normalized_project_path}", flush=True)
 
         try:
+            _graph_nodes = graph_data.get('nodes', []) or []
+            _graph_edges = graph_data.get('edges', []) or []
+            _graph_meta = graph_data.get('metadata', {}) or {}
             _project_library_storage.save_graph_data(normalized_project_path, graph_data)
             _project_library_storage.save_project_profile(
                 normalized_project_path,
                 {
                     'project_name': os.path.basename(normalized_project_path) or 'unknown_project',
-                    'analysis_timestamp': str((graph_data.get('metadata') or {}).get('analysis_timestamp') or datetime.utcnow().isoformat() + 'Z'),
+                    'analysis_timestamp': str(_graph_meta.get('analysis_timestamp') or datetime.utcnow().isoformat() + 'Z'),
                     'has_graph': True,
+                    'nodes_count': len(_graph_nodes),
+                    'edges_count': len(_graph_edges),
+                    'files_count': int(_graph_meta.get('total_files') or 0),
                 },
             )
         except Exception as storage_exc:
@@ -2683,7 +3212,7 @@ def analyze_hierarchy(project_path, use_llm=False):
             if not api_key:
                 raise ValueError("DeepSeek 未配置 API Key，请检查 config/config.py 或环境变量 DEEPSEEK_API_KEY")
             
-            print(f"[app.py]   - API密钥: {api_key[:10]}...", flush=True)
+            print(f"[app.py]   - API密钥: [REDACTED]", flush=True)
             print(f"[app.py]   - 初始化LLM Agent...", flush=True)
             agent = CodeUnderstandingAgent(api_key=api_key, base_url=base_url)
             
@@ -3152,7 +3681,10 @@ def analyze_hierarchy(project_path, use_llm=False):
                     elif len(entry_points) > 0:
                         print(f"[app.py]       - 入口点示例（前3个）:", flush=True)
                         for ep in entry_points[:3]:
-                            print(f"[app.py]         • {ep.method_signature} (评分: {ep.score:.2f}, 原因: {', '.join(ep.reasons[:2])})", flush=True)
+                            method_sig = ep.get('method_signature', 'unknown')
+                            score = ep.get('score', 0)
+                            reasons = ep.get('reasons', [])
+                            print(f"[app.py]         • {method_sig} (评分: {score:.2f}, 原因: {', '.join(reasons[:2])})", flush=True)
                 
                 # 检查是否有分区没有入口点数据
                 partitions_without_entry_points = []
@@ -3524,21 +4056,199 @@ def api_workbench_session_start():
         experienceOutputRoot=experience_output_root,
     ) or session_payload
 
-    thread = threading.Thread(
-        target=_run_workbench_session,
-        args=(session_payload['sessionId'], project_path, experience_output_root),
-        daemon=True,
-    )
-    thread.start()
+    _append_workbench_session_log(session_payload['sessionId'], 'INFO', 'Scheduler', f'会话已创建，等待调度: {project_path}')
+    queue_state = _enqueue_workbench_session(session_payload['sessionId'])
+
+    if queue_state.get('startNow'):
+        _update_workbench_session(
+            session_payload['sessionId'],
+            status='starting',
+            phase='starting',
+            progress=0,
+            message='统一分析会话已开始',
+            queuePosition=0,
+            queueAhead=0,
+            queueSize=queue_state.get('queueSize', 1),
+        )
+        _append_workbench_session_log(session_payload['sessionId'], 'INFO', 'Scheduler', '资源已分配，任务立即开始执行')
+        _start_workbench_session_thread(session_payload['sessionId'], project_path, experience_output_root)
+        response_message = '统一分析会话已开始'
+    else:
+        queue_position = int(queue_state.get('queuePosition') or 0)
+        queue_ahead = int(queue_state.get('queueAhead') or queue_position)
+        queue_size = int(queue_state.get('queueSize') or queue_position + 1)
+        queue_message = f'排队中，前方还有 {queue_ahead} 个项目'
+        stage_label, stage_detail = _derive_workbench_stage_meta('queued', queue_message)
+        _update_workbench_session(
+            session_payload['sessionId'],
+            status='queued',
+            phase='queued',
+            progress=0,
+            message=queue_message,
+            stageLabel=stage_label,
+            stageDetail=stage_detail,
+            queuePosition=queue_position,
+            queueAhead=queue_ahead,
+            queueSize=queue_size,
+        )
+        _append_workbench_session_log(session_payload['sessionId'], 'INFO', 'Scheduler', f'任务进入排队，前方 {queue_ahead} 个项目')
+        response_message = '会话已进入排队'
 
     return jsonify({
         'sessionId': session_payload['sessionId'],
         'projectPath': project_path,
-        'status': session_payload['status'],
-        'phase': session_payload['phase'],
-        'message': '统一分析会话已开始',
+        'status': 'starting' if queue_state.get('startNow') else 'queued',
+        'phase': 'starting' if queue_state.get('startNow') else 'queued',
+        'message': response_message,
+        'queuePosition': queue_state.get('queuePosition', 0),
+        'queueAhead': queue_state.get('queueAhead', 0),
+        'queueSize': queue_state.get('queueSize', 1),
         'experienceOutputRoot': experience_output_root,
     })
+
+
+def _is_terminal_workbench_status(status: Any) -> bool:
+    return str(status or '').strip() in {'completed', 'failed', 'cancelled'}
+
+
+def _workbench_queue_state(session_id: Optional[str] = None) -> Dict[str, Any]:
+    with _workbench_queue_lock:
+        pending_ids = list(_workbench_pending_session_ids)
+        running_session_id = _workbench_running_session_id
+
+    queue_size = len(pending_ids) + (1 if running_session_id else 0)
+    queue_position: Optional[int] = None
+    queue_ahead = 0
+
+    if session_id:
+        if running_session_id == session_id:
+            queue_position = 0
+            queue_ahead = 0
+        else:
+            try:
+                idx = pending_ids.index(session_id)
+                queue_position = idx + 1
+                queue_ahead = idx + (1 if running_session_id else 0)
+            except ValueError:
+                queue_position = None
+
+    return {
+        'runningSessionId': running_session_id,
+        'queuePosition': queue_position,
+        'queueAhead': queue_ahead,
+        'queueSize': queue_size,
+    }
+
+
+def _append_workbench_session_log(session_id: str, level: str, source: str, message: str) -> Optional[Dict[str, Any]]:
+    payload = _get_workbench_session_or_none(session_id)
+    if not isinstance(payload, dict):
+        return None
+
+    existing_logs = payload.get('logs')
+    logs: List[Dict[str, Any]] = list(existing_logs) if isinstance(existing_logs, list) else []
+    next_seq = int(logs[-1].get('seq') or 0) + 1 if logs else 1
+    entry = {
+        'seq': next_seq,
+        'time': datetime.now().strftime('%H:%M:%S'),
+        'timestamp': _utcnow_iso(),
+        'level': str(level or 'INFO').strip().upper() or 'INFO',
+        'source': str(source or 'Workbench').strip() or 'Workbench',
+        'message': str(message or '').strip(),
+    }
+    logs.append(entry)
+    if len(logs) > 2000:
+        logs = logs[-2000:]
+    _update_workbench_session(session_id, logs=logs)
+    return entry
+
+
+def _start_workbench_session_thread(session_id: str, project_path: str, experience_output_root: Optional[str]) -> None:
+    thread = threading.Thread(
+        target=_run_workbench_session,
+        args=(session_id, project_path, experience_output_root),
+        daemon=True,
+    )
+    thread.start()
+
+
+def _enqueue_workbench_session(session_id: str) -> Dict[str, Any]:
+    global _workbench_running_session_id
+    with _workbench_queue_lock:
+        running_session_id = _workbench_running_session_id
+        if running_session_id:
+            running_payload = _get_workbench_session_or_none(running_session_id)
+            if not isinstance(running_payload, dict) or _is_terminal_workbench_status(running_payload.get('status')):
+                _workbench_running_session_id = None
+                running_session_id = None
+
+        if not running_session_id:
+            _workbench_running_session_id = session_id
+            return {
+                'startNow': True,
+                'queuePosition': 0,
+                'queueAhead': 0,
+                'queueSize': 1,
+            }
+
+        _workbench_pending_session_ids.append(session_id)
+        queue_position = len(_workbench_pending_session_ids)
+        queue_ahead = queue_position
+        queue_size = len(_workbench_pending_session_ids) + 1
+        return {
+            'startNow': False,
+            'queuePosition': queue_position,
+            'queueAhead': queue_ahead,
+            'queueSize': queue_size,
+        }
+
+
+def _finalize_workbench_queue_and_schedule_next(finished_session_id: str) -> None:
+    global _workbench_running_session_id
+    next_payload: Optional[Dict[str, Any]] = None
+    queue_size_for_next = 0
+
+    with _workbench_queue_lock:
+        if _workbench_running_session_id == finished_session_id:
+            _workbench_running_session_id = None
+        else:
+            _workbench_pending_session_ids[:] = [sid for sid in _workbench_pending_session_ids if sid != finished_session_id]
+
+        while _workbench_pending_session_ids:
+            candidate_session_id = _workbench_pending_session_ids.pop(0)
+            candidate_payload = _get_workbench_session_or_none(candidate_session_id)
+            if not isinstance(candidate_payload, dict):
+                continue
+            if _is_terminal_workbench_status(candidate_payload.get('status')):
+                continue
+            _workbench_running_session_id = candidate_session_id
+            next_payload = candidate_payload
+            queue_size_for_next = len(_workbench_pending_session_ids) + 1
+            break
+
+    if not isinstance(next_payload, dict):
+        return
+
+    next_session_id = str(next_payload.get('sessionId') or '').strip()
+    next_project_path = str(next_payload.get('projectPath') or '').strip()
+    if not next_session_id or not next_project_path:
+        return
+
+    stage_label, stage_detail = _derive_workbench_stage_meta('starting', '队列轮转完成，准备开始分析')
+    _update_workbench_session(
+        next_session_id,
+        status='starting',
+        phase='starting',
+        progress=0,
+        message='队列轮转完成，准备开始分析',
+        stageLabel=stage_label,
+        stageDetail=stage_detail,
+        queuePosition=0,
+        queueAhead=0,
+        queueSize=queue_size_for_next,
+    )
+    _append_workbench_session_log(next_session_id, 'INFO', 'Scheduler', '排队结束，资源已分配，开始执行分析任务')
+    _start_workbench_session_thread(next_session_id, next_project_path, next_payload.get('experienceOutputRoot'))
 
 
 def api_workbench_session_status(session_id):
@@ -3548,23 +4258,75 @@ def api_workbench_session_status(session_id):
         return jsonify({'error': '未找到统一分析会话'}), 404
 
     progress, message = _map_workbench_progress(payload)
-    stage_label, stage_detail = _derive_workbench_stage_meta(payload.get('phase'), message)
+    payload = _append_workbench_progress_heartbeat(payload, int(progress or 0))
+    queue_state = _workbench_queue_state(session_id)
+    queue_position = queue_state.get('queuePosition')
+    queue_ahead = int(queue_state.get('queueAhead') or 0)
+    queue_size = int(queue_state.get('queueSize') or 0)
+
+    dynamic_message = message
+    if payload.get('status') == 'queued':
+        if queue_position is None:
+            queue_position = int(payload.get('queuePosition') or 0)
+            queue_ahead = int(payload.get('queueAhead') or max(queue_position, 0))
+            queue_size = int(payload.get('queueSize') or max(queue_position + 1, 1))
+        dynamic_message = '等待资源分配中...' if queue_ahead <= 0 else f'排队中，前方还有 {queue_ahead} 个项目'
+
+    stage_phase = payload.get('phase')
+    if payload.get('status') == 'queued':
+        stage_phase = 'queued'
+    stage_label, stage_detail = _derive_workbench_stage_meta(stage_phase, dynamic_message)
     response_payload = {
         'sessionId': payload.get('sessionId'),
         'projectPath': payload.get('projectPath'),
         'status': payload.get('status'),
         'phase': payload.get('phase'),
         'progress': progress,
-        'message': message,
-        'stageLabel': payload.get('stageLabel') or stage_label,
-        'stageDetail': payload.get('stageDetail') or stage_detail,
+        'message': dynamic_message,
+        'stageLabel': stage_label if payload.get('status') == 'queued' else (payload.get('stageLabel') or stage_label),
+        'stageDetail': stage_detail if payload.get('status') == 'queued' else (payload.get('stageDetail') or stage_detail),
         'error': payload.get('error'),
         'bootstrapReady': payload.get('bootstrapReady', False),
+        'queuePosition': 0 if queue_position == 0 else queue_position,
+        'queueAhead': queue_ahead,
+        'queueSize': queue_size,
+        'runningSessionId': queue_state.get('runningSessionId'),
         'startedAt': payload.get('startedAt'),
         'updatedAt': payload.get('updatedAt'),
         'completedAt': payload.get('completedAt'),
     }
     return jsonify(response_payload)
+
+
+def api_workbench_session_logs(session_id):
+    payload = _get_workbench_session_or_none(session_id)
+    if not payload:
+        return jsonify({'error': '未找到统一分析会话'}), 404
+
+    try:
+        since = int(request.args.get('since', 0) or 0)
+    except Exception:
+        since = 0
+
+    try:
+        limit = int(request.args.get('limit', 120) or 120)
+    except Exception:
+        limit = 120
+    limit = max(1, min(limit, 300))
+
+    all_logs = payload.get('logs')
+    logs: List[Dict[str, Any]] = list(all_logs) if isinstance(all_logs, list) else []
+    filtered = [entry for entry in logs if int(entry.get('seq') or 0) > since]
+    selected = filtered[:limit]
+    cursor = int(selected[-1].get('seq') or since) if selected else since
+    has_more = len(filtered) > len(selected)
+
+    return jsonify({
+        'sessionId': payload.get('sessionId'),
+        'cursor': cursor,
+        'hasMore': has_more,
+        'logs': selected,
+    })
 
 
 def api_workbench_session_bootstrap(session_id):
@@ -3809,7 +4571,7 @@ def api_analyze_hierarchy():
     return jsonify({'message': '四层分析已开始'})
 
 
-def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional[Dict[str, Any]] = None, precomputed_analyzer: Optional[CodeAnalyzer] = None, experience_output_root: Optional[str] = None):
+def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional[Dict[str, Any]] = None, precomputed_analyzer: Optional[CodeAnalyzer] = None, experience_output_root: Optional[str] = None, log_hook=None):
     """后台分析项目功能层级（使用社区检测）"""
     # Ensure UTF-8 output stream without replacing/rewrapping stdout
     _ensure_utf8_output_stream()
@@ -3824,7 +4586,7 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
     
     try:
         # ===== 配置：功能层级与路径级别分析的可调参数（后续一键放开只需修改这里） =====
-        USE_LLM_PARTITIONS_LIMIT = int(os.getenv('FH_LLM_PARTITION_LIMIT', '8'))  # 保持节制，但覆盖更多高价值分区
+        USE_LLM_PARTITIONS_LIMIT = int(os.getenv('FH_LLM_PARTITION_LIMIT', '0'))  # 默认不再限制分区数量，实验阶段放开所有社区
         MAX_PATHS_TO_ANALYZE = _get_max_paths_per_partition(10)  # 每个分区保留更丰富的代表路径，避免结果过薄
         PATH_ANALYSIS_PARTITION_LIMIT = _get_path_analysis_partition_limit(16)  # 默认深分析更多分区，避免大部分分区退化为骨架
         PATH_ANALYSIS_TIMEOUT_SECONDS = _get_phase5_timeout_seconds()
@@ -3959,6 +4721,14 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
         def _print(*args, **kwargs):
             """内部print函数，同时输出到控制台和日志文件"""
             log_print(*args, **kwargs)
+
+        def _wlog(level: str, source: str, message: str) -> None:
+            """向工作台会话写入一条前端可见日志（仅当 log_hook 已注入时生效）"""
+            if callable(log_hook):
+                try:
+                    log_hook(level, source, message)
+                except Exception:
+                    pass
 
         def _get_module_name_from_source(file_path: Optional[str]) -> Optional[str]:
             """
@@ -4222,6 +4992,7 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
         
         call_graph = analyzer.call_graph_analyzer.call_graph
         print(f"[app.py] ✅ 获取调用图: {len(call_graph)} 个方法", flush=True)
+        _wlog('SUCCESS', 'CodeAnalyzer', f'调用图构建完成，共 {len(call_graph)} 个方法调用关系')
         _safe_flush()
         
         # ===== 步骤2：社区检测获取功能分区 =====
@@ -4233,6 +5004,7 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
         detector = CommunityDetector()
         partitions = detector.detect_communities(call_graph, algorithm="louvain")
         print(f"[app.py] ✅ 检测到 {len(partitions)} 个功能分区", flush=True)
+        _wlog('SUCCESS', 'CommunityDetector', f'社区检测完成，识别 {len(partitions)} 个功能社区')
         
         # 按方法数量排序
         partitions.sort(key=lambda p: len(p.get("methods", [])), reverse=True)
@@ -4284,6 +5056,61 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
         _safe_flush()
         
         partitions = deduplicate_and_resolve_name_conflicts(partitions)
+
+        stage3_plan = plan_partition_optimization(partitions)
+        optimized_partitions_for_db: List[Dict[str, Any]] = []
+        optimization_history_for_db: List[Dict[str, Any]] = build_skip_history(stage3_plan)
+        if stage3_plan.get('should_run'):
+            if has_deepseek_config():
+                try:
+                    multi_source_info = build_multi_source_info(project_path, analyzer.report)
+                    settings = get_deepseek_settings()
+                    optimizer = LLMPartitionOptimizer(
+                        api_key=str(settings.get('api_key') or ''),
+                        base_url=str(settings.get('base_url') or 'https://api.deepseek.com/v1'),
+                        project_path=project_path,
+                        report=analyzer.report,
+                    )
+                    optimization_result = optimizer.optimize_partitions(
+                        initial_partitions=prepare_partitions_for_optimizer(partitions),
+                        call_graph=call_graph,
+                        multi_source_info=multi_source_info,
+                    )
+                    optimized_candidate_partitions = restore_optimized_partitions(
+                        optimization_result.partitions or [],
+                        partitions,
+                    )
+                    if optimized_candidate_partitions:
+                        partitions = optimized_candidate_partitions
+                        optimized_partitions_for_db = copy.deepcopy(optimized_candidate_partitions)
+                        optimization_history_for_db = optimization_result.to_dict().get('optimization_history', []) or []
+                except Exception as stage3_exc:
+                    print(f"[app.py] ⚠️ 阶段3 LLM优化失败，回退到原始分区: {stage3_exc}", flush=True)
+                    stage3_plan = dict(stage3_plan)
+                    stage3_plan['should_run'] = False
+                    stage3_plan['trigger_mode'] = 'skip'
+                    stage3_plan['reason'] = f'LLM optimization failed: {stage3_exc}'
+                    optimization_history_for_db = build_error_history(stage3_plan, stage3_exc)
+            else:
+                stage3_plan = dict(stage3_plan)
+                stage3_plan['should_run'] = False
+                stage3_plan['trigger_mode'] = 'skip'
+                stage3_plan['reason'] = 'LLM config missing; fallback to original partitions'
+                optimization_history_for_db = build_skip_history(stage3_plan)
+
+        try:
+            persist_stage3_snapshot(
+                db_path=str(_project_library_storage.graph_db_path(normalized_project_path)),
+                partitions_optimized=optimized_partitions_for_db,
+                optimization_history=optimization_history_for_db,
+                source_project_path=normalized_project_path,
+                optimization_run_id=build_stage3_run_id(normalized_project_path),
+                trigger_mode=str(stage3_plan.get('trigger_mode') or 'skip'),
+                threshold=float(stage3_plan.get('threshold') or 0.4),
+                was_optimized=bool(optimized_partitions_for_db),
+            )
+        except Exception as stage3_persist_exc:
+            print(f"[app.py] ⚠️ 阶段3 graph.db 持久化失败: {stage3_persist_exc}", flush=True)
         
         # ===== 步骤2.7：创建演示分区（如果需要，提前创建以便后续步骤能处理） =====
         # 【演示代码生成开关】设置为 False 可暂时关闭演示代码生成功能
@@ -4365,6 +5192,18 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
             if partition_id not in partition_analyses:
                 partition_analyses[partition_id] = {}
             partition_analyses[partition_id]['call_graph'] = call_graph_results_by_partition.get(partition_id, {})
+
+        partition_topology = build_partition_topology(partitions, call_graph_results_by_partition)
+        normalized_project_path = os.path.normpath(project_path)
+        try:
+            persist_stage2_snapshot(
+                db_path=str(_project_library_storage.graph_db_path(normalized_project_path)),
+                partitions=partitions,
+                partition_topology=partition_topology,
+                source_project_path=normalized_project_path,
+            )
+        except Exception as stage2_persist_exc:
+            print(f"[app.py] ⚠️ 阶段2 graph.db 持久化失败: {stage2_persist_exc}", flush=True)
         
         print(f"[app.py] ✅ 调用图生成完成，共 {len(partition_analyses)} 个分区", flush=True)
         timing.end_phase('call_graph_generation')
@@ -4546,6 +5385,8 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
                     print(f"[app.py]       ⚠️ 警告：超图中没有边，可能无法显示连线", flush=True)
                     print(f"[app.py]         可能原因：分区内方法之间没有调用关系", flush=True)
                 print(f"[app.py]   ✓ 分区 {partition_id} 超图生成成功", flush=True)
+                if idx <= 8:
+                    _wlog('INFO', 'CommunityEngine', f'社区{idx}[{partition_name}]超图路径分析完成，共 {hypergraph_result.get("total_paths", 0)} 条路径')
             except Exception as e:
                 print(f"[app.py]   ⚠️ 分区 {partition_id} 超图生成失败: {e}", flush=True)
                 import traceback
@@ -4604,12 +5445,14 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
                 print(f"[app.py]       ... 还有 {len(partitions_without_entry_points) - 10} 个分区", flush=True)
         
         print(f"[app.py] ✅ 入口点识别完成", flush=True)
+        _wlog('SUCCESS', 'EntryPointScanner', '入口点识别完成，已定位各社区关键调用入口')
         timing.end_phase('entry_point_identification')
         _safe_flush()
         
         # ===== 步骤6：生成数据流图和控制流图 =====
         update_analysis_status(progress=70, status='步骤6/7: 生成数据流图和控制流图...')
         print(f"[app.py] 步骤6: 生成数据流图和控制流图...", flush=True)
+        _wlog('INFO', 'GraphBuilder', f'正在为 {len(partitions)} 个社区生成数据流图与控制流图')
         _safe_flush()
         
         timing.start_phase('partition_data_control_flow', layer='expand_visible', blocking=True)
@@ -4679,6 +5522,7 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
                 _safe_traceback_print()
         
         print(f"[app.py] ✅ 数据流图和控制流图生成完成", flush=True)
+        _wlog('SUCCESS', 'GraphBuilder', '数据流图与控制流图构建完成，正在生成方法全限定名')
         timing.end_phase('partition_data_control_flow')
         _safe_flush()
         
@@ -5799,6 +6643,13 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
                         #             print(f"[app.py]     - 示例路径(leaf={pa['leaf_node']}, path_index={pa['path_index']}): io_graph有nodes={len(io_graph.get('nodes', []))}, edges={len(io_graph.get('edges', []))}", flush=True)
                         #             break
                         partition_analyses[partition_id]['path_analyses'] = path_analyses
+                        # Stage 5 is intentionally an external CLI boundary;
+                        # segment_5_path_semantics reads stage4_output.json and persists
+                        # paths / path_links / path_cfg / path_dfg / path_reverse_index into
+                        # graph.db after stage4 persistence. We do not invoke the path-deep-
+                        # analysis flow inline here, because analyze_function_hierarchy must
+                        # stay backward compatible and keep existing path_analysis_item payload
+                        # shape unchanged.
                         # 保存过滤后的 paths_map（用于前端显示和超图路径着色）
                         # 修复：当开启单节点过滤且分区只剩单节点路径时，不再把分区路径直接清空为 0。
                         filtered_paths_map = {}
@@ -5901,6 +6752,11 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
                         user_message=advanced_user_message,
                     )
                     _publish_partial_result(90, 'Workset3: 高级路径分析结果已补齐', include_expand=True, include_advanced=True)
+                    print(
+                        "[workset5] stage5_path_semantics_status=external_cli_only "
+                        "expected_db_tables=paths,path_links,path_cfg,path_dfg,path_reverse_index",
+                        flush=True,
+                    )
         
         if path_llm_executor is not None:
             path_llm_executor.shutdown(wait=True)
@@ -5950,6 +6806,7 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
         # ===== 构建返回数据 =====
         update_analysis_status(progress=90, status='准备返回数据...')
         print(f"[app.py] 准备返回数据...", flush=True)
+        _wlog('SUCCESS', 'PathAnalyzer', '路径级别分析完成，正在构建最终图谱数据')
         _safe_flush()
         
         timing.start_phase('result_finalize_and_save', layer='default_visible', blocking=True)
@@ -6036,6 +6893,7 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
         timing.start_phase('shadow_generation_total', layer='default_visible', blocking=True)
         phase4_threshold = _get_phase4_threshold()
         print(f"[workset5] parallel_stage=shadow_generation workers=2 entry_points_shadow+community_shadow", flush=True)
+        _wlog('INFO', 'ShadowBuilder', '正在并行构建入口点评分图谱与社区影子图谱')
         shadow_started_at = time.perf_counter()
         entry_points_shadow = None
         process_shadow = None
@@ -6050,6 +6908,12 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
                 threshold=phase4_threshold,
             )
             community_shadow_future = executor.submit(
+                # Stage 4 community semantics keeps a separate CLI boundary on purpose:
+                # segment_4_community_semantics reads stage3_output.json and persists
+                # community_summaries / community_summary_history into graph.db after
+                # stage3 persistence. We do not invoke that LLM flow inline here,
+                # because analyze_function_hierarchy must stay backward compatible and
+                # keep community_shadow generation side-effect free.
                 build_community_shadow,
                 call_graph=call_graph,
                 graph_data=graph_data,
@@ -6092,11 +6956,17 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
                 community_shadow = community_shadow_future.result()
                 community_shadow['project_path'] = project_path
                 community_shadow['generated_at'] = datetime.now().isoformat()
+                print(
+                    "[workset5] stage4_community_semantics_status=external_cli_only "
+                    "expected_db_tables=community_summaries,community_summary_history",
+                    flush=True,
+                )
                 print(f"[workset5] shadow_stage=community_shadow ready", flush=True)
             except Exception as community_shadow_error:
                 print(f"[app.py] ⚠️ Community shadow 生成失败: {community_shadow_error}", flush=True)
 
         print(f"[workset5] parallel_stage=shadow_generation completed elapsed_seconds={round(time.perf_counter()-shadow_started_at, 6)}", flush=True)
+        _wlog('SUCCESS', 'ShadowBuilder', '影子图谱构建完成（入口点/过程/社区），正在归档经验数据')
 
         timing.end_phase('shadow_generation_total')
         timing.mark_ready('function_hierarchy_summary')
@@ -6113,6 +6983,7 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
                 }
             },
             'partition_analyses': partition_analyses,
+            'partition_topology': partition_topology,
             'entry_points_shadow': entry_points_shadow,
             'process_shadow': process_shadow,
             'community_shadow': community_shadow,
@@ -6216,6 +7087,16 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
             for partition_payload in (partition_analyses or {}).values():
                 if isinstance(partition_payload, dict):
                     persisted_path_count += len(partition_payload.get('path_analyses') or [])
+            # Stage 6 persistence is intentionally an external CLI boundary:
+            # segment_6_persistence consumes the stage5_output.json + copied graph.db
+            # after path persistence, appending graph_relations / graph_summary without
+            # mutating the existing stage 1-5 table schemas inside this request path.
+            print(
+                "[workset6] stage6_persistence_status=external_cli_only "
+                "trigger_after=function_hierarchy_path_persistence "
+                "expected_db_tables=graph_relations,graph_summary",
+                flush=True,
+            )
             _project_library_storage.save_project_profile(
                 normalized_project_path,
                 {
@@ -6244,6 +7125,7 @@ def analyze_function_hierarchy(project_path, *, precomputed_graph_data: Optional
                 ProcessShadowStorage().save(normalized_project_path, process_shadow)
             if community_shadow:
                 CommunityShadowStorage().save(normalized_project_path, community_shadow)
+            _wlog('SUCCESS', 'ExperienceWriter', '经验路径数据已归档到持久化存储')
             
             # Phase 5: 自动触发 RAG 索引重建 (包含导出 knowledge_base_preview.md)
             if INDEX_REBUILD_MODE == 'immediate':
@@ -6712,7 +7594,11 @@ def _build_phase6_read_contract(project_path: str, hierarchy_cached: Optional[Di
 
     entry_points_shadow = hierarchy_cached.get('entry_points_shadow')
     process_shadow = hierarchy_cached.get('process_shadow')
-    community_shadow = hierarchy_cached.get('community_shadow')
+    semantics_by_partition_id = _load_stage4_semantics(project_path)
+    community_shadow = _merge_stage4_semantics_into_community_shadow(
+        hierarchy_cached.get('community_shadow'),
+        semantics_by_partition_id=semantics_by_partition_id,
+    )
     layer1_functions = (hierarchy_cached.get('hierarchy') or {}).get('layer1_functions') or []
     partition_meta_map = {
         item.get('partition_id'): item
@@ -6754,7 +7640,12 @@ def _build_phase6_read_contract(project_path: str, hierarchy_cached: Optional[Di
             {
                 'partition_id': partition_id,
                 'name': partition_meta.get('name') or analysis.get('name') or partition_id,
-                'description': partition_meta.get('description') or analysis.get('description') or '',
+                'description': (
+                    str((semantics_by_partition_id.get(partition_id) or {}).get('description') or '').strip()
+                    or partition_meta.get('description')
+                    or analysis.get('description')
+                    or ''
+                ),
                 'methods': partition_methods_map.get(partition_id, []),
                 'path_count': total_available_path_count,
                 'selected_path_count': len(path_analyses),
@@ -6778,6 +7669,12 @@ def _build_phase6_read_contract(project_path: str, hierarchy_cached: Optional[Di
                 'has_io': has_io,
                 'supports_process_shadow': bool(process_shadow),
                 'supports_community_shadow': bool(community_shadow),
+                'semantic_label': str((semantics_by_partition_id.get(partition_id) or {}).get('label') or '').strip(),
+                'functional_domain': str((semantics_by_partition_id.get(partition_id) or {}).get('functional_domain') or '').strip(),
+                'key_concepts': list((semantics_by_partition_id.get(partition_id) or {}).get('key_concepts') or []),
+                'top_files': list((semantics_by_partition_id.get(partition_id) or {}).get('top_files') or []),
+                'top_dependencies': list((semantics_by_partition_id.get(partition_id) or {}).get('top_dependencies') or []),
+                'community_summary_status': str((semantics_by_partition_id.get(partition_id) or {}).get('summary_status') or '').strip(),
             }
         )
 
@@ -7287,7 +8184,11 @@ def api_get_community_shadow():
     if payload is None:
         return jsonify({'error': '未找到 Phase5 影子结果'}), 404
 
-    return jsonify(payload)
+    enriched_payload = _merge_stage4_semantics_into_community_shadow(
+        payload,
+        semantics_by_partition_id=_load_stage4_semantics(normalized_project_path),
+    )
+    return jsonify(enriched_payload)
 
 
 def api_knowledge_graph():
@@ -7341,6 +8242,7 @@ def api_node_detail(entity_id):
         line_start = node_data.get('line')
         line_end = None
         source_code = None
+        parameters = []
         cfg_payload = {
             'cfg': None,
             'cfg_json': None,
@@ -7361,6 +8263,7 @@ def api_node_detail(entity_id):
                 node_kind = resolved_method['kind']
                 display_name = getattr(info, 'name', None) or entity_id
                 source_code = getattr(info, 'source_code', None)
+                parameters = getattr(info, 'parameters', []) or []
                 if info.source_location:
                     file_path = info.source_location.file_path
                     line_start = info.source_location.line_start
@@ -7383,6 +8286,17 @@ def api_node_detail(entity_id):
             line_start=line_start,
             line_end=line_end,
         )
+
+        if not cfg_payload.get('cfg') and node_kind in {'function', 'method'}:
+            snippet_method_info = _build_method_like_info_from_source_payload(
+                entity_id,
+                node_kind,
+                display_name,
+                source_payload,
+                parameters,
+            )
+            if snippet_method_info:
+                cfg_payload = _generate_cfg_dfg_io(snippet_method_info)
 
         return jsonify({
             'entity_id': entity_id,
@@ -7941,14 +8855,21 @@ def _convert_graph_data_to_gn_contract(project_path: str, graph_data: Dict[str, 
     }
 
 
-def _build_repo_stats(project_path: str, graph_data: Dict[str, Any]) -> Dict[str, int]:
+def _build_repo_stats(project_path: str, graph_data: Dict[str, Any], profile: Optional[Dict[str, Any]] = None) -> Dict[str, int]:
     nodes = graph_data.get('nodes', []) or []
     edges = graph_data.get('edges', []) or []
     metadata = graph_data.get('metadata', {}) or {}
+    profile = profile or {}
+
+    node_count = len(nodes) if nodes else int(profile.get('nodes_count') or 0)
+    edge_count = len(edges) if edges else int(profile.get('edges_count') or 0)
 
     file_count = int(metadata.get('total_files') or 0)
     if file_count <= 0:
-        file_count = sum(1 for node in nodes if str((node.get('data') or {}).get('type', '')).lower() == 'file')
+        if nodes:
+            file_count = sum(1 for node in nodes if str((node.get('data') or {}).get('type', '')).lower() == 'file')
+        if file_count <= 0:
+            file_count = int(profile.get('files_count') or 0)
 
     hierarchy_cached = _resolve_function_hierarchy_cached(project_path)
     process_count = 0
@@ -7961,8 +8882,8 @@ def _build_repo_stats(project_path: str, graph_data: Dict[str, Any]) -> Dict[str
 
     return {
         'files': file_count,
-        'nodes': len(nodes),
-        'edges': len(edges),
+        'nodes': node_count,
+        'edges': edge_count,
         'communities': community_count,
         'processes': process_count,
     }
@@ -7993,20 +8914,32 @@ def _build_project_display_name(project_path: str, partition_analyses: Optional[
 
 
 def _build_repo_summary_payload(project_path: str) -> Optional[Dict[str, Any]]:
-    graph_data = _resolve_graph_data_for_project(project_path)
-    if not graph_data:
+    graph_data = _resolve_graph_data_for_project(project_path, allow_global_fallback=False)
+    profile = _project_library_storage.load_project_profile(project_path) or {}
+    if not graph_data and not profile:
         return None
 
-    metadata = graph_data.get('metadata', {}) or {}
-    profile = _project_library_storage.load_project_profile(project_path) or {}
+    metadata = (graph_data.get('metadata', {}) if graph_data else {}) or {}
     repo_name = str(profile.get('project_name') or os.path.basename(project_path) or 'current_project')
     indexed_at = str(metadata.get('analysis_timestamp') or profile.get('analysis_timestamp') or datetime.utcnow().isoformat() + 'Z')
     last_commit = str(metadata.get('git_commit') or metadata.get('commit_hash') or '')
-    stats = _build_repo_stats(project_path, graph_data)
+    stats = _build_repo_stats(project_path, graph_data or {}, profile)
 
     has_hierarchy = bool(profile.get('has_hierarchy')) or bool(_resolve_function_hierarchy_cached(project_path))
     path_count = int(profile.get('path_count') or 0)
     display_name = str(profile.get('display_name') or '').strip() or _build_project_display_name(project_path)
+
+    summary = ""
+    try:
+        experience_root = els._resolve_project_experience_output_root(project_path)
+        digest_dir = experience_root / 'architecture_digest'
+        if digest_dir.is_dir():
+            digest_file = digest_dir / els._generated_filename(project_path)
+            if digest_file.is_file():
+                digest_data = json.loads(digest_file.read_text(encoding='utf-8'))
+                summary = digest_data.get('overview', {}).get('purpose', "")
+    except Exception:
+        pass
 
     return {
         'name': repo_name,
@@ -8016,6 +8949,7 @@ def _build_repo_summary_payload(project_path: str) -> Optional[Dict[str, Any]]:
         'indexedAt': indexed_at,
         'lastCommit': last_commit,
         'stats': stats,
+        'summary': summary,
         'experienceLibrary': {
             'hasHierarchy': has_hierarchy,
             'pathCount': path_count,
@@ -8308,7 +9242,7 @@ def _generate_rag_answer_with_llm(
     try:
         answer = llm_client.generate_answer(
             query=query,
-            context_chunks=_build_rag_context_chunks(query, selected_node, partition_summary, evidence[:8]),
+            context_chunks=_build_rag_context_chunks(query, selected_node, partition_summary, evidence),
             system_prompt=(
                 '你是 create_graph 的代码仓库问答助手。请优先基于给定检索证据、功能分区语义和当前选中节点回答。'
                 '如果证据不足，要明确说明不确定性，不要编造不存在的代码实现。'

@@ -128,6 +128,28 @@ export interface CreateGraphMultiAgentSessionStartRequest {
   opencode_enabled?: boolean;
 }
 
+export interface CreateGraphPersonaSkillItem {
+  personaId: string;
+  name: string;
+  description?: string;
+  sourcePath?: string;
+  importedAt?: string;
+  updatedAt?: string;
+  temperatureOverride?: number;
+}
+
+export interface CreateGraphPersonaSkillImportResponse {
+  ok: boolean;
+  created: boolean;
+  persona: CreateGraphPersonaSkillItem;
+}
+
+export interface CreateGraphPersonaSkillActiveResponse {
+  activePersonaId?: string;
+  persona?: CreateGraphPersonaSkillItem | null;
+  disclaimerPending?: boolean;
+}
+
 export interface CreateGraphFrontDoorRouteRequest {
   query: string;
   project_path?: string;
@@ -180,6 +202,48 @@ export interface CreateGraphMultiAgentSessionStartResponse {
   status: string;
   stage: string;
   message: string;
+  outputRoot?: string;
+  autoApplyOutput?: boolean;
+  opencodeEnabled?: boolean;
+}
+
+export interface CreateGraphTaskExplorationStatus {
+  owner?: string;
+  sourceOfTruth?: string;
+  backendTracking?: boolean;
+  status?: string;
+  phase?: string;
+  message?: string;
+  startedAt?: string;
+  updatedAt?: string;
+  elapsedMs?: number;
+  waitSeconds?: number;
+  sessionId?: string;
+  model?: string;
+  agent?: string;
+}
+
+export interface CreateGraphOutputDiffBlock {
+  path?: string;
+  relativePath?: string;
+  changeType?: string;
+  before?: string;
+  after?: string;
+  unifiedDiff?: string;
+}
+
+export interface CreateGraphOutputWritePayload {
+  enabled?: boolean;
+  outputRoot?: string;
+  materializationMode?: string;
+  generatedProjectRoot?: string;
+  writtenFiles?: Array<Record<string, unknown>>;
+  failedFiles?: Array<Record<string, unknown>>;
+  writtenCount?: number;
+  failedCount?: number;
+  modifiedFiles?: Array<Record<string, unknown>>;
+  diffBlocks?: CreateGraphOutputDiffBlock[];
+  reason?: string;
 }
 
 export interface CreateGraphMultiAgentSessionStatusResponse {
@@ -199,6 +263,8 @@ export interface CreateGraphMultiAgentSessionStatusResponse {
   opencodeEnabled?: boolean;
   advisor?: Record<string, unknown>;
   opencode?: CreateGraphOutputProtocolOpenCodeKernel & { enabled?: boolean };
+  taskExploration?: CreateGraphTaskExplorationStatus;
+  outputWrite?: CreateGraphOutputWritePayload;
   swarm?: {
     enabled?: boolean;
     llm_enabled?: boolean;
@@ -249,6 +315,7 @@ export interface CreateGraphConversationSessionStartRequest {
   output_root?: string;
   auto_apply_output?: boolean;
   opencode_enabled?: boolean;
+  advisor_enabled?: boolean;
 }
 
 export interface CreateGraphConversationPendingQuestionOption {
@@ -350,6 +417,7 @@ export interface CreateGraphConversationSessionResultResponse {
   intentGuess?: string;
   nextStep: 'ask_clarification' | 'send_chat' | 'retrieval_answer' | 'start_multi_agent';
   safeToCodegen: boolean;
+  mode?: 'clarify' | 'retrieval' | 'general_chat' | 'team' | 'inline_codegen' | string;
   confidence?: string;
   reason?: string;
   taskMode?: string | null;
@@ -357,6 +425,9 @@ export interface CreateGraphConversationSessionResultResponse {
   answer?: string;
   pendingQuestion?: CreateGraphConversationPendingQuestion;
   retrieval?: CreateGraphConversationRetrievalPayload;
+  advisor?: Record<string, unknown>;
+  team?: Record<string, unknown>;
+  result_summary?: Record<string, unknown>;
   output_protocol?: CreateGraphOutputProtocol;
   evidence_verdict?: Record<string, unknown>;
   solution_packet?: CreateGraphSolutionPacket;
@@ -438,6 +509,7 @@ export interface CreateGraphConversationStreamOptions {
   timeoutSeconds?: number;
   intervalMs?: number;
   signal?: AbortSignal;
+  finalOnly?: boolean;
   onBootstrap?: (payload: CreateGraphConversationSseBootstrapPayload) => void;
   onEvent?: (event: CreateGraphConversationSseEvent) => boolean | Promise<boolean> | undefined;
 }
@@ -549,6 +621,7 @@ export interface CreateGraphMultiAgentResultResponse {
   workbench?: Record<string, unknown>;
   output_protocol?: CreateGraphOutputProtocol;
   opencode_kernel?: CreateGraphOutputProtocolOpenCodeKernel;
+  output_write?: CreateGraphOutputWritePayload;
   swarm_packet?: CreateGraphSwarmPacket;
 }
 
@@ -563,6 +636,9 @@ export interface CreateGraphWorkbenchSessionStartResponse {
   status: string;
   phase: string;
   message: string;
+  queuePosition?: number;
+  queueAhead?: number;
+  queueSize?: number;
 }
 
 export interface CreateGraphWorkbenchSessionStatusResponse {
@@ -576,9 +652,29 @@ export interface CreateGraphWorkbenchSessionStatusResponse {
   stageDetail?: string;
   error?: string;
   bootstrapReady: boolean;
+  queuePosition?: number | null;
+  queueAhead?: number;
+  queueSize?: number;
+  runningSessionId?: string | null;
   startedAt?: string;
   updatedAt?: string;
   completedAt?: string;
+}
+
+export interface CreateGraphWorkbenchSessionLogEntry {
+  seq: number;
+  time: string;
+  timestamp: string;
+  level: string;
+  source: string;
+  message: string;
+}
+
+export interface CreateGraphWorkbenchSessionLogsResponse {
+  sessionId: string;
+  cursor: number;
+  hasMore: boolean;
+  logs: CreateGraphWorkbenchSessionLogEntry[];
 }
 
 export interface CreateGraphWorkbenchProjectStatusResponse {
@@ -935,13 +1031,6 @@ async function streamConversationEventsInternal(
   };
 }
 
-/**
- * Create_graph extension APIs used after frontend shell cutover.
- *
- * NOTE:
- * - This file is intentionally side-effect free for staged migration.
- * - Wiring into panels happens in the next implementation batch.
- */
 export const createGraphExtensionsApi = {
   fetchNodeDetail(baseApiUrl: string, entityId: string, projectPath?: string): Promise<CreateGraphNodeDetailResponse> {
     const encodedEntity = encodeURIComponent(entityId);
@@ -1061,6 +1150,60 @@ export const createGraphExtensionsApi = {
     return fetchJson<CreateGraphConversationMessagesResponse>(`${baseApiUrl}/conversations/${encodedConversationId}/messages`);
   },
 
+  importPersonaSkill(
+    baseApiUrl: string,
+    skillPath: string,
+  ): Promise<CreateGraphPersonaSkillImportResponse> {
+    return fetchJson<CreateGraphPersonaSkillImportResponse>(`${baseApiUrl}/skills/persona/import`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ skill_path: skillPath }),
+    });
+  },
+
+  listPersonaSkills(
+    baseApiUrl: string,
+  ): Promise<CreateGraphPersonaSkillItem[]> {
+    return fetchJson<CreateGraphPersonaSkillItem[]>(`${baseApiUrl}/skills/persona/list`);
+  },
+
+  fetchActivePersonaSkill(
+    baseApiUrl: string,
+  ): Promise<CreateGraphPersonaSkillActiveResponse> {
+    return fetchJson<CreateGraphPersonaSkillActiveResponse>(`${baseApiUrl}/skills/persona/active`);
+  },
+
+  activatePersonaSkill(
+    baseApiUrl: string,
+    personaId: string,
+  ): Promise<CreateGraphPersonaSkillActiveResponse> {
+    return fetchJson<CreateGraphPersonaSkillActiveResponse>(`${baseApiUrl}/skills/persona/activate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ persona_id: personaId }),
+    });
+  },
+
+  deactivatePersonaSkill(
+    baseApiUrl: string,
+  ): Promise<{ ok: boolean }> {
+    return fetchJson<{ ok: boolean }>(`${baseApiUrl}/skills/persona/deactivate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+  },
+
+  deletePersonaSkill(
+    baseApiUrl: string,
+    personaId: string,
+  ): Promise<{ ok: boolean; personaId?: string }> {
+    const encodedPersonaId = encodeURIComponent(personaId);
+    return fetchJson<{ ok: boolean; personaId?: string }>(`${baseApiUrl}/skills/persona/${encodedPersonaId}`, {
+      method: 'DELETE',
+    });
+  },
+
   replyConversation(
     baseApiUrl: string,
     conversationId: string,
@@ -1115,6 +1258,20 @@ export const createGraphExtensionsApi = {
   ): Promise<CreateGraphWorkbenchSessionStatusResponse> {
     const encodedSessionId = encodeURIComponent(sessionId);
     return fetchJson<CreateGraphWorkbenchSessionStatusResponse>(`${baseApiUrl}/workbench/session/${encodedSessionId}/status`);
+  },
+
+  fetchWorkbenchSessionLogs(
+    baseApiUrl: string,
+    sessionId: string,
+    since = 0,
+    limit = 120,
+  ): Promise<CreateGraphWorkbenchSessionLogsResponse> {
+    const encodedSessionId = encodeURIComponent(sessionId);
+    const query = new URLSearchParams({
+      since: String(Math.max(0, since)),
+      limit: String(Math.max(1, limit)),
+    });
+    return fetchJson<CreateGraphWorkbenchSessionLogsResponse>(`${baseApiUrl}/workbench/session/${encodedSessionId}/logs?${query.toString()}`);
   },
 
   fetchWorkbenchProjectStatus(

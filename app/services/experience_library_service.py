@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from flask import jsonify, request
 
+from data.data_accessor import get_data_accessor
 from data.project_library_storage import ProjectLibraryStorage
 from data.experience_path_storage import ExperiencePathStorage
 
@@ -65,6 +66,67 @@ def _resolve_project_experience_paths_dir(project_path: str) -> Path:
     experience_paths_dir = experience_root / 'experience_paths'
     experience_paths_dir.mkdir(parents=True, exist_ok=True)
     return experience_paths_dir
+
+
+def _normalize_project_path_for_delete(project_path: str) -> str:
+    raw_value = str(project_path or '').strip()
+    if not raw_value:
+        raise ValueError('project_path 不能为空')
+    normalized = os.path.normpath(os.path.abspath(raw_value)) if os.path.isabs(raw_value) else os.path.normpath(raw_value)
+    return normalized
+
+
+def _resolve_delete_roots(project_path: str) -> List[Path]:
+    roots: List[Path] = []
+    profile = _project_library_storage.load_project_profile(project_path) or {}
+    profile_root = str(profile.get('experience_output_root') or '').strip()
+    if profile_root and os.path.isabs(profile_root):
+        roots.append(Path(os.path.normpath(os.path.abspath(profile_root))))
+    roots.append(_DEFAULT_EXPERIENCE_OUTPUT_ROOT)
+
+    deduped: List[Path] = []
+    seen: set[str] = set()
+    for item in roots:
+        key = str(item.resolve(strict=False))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+    return deduped
+
+
+def _delete_project_artifacts_under_root(project_path: str, root: Path) -> int:
+    removed = 0
+    generated_filename = _generated_filename(project_path)
+    digest_filename = _architecture_digest_filename(project_path)
+    import_prefix = _import_prefix(project_path)
+
+    experience_paths_dir = root / 'experience_paths'
+    if experience_paths_dir.is_dir():
+        for candidate in experience_paths_dir.glob('*.json'):
+            if candidate.name in {generated_filename, digest_filename} or candidate.name.startswith(import_prefix):
+                try:
+                    candidate.unlink(missing_ok=True)
+                    if not candidate.exists():
+                        removed += 1
+                except Exception:
+                    pass
+
+    for bucket in ['community_shadow', 'process_shadow', 'entry_points_shadow']:
+        bucket_dir = root / bucket
+        if not bucket_dir.is_dir():
+            continue
+        target = bucket_dir / generated_filename
+        if not target.exists():
+            continue
+        try:
+            target.unlink(missing_ok=True)
+            if not target.exists():
+                removed += 1
+        except Exception:
+            pass
+
+    return removed
 
 
 def _sanitize_import_stem(stem: str) -> str:
@@ -640,6 +702,72 @@ def generate_architecture_digest(project_path: str) -> Dict[str, Any]:
     return digest
 
 
+def generate_spec(
+    project_path: str,
+    user_intent: str = '项目说明书',
+    graph_db_path: Optional[str] = None,
+    segment6_json_path: Optional[str] = None,
+    output_dir: Optional[str] = None,
+    skip_llm: bool = True,
+) -> Dict[str, Any]:
+    normalized = _normalize_project_path(project_path)
+    architecture_digest = generate_architecture_digest(normalized)
+    if not graph_db_path or not segment6_json_path:
+        return {
+            'status': 'fallback_architecture_digest',
+            'fallback_reason': 'stage6 graph artifacts were not provided',
+            'user_intent': user_intent,
+            'architecture_digest': architecture_digest,
+        }
+
+    graph_db = Path(graph_db_path)
+    segment6_json = Path(segment6_json_path)
+    if not graph_db.is_file() or not segment6_json.is_file():
+        return {
+            'status': 'fallback_architecture_digest',
+            'fallback_reason': 'stage6 graph artifacts were not readable',
+            'user_intent': user_intent,
+            'architecture_digest': architecture_digest,
+        }
+
+    try:
+        from segment_8_spec_generator.spec_generator import run_stage8
+
+        spec_root = Path(output_dir) if output_dir else _resolve_project_experience_output_root(normalized) / 'specs'
+        spec_root.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+        md_path = spec_root / f'spec_{timestamp}.md'
+        json_path = spec_root / f'spec_{timestamp}.json'
+        raw_path = spec_root / 'raw_graph_query_results.json'
+        audit_path = spec_root / 'logs' / 'spec_generator_audit.jsonl'
+        run_stage8(
+            graph_db_path=str(graph_db),
+            segment6_json_path=str(segment6_json),
+            project_path=normalized,
+            output_path=str(md_path),
+            spec_json_path=str(json_path),
+            raw_results_path=str(raw_path),
+            audit_log_path=str(audit_path),
+            user_intent=user_intent,
+            skip_llm=skip_llm,
+        )
+        spec_payload = json.loads(json_path.read_text(encoding='utf-8'))
+        spec_payload['artifacts'] = {
+            'spec_md_path': str(md_path).replace('\\', '/'),
+            'spec_json_path': str(json_path).replace('\\', '/'),
+            'raw_results_path': str(raw_path).replace('\\', '/'),
+            'audit_log_path': str(audit_path).replace('\\', '/'),
+        }
+        return spec_payload
+    except Exception as exc:
+        return {
+            'status': 'fallback_architecture_digest',
+            'fallback_reason': f'stage8 spec generation failed: {exc}',
+            'user_intent': user_intent,
+            'architecture_digest': architecture_digest,
+        }
+
+
 def _build_cross_conversation_context(
     project_name: str,
     tech_stack: List[str],
@@ -752,3 +880,36 @@ def api_experience_library_import():
         )
 
     return jsonify({'ok': True, 'imported': imported})
+
+
+def api_experience_library_project_delete():
+    data = request.get_json(silent=True) or {}
+    try:
+        project_path = _normalize_project_path_for_delete(str(data.get('project_path') or ''))
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+
+    removed_files = 0
+    for root in _resolve_delete_roots(project_path):
+        removed_files += _delete_project_artifacts_under_root(project_path, root)
+
+    profile_deleted = _project_library_storage.delete_project(project_path)
+
+    data_accessor = get_data_accessor()
+    cache_cleared = {
+        'main_analysis': bool(data_accessor.delete_main_analysis(project_path)),
+        'function_hierarchy': bool(data_accessor.delete_function_hierarchy(project_path)),
+        'function_hierarchy_layer': bool(data_accessor.delete_function_hierarchy_layer_cache(project_path)),
+        'process_shadow': bool(data_accessor.delete_process_shadow(project_path)),
+        'community_shadow': bool(data_accessor.delete_community_shadow(project_path)),
+    }
+
+    return jsonify(
+        {
+            'ok': True,
+            'projectPath': project_path,
+            'removedFiles': removed_files,
+            'profileDeleted': profile_deleted,
+            'cacheCleared': cache_cleared,
+        }
+    )

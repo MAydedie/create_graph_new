@@ -333,7 +333,9 @@ class TaskManager:
                 if orch.current_session:
                     orch.force_summary_generation()
                     # 更新 Session 状态以便最后一次获取
-                    self.sessions[task_id] = orch.get_current_session()
+                    current_session = orch.get_current_session()
+                    if current_session is not None:
+                        self.sessions[task_id] = current_session
             except Exception as summary_err:
                 logger.error(f"任务 {task_id} 清理时生成总结失败: {summary_err}")
 
@@ -384,6 +386,19 @@ class TaskManager:
             return self.orchestrators[task_id].get_current_session()
         return self.sessions.get(task_id)
 
+    @staticmethod
+    def _is_public_terminal_event(event: Any) -> bool:
+        event_type = ""
+        if hasattr(event, "to_dict"):
+            try:
+                event_dict = event.to_dict()
+            except Exception:
+                event_dict = {}
+            event_type = str(event_dict.get("event_type") or "").strip()
+        elif isinstance(event, dict):
+            event_type = str(event.get("event_type") or event.get("type") or "").strip()
+        return event_type in {"quick_answer", "final_summary", "task_complete", "task_fail"}
+
     async def connect_websocket(self, websocket: WebSocket, task_id: str):
         """处理 WebSocket 连接"""
         await websocket.accept()
@@ -405,6 +420,8 @@ class TaskManager:
                 for idx, event in enumerate(session.event_log.events):
                     try:
                         event_dict = event.to_dict()
+                        if not self._is_public_terminal_event(event_dict):
+                            continue
                         logger.info(f"事件 {idx} 的原始数据: {event_dict}")
                         
                         summary = event_dict.get('summary', '')
@@ -441,9 +458,12 @@ class TaskManager:
                     if len(events) > last_event_idx:
                         new_events = events[last_event_idx:]
                         for event in new_events:
+                            event_dict = event.to_dict()
+                            if not self._is_public_terminal_event(event_dict):
+                                continue
                             await websocket.send_json({
                                 "type": "event",
-                                "data": event.to_dict()
+                                "data": event_dict
                             })
                         last_event_idx = len(events)
                     

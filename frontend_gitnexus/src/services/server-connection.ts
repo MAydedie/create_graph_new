@@ -4,6 +4,7 @@ export interface RepoSummary {
   name: string;
   displayName?: string;
   path: string;
+  summary?: string;
   indexedAt: string;
   lastCommit: string;
   stats: {
@@ -31,6 +32,35 @@ export interface ServerRepoInfo {
     communities: number;
     processes: number;
   };
+}
+
+function normalizeRepoToken(value: string): string {
+  return value.trim().toLowerCase().replace(/\\/g, '/').replace(/\/+$/, '');
+}
+
+export function resolveRepoProjectPath(repos: RepoSummary[], projectName?: string): string | undefined {
+  if (repos.length === 0) return undefined;
+
+  const rawName = (projectName || '').trim();
+  if (rawName) {
+    const normalizedName = normalizeRepoToken(rawName);
+    const matched = repos.find((repo) => {
+      const repoName = normalizeRepoToken(repo.name || '');
+      const displayName = normalizeRepoToken(repo.displayName || '');
+      const repoPath = normalizeRepoToken(repo.path || '');
+      const pathBaseName = repoPath.split('/').filter(Boolean).pop() || '';
+      return (
+        repoName === normalizedName ||
+        displayName === normalizedName ||
+        pathBaseName === normalizedName ||
+        repoPath === normalizedName
+      );
+    });
+    if (matched?.path) return matched.path;
+  }
+
+  if (repos.length === 1) return repos[0].path;
+  return undefined;
 }
 
 export interface ConnectToServerResult {
@@ -67,6 +97,21 @@ export async function fetchRepos(baseUrl: string): Promise<RepoSummary[]> {
   const response = await fetch(`${baseUrl}/repos`);
   if (!response.ok) throw new Error(`Server returned ${response.status}`);
   return response.json();
+}
+
+export async function deleteLearnedRepo(baseUrl: string, projectPath: string): Promise<{ ok: boolean; projectPath: string }> {
+  const response = await fetch(`${baseUrl}/experience/library/project/delete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project_path: projectPath }),
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    const message = (payload as { error?: string })?.error || `Server returned ${response.status}`;
+    throw new Error(message);
+  }
+  return payload as { ok: boolean; projectPath: string };
 }
 
 export async function fetchRepoInfo(baseUrl: string, repoName?: string): Promise<ServerRepoInfo> {

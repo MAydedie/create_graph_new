@@ -7,6 +7,7 @@ LLM分区优化器 - 使用LangChain agent和tool优化功能分区
 
 import json
 import logging
+import os
 from typing import Dict, List, Optional, Any, Tuple, Set
 from dataclasses import dataclass, field, asdict
 
@@ -15,6 +16,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # LangChain导入
+SystemMessage: Any = None
+HumanMessage: Any = None
 try:
     from langchain_core.tools import tool
     from langchain_core.messages import HumanMessage, SystemMessage
@@ -31,6 +34,7 @@ except ImportError:
 from analysis.community_detector import CommunityDetector
 from analysis.code_model import ProjectAnalysisReport
 from analysis.method_function_profile_builder import MethodFunctionProfileBuilder
+from config.config import FH_FORCE_LLM_PARTITION, FH_LLM_PARTITION_THRESHOLD
 
 
 @dataclass
@@ -63,6 +67,77 @@ class OptimizationResult:
         }
 
 
+def resolve_llm_partition_threshold(default: float = FH_LLM_PARTITION_THRESHOLD) -> float:
+    raw_value = os.getenv("FH_LLM_PARTITION_THRESHOLD")
+    if raw_value is None:
+        return float(default)
+    try:
+        return float(str(raw_value).strip())
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def resolve_force_llm_partition(default: bool = FH_FORCE_LLM_PARTITION) -> bool:
+    raw_value = os.getenv("FH_FORCE_LLM_PARTITION")
+    if raw_value is None:
+        return bool(default)
+    return str(raw_value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def calculate_average_partition_modularity(partitions: List[Dict[str, Any]]) -> float:
+    if not partitions:
+        return 0.0
+    modularities = [float(partition.get("modularity") or 0.0) for partition in partitions]
+    return sum(modularities) / len(modularities)
+
+
+def plan_partition_optimization(
+    partitions: List[Dict[str, Any]],
+    *,
+    threshold: Optional[float] = None,
+    force: Optional[bool] = None,
+    skip_llm: bool = False,
+) -> Dict[str, Any]:
+    resolved_threshold = float(resolve_llm_partition_threshold() if threshold is None else threshold)
+    resolved_force = resolve_force_llm_partition() if force is None else bool(force)
+    avg_modularity = calculate_average_partition_modularity(partitions)
+
+    if skip_llm:
+        return {
+            "should_run": False,
+            "trigger_mode": "skip",
+            "avg_modularity": avg_modularity,
+            "threshold": resolved_threshold,
+            "reason": "skip_llm flag enabled",
+        }
+
+    if resolved_force:
+        return {
+            "should_run": True,
+            "trigger_mode": "force",
+            "avg_modularity": avg_modularity,
+            "threshold": resolved_threshold,
+            "reason": "forced by flag or environment",
+        }
+
+    if avg_modularity < resolved_threshold:
+        return {
+            "should_run": True,
+            "trigger_mode": "threshold",
+            "avg_modularity": avg_modularity,
+            "threshold": resolved_threshold,
+            "reason": f"avg_modularity {avg_modularity:.4f} is below threshold {resolved_threshold:.4f}",
+        }
+
+    return {
+        "should_run": False,
+        "trigger_mode": "skip",
+        "avg_modularity": avg_modularity,
+        "threshold": resolved_threshold,
+        "reason": f"avg_modularity {avg_modularity:.4f} is not below threshold {resolved_threshold:.4f}",
+    }
+
+
 class LLMPartitionOptimizer:
     """LLM分区优化器 - 使用LangChain tool辅助优化"""
     
@@ -86,11 +161,11 @@ class LLMPartitionOptimizer:
         self.report = report
         
         # 初始化LLM
-        self.llm = None
+        self.llm: Any = None
         self._init_llm()
         
         # 初始化方法功能画像构建器
-        self.profile_builder = None
+        self.profile_builder: Any = None
         if project_path and report:
             self.profile_builder = MethodFunctionProfileBuilder(project_path, report)
             self.method_profiles: Dict[str, Any] = {}  # 缓存方法功能画像
@@ -105,23 +180,25 @@ class LLMPartitionOptimizer:
         try:
             try:
                 from langchain_openai import ChatOpenAI
-                self.llm = ChatOpenAI(
-                    api_key=self.api_key,
-                    base_url=self.base_url,
-                    model="deepseek-chat",
-                    temperature=0.3,
-                    max_tokens=8000
-                )
+                client_kwargs: Dict[str, Any] = {
+                    "api_key": self.api_key,
+                    "base_url": self.base_url,
+                    "model": "deepseek-chat",
+                    "temperature": 0.3,
+                    "max_tokens": 8000,
+                }
+                self.llm = ChatOpenAI(**client_kwargs)
                 logger.info("✓ ChatOpenAI客户端初始化成功 (langchain_openai)")
             except ImportError:
                 from langchain_community.chat_models import ChatOpenAI
-                self.llm = ChatOpenAI(
-                    openai_api_key=self.api_key,
-                    openai_api_base=self.base_url,
-                    model_name="deepseek-chat",
-                    temperature=0.3,
-                    max_tokens=8000
-                )
+                client_kwargs = {
+                    "openai_api_key": self.api_key,
+                    "openai_api_base": self.base_url,
+                    "model_name": "deepseek-chat",
+                    "temperature": 0.3,
+                    "max_tokens": 8000,
+                }
+                self.llm = ChatOpenAI(**client_kwargs)
                 logger.info("✓ ChatOpenAI客户端初始化成功 (langchain_community)")
         except Exception as e:
             logger.error(f"✗ 初始化LLM客户端失败: {e}")
@@ -147,6 +224,7 @@ class LLMPartitionOptimizer:
             优化结果
         """
         logger.info(f"[LLMPartitionOptimizer] 开始优化分区，初始分区数: {len(initial_partitions)}")
+        self.optimization_history = []
         
         # 构建方法功能画像（如果需要）
         if self.profile_builder:
@@ -161,11 +239,11 @@ class LLMPartitionOptimizer:
         # 迭代优化
         for iteration in range(1, max_iterations + 1):
             logger.info(f"\n[LLMPartitionOptimizer] ===== 迭代 {iteration}/{max_iterations} =====")
-            
+
             # 保存迭代前的状态
             partitions_before = [p.copy() for p in current_partitions]
             modularity_before = current_modularity
-            
+
             # 调用LLM进行优化建议
             optimization_suggestions = self._get_optimization_suggestions(
                 current_partitions,
@@ -173,36 +251,67 @@ class LLMPartitionOptimizer:
                 multi_source_info,
                 iteration
             )
-            
+
             # 应用优化建议
-            current_partitions, llm_reasoning = self._apply_optimization_suggestions(
+            current_partitions, llm_reasoning, decision_log = self._apply_optimization_suggestions(
                 current_partitions,
                 optimization_suggestions,
                 call_graph
             )
-            
+
             # 计算新的模块度
             current_modularity = self._calculate_average_modularity(current_partitions)
             modularity_improvement = current_modularity - modularity_before
-            
-            # 记录优化历史
-            history = OptimizationHistory(
-                iteration=iteration,
-                action="optimize",
-                partitions_before=partitions_before,
-                partitions_after=[p.copy() for p in current_partitions],
-                modularity_before=modularity_before,
-                modularity_after=current_modularity,
-                modularity_improvement=modularity_improvement,
-                llm_reasoning=llm_reasoning,
-                details={"suggestions": optimization_suggestions}
+
+            # 逐条记录 merge / split / adjust 决策，让 SQL 查询可以直接按 action 过滤
+            partitions_after_snapshot = [p.copy() for p in current_partitions]
+            for action_name in ("merge", "split", "adjust"):
+                decisions = decision_log.get(action_name) or []
+                if not decisions:
+                    continue
+                self.optimization_history.append(
+                    OptimizationHistory(
+                        iteration=iteration,
+                        action=action_name,
+                        partitions_before=partitions_before,
+                        partitions_after=partitions_after_snapshot,
+                        modularity_before=modularity_before,
+                        modularity_after=current_modularity,
+                        modularity_improvement=modularity_improvement,
+                        llm_reasoning=llm_reasoning,
+                        details={
+                            "decisions": decisions,
+                            "suggestions": optimization_suggestions,
+                        },
+                    )
+                )
+
+            # 收口：本轮 summary 行
+            self.optimization_history.append(
+                OptimizationHistory(
+                    iteration=iteration,
+                    action="summary",
+                    partitions_before=partitions_before,
+                    partitions_after=partitions_after_snapshot,
+                    modularity_before=modularity_before,
+                    modularity_after=current_modularity,
+                    modularity_improvement=modularity_improvement,
+                    llm_reasoning=llm_reasoning,
+                    details={
+                        "summary": {
+                            "merge_count": len(decision_log.get("merge") or []),
+                            "split_count": len(decision_log.get("split") or []),
+                            "adjust_count": len(decision_log.get("adjust") or []),
+                        },
+                        "suggestions": optimization_suggestions,
+                    },
+                )
             )
-            self.optimization_history.append(history)
-            
+
             logger.info(f"[LLMPartitionOptimizer] 迭代 {iteration} 完成:")
             logger.info(f"  模块度: {modularity_before:.3f} → {current_modularity:.3f} (提升 {modularity_improvement:+.3f})")
             logger.info(f"  分区数: {len(partitions_before)} → {len(current_partitions)}")
-            
+
             # 判断是否继续迭代
             if modularity_improvement < modularity_improvement_threshold:
                 logger.info(f"[LLMPartitionOptimizer] 模块度提升 < {modularity_improvement_threshold}，停止迭代")
@@ -249,6 +358,13 @@ class LLMPartitionOptimizer:
         Returns:
             优化建议字典（包含合并、拆分、调整建议）
         """
+        if self.llm is None or not LANGCHAIN_AVAILABLE:
+            return {
+                "merge_suggestions": [],
+                "split_suggestions": [],
+                "adjust_suggestions": []
+            }
+
         # 构建prompt
         system_prompt = self._build_system_prompt()
         user_prompt = self._build_user_prompt(partitions, call_graph, multi_source_info, iteration)
@@ -261,7 +377,8 @@ class LLMPartitionOptimizer:
             ])
             
             # 解析LLM响应
-            suggestions = self._parse_llm_response(response.content)
+            response_text = response.content if isinstance(getattr(response, "content", ""), str) else json.dumps(getattr(response, "content", ""), ensure_ascii=False)
+            suggestions = self._parse_llm_response(response_text)
             return suggestions
         except Exception as e:
             logger.error(f"[LLMPartitionOptimizer] LLM调用失败: {e}")
@@ -316,9 +433,11 @@ class LLMPartitionOptimizer:
             lines.append("# 方法功能画像（关键方法）")
             lines.append("")
             # 选择前20个方法展示
-            profile_text = self.profile_builder.format_profiles_for_llm(
-                dict(list(self.method_profiles.items())[:20])
-            )
+            profile_text = ""
+            if self.profile_builder is not None:
+                profile_text = self.profile_builder.format_profiles_for_llm(
+                    dict(list(self.method_profiles.items())[:20])
+                )
             lines.append(profile_text)
             lines.append("")
         
@@ -354,18 +473,21 @@ class LLMPartitionOptimizer:
     def _apply_optimization_suggestions(self,
                                       partitions: List[Dict[str, Any]],
                                       suggestions: Dict[str, Any],
-                                      call_graph: Dict[str, Set[str]]) -> Tuple[List[Dict[str, Any]], str]:
+                                      call_graph: Dict[str, Set[str]]) -> Tuple[List[Dict[str, Any]], str, Dict[str, List[Dict[str, Any]]]]:
         """
         应用优化建议
-        
+
         Returns:
-            (优化后的分区列表, LLM推理说明)
+            (优化后的分区列表, LLM推理说明, 分类决策记录)
+            分类决策记录形如 ``{"merge": [...], "split": [...], "adjust": [...]}``，
+            每条记录包含 ``affected_ids`` 与 ``reason``，便于审计与回放。
         """
         # 创建分区索引（partition_id -> partition）
         partition_map = {p.get("partition_id", f"partition_{i}"): p for i, p in enumerate(partitions)}
         new_partitions = [p.copy() for p in partitions]
         reasoning_parts = []
-        
+        decision_log: Dict[str, List[Dict[str, Any]]] = {"merge": [], "split": [], "adjust": []}
+
         # 1. 处理合并建议
         merge_suggestions = suggestions.get("merge_suggestions", [])
         for merge_sugg in merge_suggestions:
@@ -376,21 +498,26 @@ class LLMPartitionOptimizer:
                 for pid in partition_ids:
                     if pid in partition_map:
                         partitions_to_merge.append(partition_map[pid])
-                
+
                 if partitions_to_merge:
                     # 合并分区
                     merged_partition = self._merge_partitions(partitions_to_merge, call_graph)
                     # 移除旧分区，添加新分区
                     new_partitions = [p for p in new_partitions if p.get("partition_id") not in partition_ids]
                     new_partitions.append(merged_partition)
+                    decision_log["merge"].append({
+                        "affected_ids": list(partition_ids),
+                        "reason": str(merge_sugg.get("reason", "")),
+                        "merged_into": str(merged_partition.get("partition_id") or ""),
+                    })
                     reasoning_parts.append(f"合并分区 {', '.join(partition_ids)}: {merge_sugg.get('reason', '')}")
-        
+
         # 2. 处理拆分建议
         split_suggestions = suggestions.get("split_suggestions", [])
         for split_sugg in split_suggestions:
             partition_id = split_sugg.get("partition_id")
             sub_partitions = split_sugg.get("sub_partitions", [])
-            
+
             if partition_id in partition_map and sub_partitions:
                 # 找到要拆分的分区
                 partition_to_split = partition_map.get(partition_id)
@@ -400,24 +527,35 @@ class LLMPartitionOptimizer:
                     # 移除旧分区，添加新分区
                     new_partitions = [p for p in new_partitions if p.get("partition_id") != partition_id]
                     new_partitions.extend(split_results)
+                    decision_log["split"].append({
+                        "affected_ids": [str(partition_id)],
+                        "reason": str(split_sugg.get("reason", "")),
+                        "sub_partitions": [str(item.get("partition_id") or "") for item in split_results],
+                    })
                     reasoning_parts.append(f"拆分分区 {partition_id}: {split_sugg.get('reason', '')}")
-        
+
         # 3. 处理方法归属调整建议
         adjust_suggestions = suggestions.get("adjust_suggestions", [])
         for adjust_sugg in adjust_suggestions:
             method_sig = adjust_sugg.get("method")
             from_partition_id = adjust_sugg.get("from_partition")
             to_partition_ids = adjust_sugg.get("to_partitions", [])
-            
+
             if method_sig and from_partition_id and to_partition_ids:
                 # 调整方法归属
                 new_partitions = self._adjust_method_belonging(
                     new_partitions, method_sig, from_partition_id, to_partition_ids
                 )
+                decision_log["adjust"].append({
+                    "affected_ids": [str(method_sig)],
+                    "from_partition": str(from_partition_id),
+                    "to_partitions": [str(item) for item in to_partition_ids],
+                    "reason": str(adjust_sugg.get("reason", "")),
+                })
                 reasoning_parts.append(f"调整方法 {method_sig} 从 {from_partition_id} 到 {', '.join(to_partition_ids)}")
-        
+
         reasoning = "; ".join(reasoning_parts) if reasoning_parts else "无优化建议或优化建议无效"
-        return new_partitions, reasoning
+        return new_partitions, reasoning, decision_log
     
     def _merge_partitions(self,
                          partitions: List[Dict[str, Any]],
@@ -526,10 +664,7 @@ class LLMPartitionOptimizer:
     
     def _calculate_average_modularity(self, partitions: List[Dict[str, Any]]) -> float:
         """计算平均模块度"""
-        if not partitions:
-            return 0.0
-        modularities = [p.get("modularity", 0.0) for p in partitions]
-        return sum(modularities) / len(modularities)
+        return calculate_average_partition_modularity(partitions)
     
     def _build_statistics(self,
                          initial_partitions: List[Dict[str, Any]],
@@ -559,4 +694,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

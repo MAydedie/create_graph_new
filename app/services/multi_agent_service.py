@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import copy
+import difflib
 import io
 import json
 import logging
@@ -270,7 +271,11 @@ def _opencode_kernel_timeout_seconds() -> int:
 
 
 def _opencode_kernel_model() -> str:
-    return str(os.getenv('FH_OPENCODE_MODEL', '') or '').strip()
+    explicit = str(os.getenv('FH_OPENCODE_MODEL', '') or '').strip()
+    if explicit:
+        return explicit
+    settings = get_deepseek_settings()
+    return str(settings.get('model') or '').strip()
 
 
 def _opencode_kernel_agent() -> str:
@@ -1557,6 +1562,93 @@ def _normalize_output_root(raw_output_root: Any) -> Optional[str]:
     return os.path.normpath(os.path.abspath(text))
 
 
+def _timestamp_suffix() -> str:
+    return datetime.now().strftime('%Y%m%d_%H%M%S')
+
+
+def _build_generated_project_root(project_path: str) -> Optional[str]:
+    normalized_project = _normalize_project_path(project_path)
+    if not normalized_project:
+        return None
+    root = Path(normalized_project)
+    parent = root.parent
+    if not parent.exists() or not parent.is_dir():
+        return None
+    target = parent / f"{root.name}_{_timestamp_suffix()}"
+    return str(target.resolve())
+
+
+def _build_task_exploration_payload(
+    *,
+    status: str,
+    phase: str,
+    message: str,
+    started_at: Optional[str] = None,
+    updated_at: Optional[str] = None,
+    session_id: Optional[str] = None,
+    model: Optional[str] = None,
+    agent: Optional[str] = None,
+    elapsed_ms: Optional[int] = None,
+    wait_seconds: Optional[int] = None,
+) -> Dict[str, Any]:
+    started = str(started_at or _utcnow_iso())
+    updated = str(updated_at or _utcnow_iso())
+    computed_elapsed = elapsed_ms
+    if computed_elapsed is None:
+        try:
+            start_dt = datetime.fromisoformat(started.replace('Z', '+00:00'))
+            updated_dt = datetime.fromisoformat(updated.replace('Z', '+00:00'))
+            computed_elapsed = max(0, int((updated_dt - start_dt).total_seconds() * 1000))
+        except Exception:
+            computed_elapsed = 0
+    computed_wait = wait_seconds if wait_seconds is not None else max(0, int((computed_elapsed or 0) / 1000))
+    return {
+        'owner': 'opencode',
+        'sourceOfTruth': 'multi_agent_session',
+        'backendTracking': True,
+        'status': status,
+        'phase': phase,
+        'message': message,
+        'startedAt': started,
+        'updatedAt': updated,
+        'elapsedMs': computed_elapsed,
+        'waitSeconds': computed_wait,
+        'sessionId': session_id,
+        'model': model,
+        'agent': agent,
+    }
+
+
+def _update_task_exploration(
+    session_id: str,
+    *,
+    status: str,
+    phase: str,
+    message: str,
+    opencode_session_id: Optional[str] = None,
+    model: Optional[str] = None,
+    agent: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    payload = _get_multi_agent_session(session_id)
+    if not isinstance(payload, dict):
+        return None
+    packets = _as_dict(payload.get('packets'))
+    current = _as_dict(packets.get('task_exploration'))
+    started_at = str(current.get('startedAt') or payload.get('startedAt') or _utcnow_iso())
+    updated_at = _utcnow_iso()
+    packets['task_exploration'] = _build_task_exploration_payload(
+        status=status,
+        phase=phase,
+        message=message,
+        started_at=started_at,
+        updated_at=updated_at,
+        session_id=opencode_session_id or (str(current.get('sessionId') or '').strip() or None),
+        model=model or str(current.get('model') or ''),
+        agent=agent or str(current.get('agent') or ''),
+    )
+    return _update_multi_agent_session(session_id, packets=packets)
+
+
 def _safe_output_segment(value: Any, fallback: str = 'snippet', max_len: int = 64) -> str:
     text = str(value or '').strip()
     if not text:
@@ -1616,26 +1708,72 @@ def _resolve_output_target(output_root: str, relative_path: str) -> Tuple[Option
         return None, 'path_traversal_blocked_or_invalid_target'
 
 
+def _read_existing_file_text(path: Path) -> str:
+    try:
+        if path.exists() and path.is_file():
+            return path.read_text(encoding='utf-8')
+    except Exception:
+        return ''
+    return ''
+
+
+def _build_unified_diff(before_text: str, after_text: str, relative_path: str) -> str:
+    before_lines = before_text.splitlines()
+    after_lines = after_text.splitlines()
+    diff_lines = list(
+        difflib.unified_diff(
+            before_lines,
+            after_lines,
+            fromfile=f"a/{relative_path}",
+            tofile=f"b/{relative_path}",
+            lineterm='',
+        )
+    )
+    return '\n'.join(diff_lines).strip()
+
+
+def _truncate_preview(text: str, max_chars: int = 4000) -> str:
+    body = str(text or '')
+    if len(body) <= max_chars:
+        return body
+    head = body[: max_chars // 2]
+    tail = body[-(max_chars // 2) :]
+    return f"{head}\n\n...[truncated {len(body) - len(head) - len(tail)} chars]...\n\n{tail}"
+
+
 def _apply_solution_packet_output(
     project_path: str,
     solution_packet: Dict[str, Any],
     output_root: Optional[str],
     auto_apply_output: bool,
 ) -> Dict[str, Any]:
+    task_mode = str(solution_packet.get('task_mode') or 'modify_existing').strip() or 'modify_existing'
     normalized_output_root = _normalize_output_root(output_root)
+    materialization_mode = 'in_place' if task_mode == 'modify_existing' else 'sibling_project'
+    effective_output_root = normalized_output_root
+    generated_project_root = None
+    if materialization_mode == 'sibling_project':
+        effective_output_root = effective_output_root or _build_generated_project_root(project_path)
+        generated_project_root = effective_output_root
+    elif materialization_mode == 'in_place':
+        effective_output_root = effective_output_root or _normalize_project_path(project_path)
     result: Dict[str, Any] = {
         'enabled': bool(auto_apply_output),
-        'outputRoot': normalized_output_root,
+        'outputRoot': effective_output_root,
+        'materializationMode': materialization_mode,
+        'generatedProjectRoot': generated_project_root,
         'writtenFiles': [],
         'failedFiles': [],
         'writtenCount': 0,
         'failedCount': 0,
+        'modifiedFiles': [],
+        'diffBlocks': [],
     }
 
     if not auto_apply_output:
         result['reason'] = 'auto_apply_output_disabled'
         return result
-    if not normalized_output_root:
+    if not effective_output_root:
         result['reason'] = 'missing_or_invalid_output_root'
         return result
 
@@ -1647,7 +1785,7 @@ def _apply_solution_packet_output(
 
     for index, block in enumerate(snippet_blocks):
         relative_path = _derive_output_relative_path(project_path, block, index)
-        target, error = _resolve_output_target(normalized_output_root, relative_path)
+        target, error = _resolve_output_target(effective_output_root, relative_path)
         if error or target is None:
             result['failedFiles'].append({
                 'relativePath': relative_path,
@@ -1666,13 +1804,32 @@ def _apply_solution_packet_output(
             continue
 
         try:
+            before_text = _read_existing_file_text(target)
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content + '\n', encoding='utf-8')
+            after_text = content + '\n'
+            change_type = 'create' if not before_text else 'modify'
+            diff_text = _build_unified_diff(before_text, after_text, relative_path)
             result['writtenFiles'].append({
                 'path': str(target),
                 'relativePath': relative_path,
                 'sourceFile': block.get('file_path'),
                 'bytes': len((content + '\n').encode('utf-8')),
+            })
+            result['modifiedFiles'].append({
+                'path': str(target),
+                'relativePath': relative_path,
+                'sourceFile': block.get('file_path'),
+                'changeType': change_type,
+                'bytes': len((content + '\n').encode('utf-8')),
+            })
+            result['diffBlocks'].append({
+                'path': str(target),
+                'relativePath': relative_path,
+                'changeType': change_type,
+                'before': _truncate_preview(before_text),
+                'after': _truncate_preview(after_text),
+                'unifiedDiff': _truncate_preview(diff_text, max_chars=6000),
             })
         except Exception as exc:
             result['failedFiles'].append({
@@ -1710,9 +1867,20 @@ def _create_multi_agent_session(
     opencode_enabled: Optional[bool] = None,
     output_root: Optional[str] = None,
     auto_apply_output: bool = False,
+    external_context: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     session_id = uuid4().hex
     deepseek_settings = get_deepseek_settings()
+    normalized_project_path = _normalize_project_path(project_path)
+    normalized_task_mode = str(task_mode or 'modify_existing').strip() or 'modify_existing'
+    normalized_output_root = _normalize_output_root(output_root)
+    effective_auto_apply_output = bool(auto_apply_output)
+    if normalized_task_mode in {'modify_existing', 'write_new_code'}:
+        effective_auto_apply_output = True
+    if normalized_task_mode == 'modify_existing':
+        normalized_output_root = normalized_output_root or normalized_project_path
+    elif normalized_task_mode == 'write_new_code':
+        normalized_output_root = normalized_output_root or _build_generated_project_root(project_path)
     task_session = TaskSession.create(user_goal=user_query, task_id=session_id)
     task_session.plan = {
         'plan_id': f'multi_agent_{session_id}',
@@ -1722,19 +1890,20 @@ def _create_multi_agent_session(
         ],
     }
     task_session.execution_state.total_steps = len(STAGE_SEQUENCE)
-    normalized_output_root = _normalize_output_root(output_root)
+    forced_opencode_enabled = True if normalized_task_mode in {'modify_existing', 'write_new_code'} else _is_opencode_kernel_enabled({'opencode_enabled': opencode_enabled})
     payload = {
         'sessionId': session_id,
         'projectPath': project_path,
         'userQuery': user_query,
-        'taskMode': task_mode,
+        'taskMode': normalized_task_mode,
         'clarificationContext': clarification_context or {},
         'conversationId': str(conversation_id or '').strip() or None,
         'swarmEnabled': bool(swarm_enabled),
         'outputRoot': normalized_output_root,
-        'autoApplyOutput': bool(auto_apply_output),
+        'autoApplyOutput': effective_auto_apply_output,
+        'externalContext': external_context if isinstance(external_context, dict) else {},
         'advisorEnabled': _is_advisor_sidecar_enabled({'advisor_enabled': advisor_enabled}),
-        'opencodeEnabled': _is_opencode_kernel_enabled({'opencode_enabled': opencode_enabled}),
+        'opencodeEnabled': forced_opencode_enabled,
         'status': 'starting',
         'stage': 'taizi',
         'message': '三省六部会话已创建',
@@ -1746,6 +1915,21 @@ def _create_multi_agent_session(
                 'agents': {},
                 'consensus': {},
                 'updatedAt': _utcnow_iso(),
+            },
+            'task_exploration': {
+                'owner': 'opencode',
+                'sourceOfTruth': 'multi_agent_session',
+                'backendTracking': True,
+                'status': 'pending',
+                'phase': 'queued',
+                'message': '等待进入 OpenCode 勘探阶段',
+                'startedAt': _utcnow_iso(),
+                'updatedAt': _utcnow_iso(),
+                'elapsedMs': 0,
+                'waitSeconds': 0,
+                'sessionId': None,
+                'model': _opencode_kernel_model(),
+                'agent': _opencode_kernel_agent(),
             },
             'roles': {
                 'advisor': dict(ADVISOR_ROLE_PROFILE),
@@ -2746,6 +2930,24 @@ def _build_opencode_system_context(task_mode: str, analysis: Dict[str, Any], adv
         lines.append(f"advisor_how={advisor_how}")
     if constraint_types:
         lines.append(f"advisor_constraint_types={','.join(constraint_types[:8])}")
+    external_context = _as_dict(analysis.get('external_context'))
+    candidate_projects = [item for item in _as_list(external_context.get('candidate_projects')) if isinstance(item, dict)]
+    if candidate_projects:
+        project_lines = []
+        for item in candidate_projects[:6]:
+            name = str(item.get('project_name') or '').strip()
+            path = str(item.get('project_path') or '').strip()
+            score = item.get('score')
+            if name or path:
+                project_lines.append(f"{name or path}({score})")
+        if project_lines:
+            lines.append(f"cross_project_candidates={' | '.join(project_lines)}")
+    experience_evidence = str(external_context.get('experience_evidence') or '').strip()
+    if experience_evidence:
+        lines.append(f"cross_project_experience_evidence={experience_evidence[:2400]}")
+    experience_summary = str(external_context.get('experience_summary') or '').strip()
+    if experience_summary:
+        lines.append(f"cross_project_experience_summary={experience_summary[:1200]}")
     return '\n'.join(lines)
 
 
@@ -3216,7 +3418,35 @@ def _has_explicit_bootstrap_project_intent(user_query: str) -> bool:
     return False
 
 
+def _extract_explicit_required_files_from_query(user_query: str) -> List[str]:
+    text = str(user_query or '').strip()
+    if not text:
+        return []
+
+    pattern = re.compile(
+        r"[A-Za-z0-9_./-]+\.(?:py|ts|tsx|js|jsx|java|go|rs|cpp|c|cs|md|json|yaml|yml|toml|txt)",
+        re.IGNORECASE,
+    )
+    hits = pattern.findall(text)
+    required: List[str] = []
+    for raw in hits:
+        normalized = str(raw or '').replace('\\', '/').strip().strip('/')
+        if not normalized:
+            continue
+        lowered = normalized.lower()
+        if lowered.startswith('http://') or lowered.startswith('https://'):
+            continue
+        if normalized not in required:
+            required.append(normalized)
+    return required[:24]
+
+
 def _bootstrap_required_files_for_query(user_query: str, task_mode: str) -> List[str]:
+    if task_mode == 'write_new_code':
+        explicit_required = _extract_explicit_required_files_from_query(user_query)
+        if explicit_required:
+            return explicit_required
+
     if (
         _is_new_project_bootstrap_request(user_query, task_mode)
         or _has_explicit_bootstrap_project_intent(user_query)
@@ -3292,6 +3522,7 @@ def _build_bootstrap_scaffold_snippet_blocks() -> List[Dict[str, Any]]:
     runtime_blocks = _load_runtime_bootstrap_scaffold_blocks()
     fallback_blocks: List[Dict[str, Any]] = []
     minimal_map = {
+        'main.py': "print('hello world')\n",
         'train.py': '\n'.join([
             'from pathlib import Path',
             "print('bootstrap train entry')",
@@ -3365,9 +3596,11 @@ def _merge_with_bootstrap_scaffold(snippet_blocks: List[Dict[str, Any]], require
         item = dict(block)
         file_path = str(item.get('file_path') or '').replace('\\', '/').strip('/')
         if file_path and file_path in required_set:
-            scaffold_item = scaffold_map.get(file_path)
-            if isinstance(scaffold_item, dict):
-                item = dict(scaffold_item)
+            existing_code = str(item.get('code') or '').strip()
+            if not existing_code:
+                scaffold_item = scaffold_map.get(file_path)
+                if isinstance(scaffold_item, dict):
+                    item = dict(scaffold_item)
         merged.append(item)
         file_path = str(item.get('file_path') or '').replace('\\', '/').strip('/')
         if file_path:
@@ -3379,6 +3612,26 @@ def _merge_with_bootstrap_scaffold(snippet_blocks: List[Dict[str, Any]], require
         scaffold_item = scaffold_map.get(file_path)
         if isinstance(scaffold_item, dict):
             merged.append(dict(scaffold_item))
+        else:
+            if file_path.endswith('.py'):
+                code = "print('hello world')\n" if file_path == 'main.py' else '# Auto-generated scaffold module\n'
+            elif file_path.lower().endswith('.md'):
+                code = '# Generated File\n'
+            else:
+                code = f'# Auto-generated scaffold: {file_path}\n'
+            merged.append(
+                {
+                    'file_path': file_path,
+                    'action': 'create_file',
+                    'anchor': file_path,
+                    'line_start': None,
+                    'line_end': None,
+                    'reason': '根据用户显式文件要求补齐',
+                    'before': '',
+                    'after_hint': '按用户要求补齐缺失目标文件',
+                    'code': code,
+                }
+            )
 
     filtered: List[Dict[str, Any]] = []
     for item in merged:
@@ -3604,9 +3857,11 @@ def _build_solution_packet(
     advisor_packet: Dict[str, Any] = advisor_packet_raw if isinstance(advisor_packet_raw, dict) else {}
     evidence_packet = retrieval_bundle.get('evidence_packet') or {}
     evidence_review = evidence_packet.get('review') or {}
+    external_context = _as_dict(retrieval_bundle.get('external_context'))
     verdict = evidence_verdict or {}
     approved = bool(verdict.get('approved')) if verdict else True
-    if not approved:
+    opencode_authoritative = bool(opencode_enabled) and task_mode in {'modify_existing', 'write_new_code'}
+    if not approved and not opencode_authoritative:
         analysis_payload = {
             'summary': '当前证据尚不足以安全产出高精度代码方案',
             'key_reasoning': list(verdict.get('reasons') or []),
@@ -3619,6 +3874,8 @@ def _build_solution_packet(
             'evidence_packet': evidence_packet,
             'intent_review': (intent_packet or {}).get('review') or {},
         }
+        if external_context:
+            analysis_payload['external_context'] = external_context
         analysis_payload = _merge_advisor_context_into_analysis(analysis_payload, advisor_packet)
         validation_notes = [verdict.get('refinement_hint') or '证据不足，暂不生成代码片段']
         opencode_result = {
@@ -3649,13 +3906,13 @@ def _build_solution_packet(
             ),
         }
 
-    snippet_blocks = _build_snippet_blocks(project_path, selected_path)
-    if not snippet_blocks:
-        snippet_blocks = _build_evidence_based_snippets(retrieval_bundle.get('node_details') or [], task_mode)
-    if task_mode == 'write_new_code' and not snippet_blocks:
-        snippet_blocks = [_build_write_new_code_template(retrieval_bundle)]
-    if not snippet_blocks and selected_path:
-        snippet_blocks.append({
+    local_snippet_blocks = _build_snippet_blocks(project_path, selected_path)
+    if not local_snippet_blocks:
+        local_snippet_blocks = _build_evidence_based_snippets(retrieval_bundle.get('node_details') or [], task_mode)
+    if task_mode == 'write_new_code' and not local_snippet_blocks:
+        local_snippet_blocks = [_build_write_new_code_template(retrieval_bundle)]
+    if not local_snippet_blocks and selected_path:
+        local_snippet_blocks.append({
             'file_path': (retrieval_bundle.get('impacted_files') or ['待定位'])[0],
             'action': 'insert_after' if task_mode == 'write_new_code' else 'replace',
             'anchor': (selected_path.get('function_chain') or ['待定位'])[0],
@@ -3667,9 +3924,9 @@ def _build_solution_packet(
             'code': _build_write_new_code_scaffold({'anchor': (selected_path.get('function_chain') or ['待定位'])[0]}) if task_mode == 'write_new_code' else '# Modify the existing implementation here\n# TODO: refine the replacement block\npass',
         })
 
-    snippet_blocks = _apply_snippet_templates(task_mode, snippet_blocks)
+    local_snippet_blocks = _apply_snippet_templates(task_mode, local_snippet_blocks)
 
-    edit_plan = _build_edit_plan(task_mode, retrieval_bundle, snippet_blocks)
+    local_edit_plan = _build_edit_plan(task_mode, retrieval_bundle, local_snippet_blocks)
 
     analysis_payload = {
         'summary': selected_path.get('path_description') or '已基于当前代码上下文生成方案',
@@ -3685,6 +3942,10 @@ def _build_solution_packet(
         'evidence_packet': evidence_packet,
         'intent_review': (intent_packet or {}).get('review') or {},
     }
+    if external_context:
+        analysis_payload['external_context'] = external_context
+    if not approved:
+        analysis_payload['key_reasoning'].append('证据未完全通过，但由于当前是代码执行任务，继续以 OpenCode 为中心推进。')
     analysis_payload = _merge_advisor_context_into_analysis(analysis_payload, advisor_packet)
 
     bootstrap_required_files = _bootstrap_required_files_for_query(user_query, task_mode)
@@ -3852,23 +4113,31 @@ def build_example_call_chain(project_path):
                     'after_hint': '该文件来自结构化文件计划的自动脚手架补齐',
                     'code': code,
                 })
-    if kernel_snippet_blocks:
-        if bool(opencode_result.get('accepted')):
-            snippet_blocks = _apply_snippet_templates(task_mode, kernel_snippet_blocks)
-    if bootstrap_required_files:
-        snippet_blocks = _merge_with_bootstrap_scaffold(snippet_blocks, bootstrap_required_files)
+    snippet_blocks: List[Dict[str, Any]] = []
+    if bool(opencode_result.get('accepted')) and kernel_snippet_blocks:
+        snippet_blocks = _apply_snippet_templates(task_mode, kernel_snippet_blocks)
+        if bootstrap_required_files:
+            snippet_blocks = _merge_with_bootstrap_scaffold(snippet_blocks, bootstrap_required_files)
+    elif not opencode_authoritative:
+        snippet_blocks = local_snippet_blocks
+        if bootstrap_required_files:
+            snippet_blocks = _merge_with_bootstrap_scaffold(snippet_blocks, bootstrap_required_files)
 
     kernel_edit_plan = [item for item in _as_list(opencode_result.get('edit_plan')) if isinstance(item, dict)]
-    if kernel_edit_plan and len(kernel_edit_plan) >= len(snippet_blocks):
+    if opencode_authoritative:
+        edit_plan = kernel_edit_plan
+    elif kernel_edit_plan and len(kernel_edit_plan) >= len(snippet_blocks):
         edit_plan = kernel_edit_plan
     else:
-        edit_plan = _build_edit_plan(task_mode, retrieval_bundle, snippet_blocks)
+        edit_plan = local_edit_plan
 
     kernel_validation = [str(item).strip() for item in _as_list(opencode_result.get('validation_commands')) if str(item).strip()]
     validation_notes = ['继续结合真实任务测试提高路径命中率和代码片段精度']
     for item in kernel_validation:
         if item and item not in validation_notes:
             validation_notes.append(item)
+    if opencode_authoritative and not bool(opencode_result.get('accepted')):
+        validation_notes.insert(0, 'OpenCode 尚未返回可接受的代码结果；当前禁止使用本地回退代码落盘，请等待或重试 OpenCode。')
     advisor_adoption = _build_advisor_adoption_summary(advisor_packet, snippet_blocks, edit_plan)
     analysis_advisor = _as_dict(analysis_payload.get('advisor'))
     if analysis_advisor:
@@ -3911,6 +4180,14 @@ def _run_multi_agent_session(
 ) -> None:
     try:
         _update_multi_agent_session(session_id, status='running')
+        _update_task_exploration(
+            session_id,
+            status='running',
+            phase='intake',
+            message='正在准备 OpenCode 执行上下文',
+            model=_opencode_kernel_model(),
+            agent=_opencode_kernel_agent(),
+        )
         _emit_multi_agent_conversation_event(
             session_id,
             'multi_agent.started',
@@ -3983,6 +4260,9 @@ def _run_multi_agent_session(
         retrieval_bundle = _build_retrieval_bundle(project_path, user_query, preferred_partition_id=preferred_partition_id, selected_node=selected_node)
 
         session_snapshot = _get_multi_agent_session(session_id) or {}
+        external_context = _as_dict((session_snapshot or {}).get('externalContext'))
+        if external_context:
+            retrieval_bundle['external_context'] = external_context
         advisor_enabled = _is_advisor_sidecar_enabled({'advisor_enabled': (session_snapshot or {}).get('advisorEnabled')})
         opencode_enabled = _is_opencode_kernel_enabled({'opencode_enabled': (session_snapshot or {}).get('opencodeEnabled')})
         session_output_root = _normalize_output_root((session_snapshot or {}).get('outputRoot'))
@@ -4098,6 +4378,14 @@ def _run_multi_agent_session(
 
         _update_multi_agent_session(session_id, packets=packets)
         _record_stage_transition(session_id, 'menxia', _build_stage_message('menxia', evidence_verdict))
+        _update_task_exploration(
+            session_id,
+            status='running',
+            phase='opencode_exploration',
+            message='OpenCode 正在勘探项目并生成实现方案，请等待返回。',
+            model=_opencode_kernel_model(),
+            agent=_opencode_kernel_agent(),
+        )
         solution_packet = _build_solution_packet(
             project_path,
             user_query,
@@ -4114,6 +4402,16 @@ def _run_multi_agent_session(
             effective_auto_apply_output,
         )
         solution_packet['output_write'] = output_write
+        packets['task_exploration'] = _build_task_exploration_payload(
+            status='completed',
+            phase='output_materialized',
+            message='OpenCode 已返回结果，后端已完成输出落盘。',
+            started_at=_as_dict(_as_dict(_get_multi_agent_session(session_id) or {}).get('packets')).get('task_exploration', {}).get('startedAt') if isinstance(_as_dict(_get_multi_agent_session(session_id) or {}).get('packets'), dict) else None,
+            updated_at=_utcnow_iso(),
+            session_id=str(_as_dict(solution_packet.get('opencode_kernel')).get('session_id') or ''),
+            model=str(_as_dict(solution_packet.get('opencode_kernel')).get('model') or _opencode_kernel_model()),
+            agent=str(_as_dict(solution_packet.get('opencode_kernel')).get('agent') or _opencode_kernel_agent()),
+        )
         _emit_multi_agent_conversation_event(
             session_id,
             'multi_agent.output_write',
@@ -4195,6 +4493,12 @@ def _run_multi_agent_session(
             },
         )
     except Exception as exc:
+        _update_task_exploration(
+            session_id,
+            status='failed',
+            phase='failed',
+            message=f'OpenCode 执行失败：{exc}',
+        )
         _update_multi_agent_session(
             session_id,
             status='failed',
@@ -4234,7 +4538,7 @@ def api_multi_agent_session_start():
         return jsonify({'error': f'project_path 不存在或不是目录: {project_path}'}), 400
     if raw_output_root is not None and str(raw_output_root).strip() and not output_root:
         return jsonify({'error': 'output_root 必须是绝对路径'}), 400
-    if auto_apply_output and not output_root:
+    if auto_apply_output and not output_root and task_mode not in {'modify_existing', 'write_new_code'}:
         return jsonify({'error': '开启 auto_apply_output 时必须提供 output_root'}), 400
 
     payload = _create_multi_agent_session(
@@ -4423,6 +4727,10 @@ def api_multi_agent_session_status(session_id: str):
     solution_packet: Dict[str, Any] = solution_packet_raw if isinstance(solution_packet_raw, dict) else {}
     opencode_kernel_raw = solution_packet.get('opencode_kernel')
     opencode_kernel: Dict[str, Any] = opencode_kernel_raw if isinstance(opencode_kernel_raw, dict) else {}
+    output_write_raw = solution_packet.get('output_write') if isinstance(solution_packet.get('output_write'), dict) else payload.get('result', {}).get('output_write') if isinstance(payload.get('result'), dict) else {}
+    output_write: Dict[str, Any] = output_write_raw if isinstance(output_write_raw, dict) else {}
+    task_exploration_raw = packets.get('task_exploration')
+    task_exploration: Dict[str, Any] = task_exploration_raw if isinstance(task_exploration_raw, dict) else {}
     stage_history = _build_stage_history_from_task_session(payload)
     if not stage_history:
         stage_history = payload.get('stageHistory') or []
@@ -4460,6 +4768,8 @@ def api_multi_agent_session_status(session_id: str):
             'snippet_block_count': opencode_kernel.get('snippet_block_count'),
             'implementation_target_count': opencode_kernel.get('implementation_target_count'),
         },
+        'taskExploration': task_exploration,
+        'outputWrite': output_write,
         'swarm': {
             'enabled': swarm_packet.get('enabled', payload.get('swarmEnabled', True)),
             'llm_enabled': swarm_packet.get('llm_enabled', bool(payload.get('swarmEnabled', True) and has_deepseek_config())),

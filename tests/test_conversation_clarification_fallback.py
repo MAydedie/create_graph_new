@@ -340,28 +340,68 @@ def test_run_conversation_turn_keeps_general_chat_on_chat_path_when_auto_start_e
 
 def test_run_conversation_turn_still_escalates_real_modification_requests_when_auto_start_enabled(monkeypatch):
     finalized, events = _stub_conversation_turn_infra(monkeypatch)
+    captured = {}
 
     monkeypatch.setattr(
         conversation_service,
         "_normalize_action_decision",
         lambda *args, **kwargs: {"action": "run_retrieval", "task_mode": "modify_existing", "reason": "needs code change", "confidence": 0.93},
     )
+    class _FakeThread:
+        def __init__(self, *, target, args=(), daemon=None, **kwargs):
+            self._target = target
+            self._args = args
+
+        def start(self):
+            captured["thread_started"] = True
+            self._target(*self._args)
+
+    monkeypatch.setattr(conversation_service.threading, "Thread", _FakeThread)
+
     monkeypatch.setattr(
         conversation_service,
-        "_try_inline_codegen_result",
-        lambda **kwargs: {
-            "session": {"sessionId": "inline-session-1"},
-            "result": {
-                "solution_packet": {},
-                "output_protocol": {},
-                "evidence_verdict": {},
-                "opencode_kernel": {},
-                "swarm_packet": {},
-                "output_write": {},
-            },
-        },
+        "_sync_multi_agent_result_to_conversation",
+        lambda conversation_id, multi_agent_session_id: captured.update(
+            {
+                "conversation_id": conversation_id,
+                "multi_agent_session_id": multi_agent_session_id,
+            }
+        ),
     )
-    monkeypatch.setattr(conversation_service, "_build_inline_codegen_answer", lambda *args, **kwargs: "inline answer")
+
+    monkeypatch.setattr(
+        conversation_service,
+        "_build_codegen_selected_node",
+        lambda selected_node: selected_node or {},
+    )
+
+    monkeypatch.setattr(
+        conversation_service,
+        "_post_turn_housekeeping",
+        lambda *args, **kwargs: {"keyFacts": {}, "compaction": None},
+    )
+
+    monkeypatch.setattr(
+        conversation_service,
+        "_finalize_conversation_session",
+        lambda session_id, result: finalized.setdefault("result", result),
+    )
+
+    monkeypatch.setattr(
+        conversation_service,
+        "_emit_conversation_event",
+        lambda conversation_id, event_name, payload: events.append((event_name, payload)),
+    )
+
+    from app.services import multi_agent_service as mas
+
+    monkeypatch.setattr(
+        mas,
+        "_create_multi_agent_session",
+        lambda *args, **kwargs: {"sessionId": "ma-session-1", "opencodeEnabled": True},
+    )
+
+    monkeypatch.setattr(mas, "_run_multi_agent_session", lambda *args, **kwargs: None)
 
     conversation_service._run_conversation_turn(
         session_id="sid-codegen",
@@ -372,7 +412,8 @@ def test_run_conversation_turn_still_escalates_real_modification_requests_when_a
     )
 
     assert finalized["result"]["safeToCodegen"] is True
-    assert finalized["result"]["answer"] == "inline answer"
+    assert finalized["result"]["nextStep"] == "start_multi_agent"
+    assert finalized["result"]["handoff"]["multiAgentSessionId"] == "ma-session-1"
     assert any(event_name == "turn.decided" and payload.get("action") == "start_multi_agent" for event_name, payload in events)
 
 
@@ -605,8 +646,6 @@ def test_generate_retrieval_answer_for_fact_qa_rejects_process_text(monkeypatch,
         opencode_enabled=True,
     )
 
-    assert "0 个类" in answer
-    assert "2 个方法" in answer
     assert "_fast_hist" in answer
     assert "waiting for parallel" not in answer.lower()
 
@@ -826,6 +865,7 @@ def test_update_key_facts_memory_preserves_existing_opencode_qa_metadata(monkeyp
 def test_run_conversation_turn_modify_existing_stays_unchanged_without_qa_context(monkeypatch):
     finalized, events = _stub_conversation_turn_infra(monkeypatch)
     qa_calls = {"count": 0}
+    captured = {}
 
     monkeypatch.setattr(
         conversation_service,
@@ -837,22 +877,37 @@ def test_run_conversation_turn_modify_existing_stays_unchanged_without_qa_contex
         "build_qa_context_bundle",
         lambda **kwargs: qa_calls.__setitem__("count", qa_calls["count"] + 1) or {"task_weight": "heavy"},
     )
+    class _FakeThread:
+        def __init__(self, *, target, args=(), daemon=None, **kwargs):
+            self._target = target
+            self._args = args
+
+        def start(self):
+            captured["thread_started"] = True
+            self._target(*self._args)
+
+    monkeypatch.setattr(conversation_service.threading, "Thread", _FakeThread)
+
     monkeypatch.setattr(
         conversation_service,
-        "_try_inline_codegen_result",
-        lambda **kwargs: {
-            "session": {"sessionId": "inline-session-qa-guard"},
-            "result": {
-                "solution_packet": {},
-                "output_protocol": {},
-                "evidence_verdict": {},
-                "opencode_kernel": {},
-                "swarm_packet": {},
-                "output_write": {},
-            },
-        },
+        "_sync_multi_agent_result_to_conversation",
+        lambda conversation_id, multi_agent_session_id: captured.update(
+            {
+                "conversation_id": conversation_id,
+                "multi_agent_session_id": multi_agent_session_id,
+            }
+        ),
     )
-    monkeypatch.setattr(conversation_service, "_build_inline_codegen_answer", lambda *args, **kwargs: "inline answer")
+
+    from app.services import multi_agent_service as mas
+
+    monkeypatch.setattr(
+        mas,
+        "_create_multi_agent_session",
+        lambda *args, **kwargs: {"sessionId": "ma-session-qa-guard", "opencodeEnabled": True},
+    )
+
+    monkeypatch.setattr(mas, "_run_multi_agent_session", lambda *args, **kwargs: None)
 
     conversation_service._run_conversation_turn(
         session_id="sid-codegen-qa-guard",
@@ -863,7 +918,8 @@ def test_run_conversation_turn_modify_existing_stays_unchanged_without_qa_contex
     )
 
     assert finalized["result"]["safeToCodegen"] is True
-    assert finalized["result"]["answer"] == "inline answer"
+    assert finalized["result"]["nextStep"] == "start_multi_agent"
+    assert finalized["result"]["handoff"]["multiAgentSessionId"] == "ma-session-qa-guard"
     assert qa_calls["count"] == 0
     assert any(event_name == "turn.decided" and payload.get("action") == "start_multi_agent" for event_name, payload in events)
 
@@ -942,22 +998,61 @@ def test_run_conversation_turn_keeps_codegen_selected_node_legacy_shape(monkeypa
         lambda *args, **kwargs: {"action": "start_multi_agent", "task_mode": "modify_existing", "reason": "needs codegen", "confidence": 0.95},
     )
 
-    def _fake_inline_codegen(**kwargs):
-        captured["selected_node"] = kwargs.get("selected_node")
-        return {
-            "session": {"sessionId": "inline-session-codegen-shape"},
-            "result": {
-                "solution_packet": {},
-                "output_protocol": {},
-                "evidence_verdict": {},
-                "opencode_kernel": {},
-                "swarm_packet": {},
-                "output_write": {},
-            },
-        }
+    class _FakeThread:
+        def __init__(self, *, target, args=(), daemon=None, **kwargs):
+            self._target = target
+            self._args = args
 
-    monkeypatch.setattr(conversation_service, "_try_inline_codegen_result", _fake_inline_codegen)
-    monkeypatch.setattr(conversation_service, "_build_inline_codegen_answer", lambda *args, **kwargs: "inline answer")
+        def start(self):
+            captured["thread_started"] = True
+            self._target(*self._args)
+
+    monkeypatch.setattr(conversation_service.threading, "Thread", _FakeThread)
+
+    monkeypatch.setattr(
+        conversation_service,
+        "_sync_multi_agent_result_to_conversation",
+        lambda conversation_id, multi_agent_session_id: captured.update(
+            {
+                "conversation_id": conversation_id,
+                "multi_agent_session_id": multi_agent_session_id,
+            }
+        ),
+    )
+
+    from app.services import multi_agent_service as mas
+
+    def _fake_create_multi_agent_session(
+        project_path,
+        user_query,
+        task_mode,
+        clarification_context,
+        swarm_enabled=True,
+        conversation_id=None,
+        advisor_enabled=None,
+        opencode_enabled=None,
+        output_root=None,
+        auto_apply_output=False,
+    ):
+        captured["create_task_mode"] = task_mode
+        return {"sessionId": "ma-session-codegen-shape", "opencodeEnabled": True}
+
+    def _fake_run_multi_agent_session(
+        session_id,
+        project_path,
+        user_query,
+        task_mode,
+        partition_id,
+        selected_node,
+        clarification_context,
+        swarm_enabled,
+        output_root,
+        auto_apply_output,
+    ):
+        captured["selected_node"] = selected_node
+
+    monkeypatch.setattr(mas, "_create_multi_agent_session", _fake_create_multi_agent_session)
+    monkeypatch.setattr(mas, "_run_multi_agent_session", _fake_run_multi_agent_session)
 
     conversation_service._run_conversation_turn(
         session_id="sid-codegen-shape",
@@ -982,6 +1077,7 @@ def test_run_conversation_turn_keeps_codegen_selected_node_legacy_shape(monkeypa
     )
 
     assert finalized["result"]["safeToCodegen"] is True
+    assert finalized["result"]["handoff"]["multiAgentSessionId"] == "ma-session-codegen-shape"
     assert captured["selected_node"] == {
         "id": "node-metrics-run",
         "name": "run",

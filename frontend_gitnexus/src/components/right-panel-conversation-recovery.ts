@@ -24,9 +24,10 @@ export interface ConversationTerminalRecoveryPlanInput {
 
 export const planRagConversationContinuation = ({
   ragConversationId,
+  hasActiveClarification,
   ragEventCursor,
 }: RagConversationContinuationInput): RagConversationContinuationPlan => {
-  const preservedConversationId = ragConversationId || null;
+  const preservedConversationId = hasActiveClarification ? ragConversationId || null : null;
   return {
     recoveryConversationId: preservedConversationId,
     startConversationId: preservedConversationId || undefined,
@@ -53,11 +54,26 @@ export const planConversationTerminalRecoveryDelays = ({
   return [0, 2000, 5000, 10000];
 };
 
-export const extractLatestAssistantAnswer = (payload: CreateGraphConversationMessagesResponse): string | null => {
-  const latestAssistantTextPart = [...payload.parts]
-    .filter(isRecord)
-    .reverse()
-    .find((part) => toStringValue(part.type) === 'assistant_text' && toStringValue(part.content).trim());
+export const extractLatestAssistantAnswer = (
+  payload: CreateGraphConversationMessagesResponse,
+  sessionId?: string,
+): string | null => {
+  const reversedParts = [...payload.parts].filter(isRecord).reverse();
+
+  if (sessionId) {
+    const sessionPart = reversedParts.find(
+      (part) =>
+        toStringValue(part.type) === 'assistant_text' &&
+        toStringValue(part.content).trim() &&
+        isRecord(part.metadata) &&
+        toStringValue((part.metadata as Record<string, unknown>).sessionId) === sessionId,
+    );
+    return sessionPart ? toStringValue(sessionPart.content).trim() : null;
+  }
+
+  const latestAssistantTextPart = reversedParts.find(
+    (part) => toStringValue(part.type) === 'assistant_text' && toStringValue(part.content).trim(),
+  );
   if (latestAssistantTextPart) {
     return toStringValue(latestAssistantTextPart.content).trim();
   }
@@ -76,8 +92,9 @@ export const extractLatestAssistantAnswer = (payload: CreateGraphConversationMes
 export const toRagResponseFromConversationMessages = (
   query: string,
   payload: CreateGraphConversationMessagesResponse,
+  sessionId?: string,
 ): CreateGraphRagAskResponse | null => {
-  const answer = extractLatestAssistantAnswer(payload);
+  const answer = extractLatestAssistantAnswer(payload, sessionId);
   if (!answer) {
     return null;
   }

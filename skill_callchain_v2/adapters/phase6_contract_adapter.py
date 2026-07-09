@@ -32,6 +32,24 @@ def _normalize_partition_summary(summary: Optional[Dict[str, Any]]) -> Dict[str,
         "has_io": bool(payload.get("has_io")),
         "supports_process_shadow": bool(payload.get("supports_process_shadow")),
         "supports_community_shadow": bool(payload.get("supports_community_shadow")),
+        "semantic_label": str(payload.get("semantic_label") or "").strip(),
+        "functional_domain": str(payload.get("functional_domain") or "").strip(),
+        "key_concepts": [
+            str(item).strip()
+            for item in (payload.get("key_concepts") or [])
+            if str(item).strip()
+        ],
+        "top_files": [
+            str(item).strip()
+            for item in (payload.get("top_files") or [])
+            if str(item).strip()
+        ],
+        "top_dependencies": [
+            str(item).strip()
+            for item in (payload.get("top_dependencies") or [])
+            if str(item).strip()
+        ],
+        "community_summary_status": str(payload.get("community_summary_status") or "").strip(),
     }
 
 

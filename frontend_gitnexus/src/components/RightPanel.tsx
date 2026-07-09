@@ -19,21 +19,26 @@ import {
 	isProviderConfigured,
 } from "../core/llm/settings-service";
 import { useAppState } from "../hooks/useAppState";
+import { resolveRepoProjectPath } from "../services/server-connection";
 import {
+	type CreateGraphPersonaSkillItem,
 	type CreateGraphClarificationField,
 	type CreateGraphClarificationOption,
 	type CreateGraphClarificationPayload,
 	type CreateGraphConversationListItem,
 	type CreateGraphConversationMessagesResponse,
 	type CreateGraphConversationPendingQuestion,
-	type CreateGraphConversationSessionResultResponse,
-	type CreateGraphConversationSessionStatusResponse,
-	type CreateGraphConversationStreamResult,
-	type CreateGraphHierarchyContract,
-	type CreateGraphMultiAgentResultResponse,
-	type CreateGraphMultiAgentSessionStatusResponse,
-	type CreateGraphPartitionAnalysisResponse,
-	type CreateGraphRagAskResponse,
+ type CreateGraphConversationSessionResultResponse,
+  type CreateGraphConversationSessionStatusResponse,
+  type CreateGraphConversationStreamResult,
+  type CreateGraphHierarchyContract,
+  type CreateGraphMultiAgentResultResponse,
+  type CreateGraphMultiAgentSessionStatusResponse,
+  type CreateGraphOutputDiffBlock,
+  type CreateGraphOutputWritePayload,
+  type CreateGraphTaskExplorationStatus,
+  type CreateGraphPartitionAnalysisResponse,
+  type CreateGraphRagAskResponse,
 	type CreateGraphWorkbenchProjectStatusResponse,
 	createGraphExtensionsApi,
 } from "../services/create-graph-extensions";
@@ -46,6 +51,13 @@ import {
 	type IoGraphNode,
 } from "./IoGraphBlock";
 import { MarkdownRenderer } from "./MarkdownRenderer";
+import {
+	BUILTIN_SE_TEAM,
+	parseSlashCommand,
+	SlashCommandMenu,
+	type SlashCommandItem,
+	type SlashCommandKind,
+} from "./SlashCommandMenu";
 import { MermaidDiagram } from "./MermaidDiagram";
 import {
 	planConversationTerminalRecoveryDelays,
@@ -151,6 +163,14 @@ interface RagTimelineGroupView {
 	title: string;
 	status: "idle" | "active" | "success" | "warn";
 	items: RagTimelineItemView[];
+}
+
+interface RagModeSummaryView {
+	mode: string;
+	nextStep: string;
+	confidence: string;
+	reason: string;
+	projectPath: string;
 }
 
 interface RagReplaySnapshot {
@@ -277,10 +297,32 @@ interface RagPendingHandoffState {
 	outputRoot?: string;
 	autoApplyOutput?: boolean;
 	opencodeEnabled?: boolean;
+	autoStarted?: boolean;
 	sessionId: string | null;
 	status: "idle" | "starting" | "running" | "completed" | "failed";
 	stage: string;
 	message: string;
+}
+
+interface RagTaskExplorationView {
+	status: string;
+	phase: string;
+	message: string;
+	waitSeconds?: number;
+	elapsedMs?: number;
+	sessionId?: string;
+	model?: string;
+	agent?: string;
+}
+
+interface RagOutputWriteView {
+	outputRoot: string;
+	materializationMode: string;
+	generatedProjectRoot: string;
+	writtenCount: number;
+	failedCount: number;
+	modifiedFiles: Array<Record<string, unknown>>;
+	diffBlocks: CreateGraphOutputDiffBlock[];
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
@@ -1137,6 +1179,65 @@ const toRagSwarmPayloadFromStatus = (
 	return isRecord(raw) ? raw : null;
 };
 
+const toRagTaskExploration = (
+	status:
+		| CreateGraphMultiAgentSessionStatusResponse
+		| CreateGraphConversationSessionStatusResponse
+		| null,
+): RagTaskExplorationView | null => {
+	if (!isRecord(status)) return null;
+	const raw = (status as Record<string, unknown>).taskExploration;
+	if (!isRecord(raw)) return null;
+	return {
+		status: toStringValue(raw.status, "pending"),
+		phase: toStringValue(raw.phase, "queued"),
+		message: toStringValue(raw.message, "等待 OpenCode 返回"),
+		waitSeconds: toOptionalNumberValue(raw.waitSeconds),
+		elapsedMs: toOptionalNumberValue(raw.elapsedMs),
+		sessionId: toStringValue(raw.sessionId) || undefined,
+		model: toStringValue(raw.model) || undefined,
+		agent: toStringValue(raw.agent) || undefined,
+	};
+};
+
+const toRagOutputWrite = (
+	payload: CreateGraphPanelRagResponse | null,
+	status:
+		| CreateGraphMultiAgentSessionStatusResponse
+		| CreateGraphConversationSessionStatusResponse
+		| null,
+): RagOutputWriteView | null => {
+	const directPayload = isRecord(payload) ? payload : null;
+	const solutionPacket = isRecord(directPayload?.solution_packet)
+		? directPayload.solution_packet
+		: null;
+	const responseOutputWrite = isRecord(directPayload?.output_write)
+		? (directPayload.output_write as CreateGraphOutputWritePayload)
+		: null;
+	const solutionOutputWrite = isRecord(solutionPacket?.output_write)
+		? (solutionPacket.output_write as CreateGraphOutputWritePayload)
+		: null;
+	const statusRecord = isRecord(status as unknown) ? (status as unknown as Record<string, unknown>) : null;
+	const statusOutputWrite = isRecord(statusRecord?.outputWrite)
+		? (statusRecord.outputWrite as CreateGraphOutputWritePayload)
+		: null;
+	const raw = responseOutputWrite || solutionOutputWrite || statusOutputWrite;
+	if (!raw) return null;
+	return {
+		outputRoot: toStringValue(raw.outputRoot),
+		materializationMode: toStringValue(raw.materializationMode, "in_place"),
+		generatedProjectRoot: toStringValue(raw.generatedProjectRoot),
+		writtenCount: toNumberValue(raw.writtenCount, 0),
+		failedCount: toNumberValue(raw.failedCount, 0),
+		modifiedFiles: Array.isArray(raw.modifiedFiles)
+			? raw.modifiedFiles.filter(isRecord)
+			: [],
+		diffBlocks: Array.isArray(raw.diffBlocks)
+			? raw.diffBlocks.filter(isRecord) as CreateGraphOutputDiffBlock[]
+			: [],
+	};
+};
+
 const toRagSwarmView = (
 	payload: Record<string, unknown> | null,
 ): RagSwarmView | null => {
@@ -1582,6 +1683,13 @@ const toRagResponseFromConversationResult = (
 			toStringValue(result.reason, "已完成会话处理。"),
 		),
 		evidence,
+		generation: {
+			...(isRecord(result.generation) ? result.generation : {}),
+			conversation_mode: toStringValue(result.mode),
+			result_summary: isRecord(result.result_summary)
+				? result.result_summary
+				: undefined,
+		},
 		retrieval_bundle: retrieval || undefined,
 		output_protocol: isRecord(result.output_protocol)
 			? result.output_protocol
@@ -1589,16 +1697,45 @@ const toRagResponseFromConversationResult = (
 		evidence_verdict: isRecord(result.evidence_verdict)
 			? result.evidence_verdict
 			: undefined,
-		solution_packet: isRecord(result.solution_packet)
-			? result.solution_packet
-			: undefined,
-		generation: isRecord(result.generation) ? result.generation : undefined,
 		opencode_kernel: isRecord(result.opencode_kernel)
 			? result.opencode_kernel
 			: undefined,
 		swarm_packet: isRecord(result.swarm_packet)
 			? result.swarm_packet
 			: undefined,
+		solution_packet:
+			isRecord(result.solution_packet) || isRecord(result.advisor) || isRecord(result.team)
+				? {
+					...(isRecord(result.solution_packet) ? result.solution_packet : {}),
+					analysis: {
+						...(isRecord(isRecord(result.solution_packet) ? result.solution_packet.analysis : undefined)
+							? result.solution_packet?.analysis
+							: {}),
+						advisor: isRecord(result.advisor) ? result.advisor : undefined,
+						team: isRecord(result.team) ? result.team : undefined,
+					},
+				}
+				: undefined,
+	};
+};
+
+const toRagModeSummary = (
+	ragResponse: CreateGraphPanelRagResponse | null,
+): RagModeSummaryView | null => {
+	const generation = isRecord(ragResponse) && 'generation' in ragResponse && isRecord(ragResponse.generation)
+		? ragResponse.generation
+		: null;
+	if (!generation) return null;
+	const resultSummary = isRecord(generation.result_summary)
+		? generation.result_summary
+		: null;
+	if (!resultSummary) return null;
+	return {
+		mode: toStringValue(resultSummary.mode, toStringValue(generation.conversation_mode, "unknown")),
+		nextStep: toStringValue(resultSummary.nextStep),
+		confidence: toStringValue(resultSummary.confidence, "medium"),
+		reason: toStringValue(resultSummary.reason),
+		projectPath: toStringValue(resultSummary.projectPath),
 	};
 };
 
@@ -1606,34 +1743,41 @@ const toRagPendingHandoffState = (
 	query: string,
 	conversationId: string,
 	handoff: Record<string, unknown> | null,
-): RagPendingHandoffState => ({
-	conversationId,
-	query: toStringValue(handoff?.query, query),
-	projectPath: toStringValue(handoff?.project_path) || undefined,
-	taskMode: toStringValue(handoff?.task_mode) || undefined,
-	partitionId: toStringValue(handoff?.partition_id) || undefined,
-	selectedNode: isRecord(handoff?.selected_node)
-		? handoff.selected_node
-		: undefined,
-	clarificationContext: isRecord(handoff?.clarification_context)
-		? handoff.clarification_context
-		: undefined,
-	outputRoot: toStringValue(handoff?.output_root) || undefined,
-	autoApplyOutput:
-		typeof handoff?.auto_apply_output === "boolean"
-			? handoff.auto_apply_output
+): RagPendingHandoffState => {
+	const sessionId = toStringValue(handoff?.multiAgentSessionId) || null;
+	const autoStarted = toBooleanValue(handoff?.autoStarted, false) && Boolean(sessionId);
+	return {
+		conversationId,
+		query: toStringValue(handoff?.query, query),
+		projectPath: toStringValue(handoff?.project_path) || undefined,
+		taskMode: toStringValue(handoff?.task_mode) || undefined,
+		partitionId: toStringValue(handoff?.partition_id) || undefined,
+		selectedNode: isRecord(handoff?.selected_node)
+			? handoff.selected_node
 			: undefined,
-	opencodeEnabled:
-		typeof handoff?.opencode_enabled === "boolean"
-			? handoff.opencode_enabled
-			: typeof handoff?.opencodeEnabled === "boolean"
-				? handoff.opencodeEnabled
+		clarificationContext: isRecord(handoff?.clarification_context)
+			? handoff.clarification_context
+			: undefined,
+		outputRoot: toStringValue(handoff?.output_root) || undefined,
+		autoApplyOutput:
+			typeof handoff?.auto_apply_output === "boolean"
+				? handoff.auto_apply_output
 				: undefined,
-	sessionId: toStringValue(handoff?.multiAgentSessionId) || null,
-	status: "idle",
-	stage: "handoff_ready",
-	message: "已生成多代理 handoff，请手动开始执行。",
-});
+		opencodeEnabled:
+			typeof handoff?.opencode_enabled === "boolean"
+				? handoff.opencode_enabled
+				: typeof handoff?.opencodeEnabled === "boolean"
+					? handoff.opencodeEnabled
+					: undefined,
+		autoStarted,
+		sessionId,
+		status: autoStarted ? "running" : "idle",
+		stage: autoStarted ? "handoff_running" : "handoff_ready",
+		message: autoStarted
+			? "多代理已自动启动，正在同步执行状态…"
+			: "已生成多代理 handoff，请手动开始执行。",
+	};
+};
 
 const withBrowserRequestTimeout = async <T,>(
 	promise: Promise<T>,
@@ -1656,6 +1800,98 @@ const withBrowserRequestTimeout = async <T,>(
 		}
 	}
 };
+
+const STEPS = [
+  { step: 1, agent: "advisor_consultant", stage: "requirement_advisor", display: "需求顾问指导", type: "advisor", icon: "💡" },
+  { step: 2, agent: "requirement_analysis", stage: "requirement_analysis", display: "需求分析", type: "standard", icon: "📋" },
+  { step: 3, agent: "advisor_consultant", stage: "architecture_advisor", display: "架构顾问指导", type: "advisor", icon: "💡" },
+  { step: 4, agent: "architecture_design", stage: "architecture_design", display: "架构设计", type: "standard", icon: "🏗️" },
+  { step: 5, agent: "advisor_consultant", stage: "code_advisor", display: "代码顾问指导", type: "advisor", icon: "💡" },
+  { step: 6, agent: "code_implementation", stage: "code_implementation", display: "代码实现", type: "standard", icon: "💻" },
+  { step: 7, agent: "code_testing", stage: "code_testing", display: "代码测试", type: "standard", icon: "🧪" },
+  { step: 8, agent: "requirement_validation", stage: "requirement_validation", display: "需求验证", type: "standard", icon: "✅" }
+];
+
+const SIMPLE_QA_STEPS = [
+  { step: 1, agent: "requirement_analysis", stage: "requirement_analysis", display: "需求分析", type: "standard", icon: "📋" },
+  { step: 2, agent: "experience_retrieval", stage: "experience_retrieval", display: "全局经验检索", type: "advisor", icon: "🗂️" },
+  { step: 3, agent: "per_project_extraction", stage: "per_project_extraction", display: "逐经验库提取", type: "standard", icon: "🧩" },
+  { step: 4, agent: "cross_project_comparison", stage: "cross_project_comparison", display: "跨经验库对比", type: "standard", icon: "⚖️" },
+  { step: 5, agent: "qa_advisor", stage: "qa_advisor", display: "问答策略规划", type: "advisor", icon: "💡" },
+  { step: 6, agent: "qa_reasoning", stage: "qa_evidence_reasoning", display: "寻找证据与构思回复", type: "standard", icon: "🔎" },
+  { step: 7, agent: "qa_reply", stage: "qa_reply", display: "给出回复", type: "standard", icon: "✅" }
+];
+
+const ensureNextStageCard = <T extends { stage: string; display: string; type: "advisor" | "standard"; icon: string; status: "running" | "completed"; content: string; queryId?: string }>(
+	stageCards: T[],
+	steps: Array<{ stage: string; display: string; type: string; icon: string }>,
+	currentStage: string,
+	queryId: string | null,
+): T[] => {
+	if (!queryId) return stageCards;
+	const currentIndex = steps.findIndex((step) => step.stage === currentStage);
+	if (currentIndex < 0 || currentIndex >= steps.length - 1) {
+		return stageCards;
+	}
+	const nextStep = steps[currentIndex + 1];
+	const existingIndex = stageCards.findIndex(
+		(card) => card.stage === nextStep.stage && card.queryId === queryId,
+	);
+	if (existingIndex >= 0) {
+		const existingCard = stageCards[existingIndex];
+		if (existingCard.status === "completed") {
+			return stageCards;
+		}
+		const nextCards = [...stageCards];
+		nextCards[existingIndex] = {
+			...existingCard,
+			display: nextStep.display,
+			type: nextStep.type as "advisor" | "standard",
+			icon: nextStep.icon,
+			status: "running" as const,
+			queryId,
+		} as T;
+		return nextCards;
+	}
+	return [
+		...stageCards,
+		{
+			stage: nextStep.stage,
+			display: nextStep.display,
+			type: nextStep.type as "advisor" | "standard",
+			icon: nextStep.icon,
+			status: "running" as const,
+			content: "",
+			queryId,
+		} as T,
+	];
+};
+
+function renderMarkdownInReact(text: string): React.ReactNode {
+  if (!text) return null;
+  const parts = text.split(/(```[\s\S]*?```)/g);
+  return parts.map((part, idx) => {
+    if (part.startsWith('```')) {
+      const lines = part.split('\n');
+      const code = lines.slice(1, -1).join('\n');
+      return (
+        <pre key={idx} style={{ background: 'oklch(0.12 0.02 260)', padding: '10px 12px', borderRadius: 6, overflowX: 'auto', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', margin: '8px 0', border: '1px solid var(--border)', color: '#a7f3d0' }}>
+          <code>{code}</code>
+        </pre>
+      );
+    }
+    
+    const lines = part.split('\n');
+    return lines.map((line, lidx) => {
+      let lineContent: React.ReactNode = line;
+      if (line.includes('**')) {
+        const subparts = line.split(/\*\*([^*]+)\*\*/g);
+        lineContent = subparts.map((sp, sidx) => sidx % 2 === 1 ? <strong key={sidx} style={{ color: 'var(--primary)', fontWeight: 700 }}>{sp}</strong> : sp);
+      }
+      return <div key={`${idx}-${lidx}`} style={{ minHeight: '1.2em', marginBottom: 4, lineHeight: 1.6 }}>{lineContent}</div>;
+    });
+  });
+}
 
 export const RightPanel = () => {
 	const {
@@ -1694,7 +1930,715 @@ export const RightPanel = () => {
 		clearChat,
 	} = useAppState();
 
+	// Active project path calculation
+	const activeProjectPath = useMemo(() => {
+		return resolveRepoProjectPath(availableRepos, projectName);
+	}, [availableRepos, projectName]);
+
+	const seTeamSessionMode = useMemo(
+		() => (activeProjectPath ? "single_project" : "global"),
+		[activeProjectPath],
+	);
+
+	// SE-Team advanced state variables
+	const [seTeamTab, setSeTeamTab] = useState<"chat" | "progress" | "experiences">("chat");
+	const [activeStepsConfig, setActiveStepsConfig] = useState<any[]>(() => {
+		try {
+			const saved = localStorage.getItem("gitnexus_workspace_seteam_active_steps_config");
+			return saved ? JSON.parse(saved) : STEPS;
+		} catch {
+			return STEPS;
+		}
+	});
+	const [seTeamStepStatus, setSeTeamStepStatus] = useState<Record<string, "pending" | "running" | "completed">>(() => {
+		try {
+			const saved = localStorage.getItem("gitnexus_workspace_seteam_step_status");
+			return saved ? JSON.parse(saved) : {};
+		} catch {
+			return {};
+		}
+	});
+	const [matchedExperiences, setMatchedExperiences] = useState<any[]>(() => {
+		try {
+			const saved = localStorage.getItem("gitnexus_workspace_seteam_matched_experiences");
+			return saved ? JSON.parse(saved) : [];
+		} catch {
+			return [];
+		}
+	});
+	const [suspendedQuestions, setSuspendedQuestions] = useState<string[]>([]);
+	const [clarificationAnswers, setClarificationAnswers] = useState<string[]>([]);
+	const [workflowCompleted, setWorkflowCompleted] = useState<boolean>(() => {
+		try {
+			const saved = localStorage.getItem("gitnexus_workspace_seteam_workflow_completed");
+			return saved ? JSON.parse(saved) === true : false;
+		} catch {
+			return false;
+		}
+	});
+	const [rollbacks, setRollbacks] = useState<Array<{ from: number; to: number; reason: string }>>(() => {
+		try {
+			const saved = localStorage.getItem("gitnexus_workspace_seteam_rollbacks");
+			return saved ? JSON.parse(saved) : [];
+		} catch {
+			return [];
+		}
+	});
+	const [seTeamStageCards, setSeTeamStageCards] = useState<Array<{
+		stage: string;
+		display: string;
+		type: "advisor" | "standard";
+		icon: string;
+		status: "running" | "completed";
+		content: string;
+		artifactFiles?: string[];
+		experiences?: any[];
+		queryId?: string;
+	}>>(() => {
+		try {
+			const saved = localStorage.getItem("gitnexus_workspace_seteam_stage_cards");
+			if (saved) {
+				const parsed = JSON.parse(saved);
+				let fallbackId = 'legacy';
+				try {
+					const savedChat = localStorage.getItem("gitnexus_workspace_seteam_messages");
+					if (savedChat) {
+						const parsedChat = JSON.parse(savedChat);
+						const firstUserMsg = parsedChat.find((m: any) => m.role === 'user');
+						if (firstUserMsg && firstUserMsg.queryId) {
+							fallbackId = firstUserMsg.queryId;
+						}
+					}
+				} catch {}
+
+				return parsed.map((c: any) => {
+					if (!c.queryId) {
+						c.queryId = fallbackId;
+					}
+					return c;
+				});
+			}
+			return [];
+		} catch {
+			return [];
+		}
+	});
+	const [expandedExps, setExpandedExps] = useState<Record<string, boolean>>({});
+	const toggleExpCollapse = useCallback((expId: string) => {
+		setExpandedExps((prev) => ({ ...prev, [expId]: !prev[expId] }));
+	}, []);
+	const [seTeamMessages, setSeTeamMessages] = useState<Array<{ role: "user" | "assistant" | "system"; content: string; queryId?: string; isClarificationReply?: boolean }>>(() => {
+		try {
+			const saved = localStorage.getItem("gitnexus_workspace_seteam_messages");
+			if (saved) {
+				const parsed = JSON.parse(saved);
+				let currentBackfillId = 'legacy';
+				return parsed.map((m: any) => {
+					if (m.role === 'user') {
+						if (!m.queryId) {
+							m.queryId = `q-${Math.random().toString(36).substr(2, 9)}`;
+						}
+						currentBackfillId = m.queryId;
+					} else {
+						if (!m.queryId) {
+							m.queryId = currentBackfillId;
+						}
+					}
+					return m;
+				});
+			}
+			return [];
+		} catch {
+			return [];
+		}
+	});
+
+	useEffect(() => {
+		localStorage.setItem("gitnexus_workspace_seteam_active_steps_config", JSON.stringify(activeStepsConfig));
+	}, [activeStepsConfig]);
+
+	useEffect(() => {
+		localStorage.setItem("gitnexus_workspace_seteam_step_status", JSON.stringify(seTeamStepStatus));
+	}, [seTeamStepStatus]);
+
+	useEffect(() => {
+		localStorage.setItem("gitnexus_workspace_seteam_matched_experiences", JSON.stringify(matchedExperiences));
+	}, [matchedExperiences]);
+
+	useEffect(() => {
+		localStorage.setItem("gitnexus_workspace_seteam_workflow_completed", JSON.stringify(workflowCompleted));
+	}, [workflowCompleted]);
+
+	useEffect(() => {
+		localStorage.setItem("gitnexus_workspace_seteam_rollbacks", JSON.stringify(rollbacks));
+	}, [rollbacks]);
+
+	useEffect(() => {
+		localStorage.setItem("gitnexus_workspace_seteam_stage_cards", JSON.stringify(seTeamStageCards));
+	}, [seTeamStageCards]);
+
+	useEffect(() => {
+		localStorage.setItem("gitnexus_workspace_seteam_messages", JSON.stringify(seTeamMessages));
+	}, [seTeamMessages]);
+	const [seTeamSessionId, setSeTeamSessionId] = useState<string | null>(null);
+	const [seTeamLoading, setSeTeamLoading] = useState(false);
+	const [seTeamError, setSeTeamError] = useState<string | null>(null);
+	const [seTeamBackendPending, setSeTeamBackendPending] = useState(false);
+	const [seTeamTaskExplorationByQuery, setSeTeamTaskExplorationByQuery] = useState<Record<string, RagTaskExplorationView>>({});
+	const [seTeamOutputWriteByQuery, setSeTeamOutputWriteByQuery] = useState<Record<string, RagOutputWriteView>>({});
+	const [seTeamInput, setSeTeamInput] = useState("");
+	const [personaSkillPath, setPersonaSkillPath] = useState("D:/代码仓库生图/借鉴项目/huangqing-perspective");
+	const [personaSkillStatus, setPersonaSkillStatus] = useState("当前未启用 Skill");
+	const [importingSkill, setImportingSkill] = useState(false);
+	const [deactivatingSkill, setDeactivatingSkill] = useState(false);
+	const [seTeamPersonaPanelOpen, setSeTeamPersonaPanelOpen] = useState(false);
 	const [chatInput, setChatInput] = useState("");
+	const [personaSkillPanelOpen, setPersonaSkillPanelOpen] = useState(false);
+	const [personaSkillPathInput, setPersonaSkillPathInput] = useState("");
+	const [personaSkillItems, setPersonaSkillItems] = useState<
+		CreateGraphPersonaSkillItem[]
+	>([]);
+	const [activePersonaSkill, setActivePersonaSkill] =
+		useState<CreateGraphPersonaSkillItem | null>(null);
+	const [personaSkillBusy, setPersonaSkillBusy] = useState(false);
+	const [personaSkillMessage, setPersonaSkillMessage] = useState<string | null>(
+		null,
+	);
+	const chatAbortRef = useRef<AbortController | null>(null);
+	const currentQueryIdRef = useRef<string>('');
+	const seTeamBackendPendingRef = useRef(false);
+
+	useEffect(() => {
+		seTeamBackendPendingRef.current = seTeamBackendPending;
+	}, [seTeamBackendPending]);
+
+	const updateSeTeamTaskExploration = useCallback((queryId: string, payload: unknown) => {
+		if (!queryId || !isRecord(payload)) return;
+		const next = toRagTaskExploration({ taskExploration: payload } as unknown as CreateGraphMultiAgentSessionStatusResponse);
+		if (!next) return;
+		setSeTeamTaskExplorationByQuery((prev) => ({ ...prev, [queryId]: next }));
+	}, []);
+
+	const updateSeTeamOutputWrite = useCallback((queryId: string, payload: unknown) => {
+		if (!queryId || !isRecord(payload)) return;
+		const next = toRagOutputWrite(null, { outputWrite: payload } as unknown as CreateGraphMultiAgentSessionStatusResponse);
+		if (!next) return;
+		setSeTeamOutputWriteByQuery((prev) => ({ ...prev, [queryId]: next }));
+	}, []);
+
+	useEffect(() => {
+		if (seTeamMessages && seTeamMessages.length > 0) {
+			const lastUserMsg = [...seTeamMessages].reverse().find((m) => m.role === 'user');
+			if (lastUserMsg && lastUserMsg.queryId) {
+				currentQueryIdRef.current = lastUserMsg.queryId;
+			}
+		}
+	}, [seTeamMessages]);
+
+	useEffect(() => {
+		if (!seTeamSessionId || !seTeamBackendPending) {
+			return;
+		}
+		let cancelled = false;
+		const pollStatus = async () => {
+			try {
+				const response = await fetch(`/api/session/${encodeURIComponent(seTeamSessionId)}`);
+				const payload = await response.json().catch(() => ({}));
+				if (!response.ok || cancelled || !isRecord(payload)) {
+					return;
+				}
+				const queryId = currentQueryIdRef.current;
+				if (queryId) {
+					updateSeTeamTaskExploration(queryId, payload.task_exploration);
+					updateSeTeamOutputWrite(queryId, payload.output_write);
+				}
+				const status = toStringValue(payload.status, "running");
+				if (status === "completed") {
+					setWorkflowCompleted(true);
+					setSeTeamBackendPending(false);
+					setSeTeamLoading(false);
+				} else if (status === "failed") {
+					setSeTeamError(toStringValue(payload.error, "SE-Team 执行失败"));
+					setSeTeamBackendPending(false);
+					setSeTeamLoading(false);
+				}
+			} catch (_error) {
+				return;
+			}
+		};
+		void pollStatus();
+		const intervalId = window.setInterval(() => {
+			void pollStatus();
+		}, 2000);
+		return () => {
+			cancelled = true;
+			window.clearInterval(intervalId);
+		};
+	}, [seTeamBackendPending, seTeamSessionId, updateSeTeamOutputWrite, updateSeTeamTaskExploration]);
+
+	const handleSendSeTeamChat = useCallback(async () => {
+		if (!seTeamInput.trim() || seTeamLoading) return;
+		const message = seTeamInput.trim();
+		setSeTeamLoading(true);
+		setSeTeamError(null);
+		setSeTeamInput("");
+
+		// Abort any existing stream
+		try {
+			chatAbortRef.current?.abort();
+		} catch (_e) {}
+		chatAbortRef.current = null;
+
+		const qId = Date.now().toString();
+		currentQueryIdRef.current = qId;
+		setSeTeamMessages((prev) => [...prev, { role: "user", content: message, queryId: qId }]);
+		setSeTeamTaskExplorationByQuery((prev) => {
+			const next = { ...prev };
+			delete next[qId];
+			return next;
+		});
+		setSeTeamOutputWriteByQuery((prev) => {
+			const next = { ...prev };
+			delete next[qId];
+			return next;
+		});
+
+		try {
+			// Reset SE-Team states for new query
+			setRollbacks([]);
+			setWorkflowCompleted(false);
+			setSuspendedQuestions([]);
+
+			const controller = new AbortController();
+			chatAbortRef.current = controller;
+			
+			const response = await fetch("/api/session/start-stream", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					requirement: message,
+					session_id: seTeamSessionId || undefined,
+					session_mode: seTeamSessionMode,
+					project_path: activeProjectPath || undefined,
+					// 把用户在前端 Settings 里配的 key/base_url/model 一并传给后端，
+					// 让 SE-Team 流程真正用用户自己的配置（而不是环境变量默认值）。
+					llm_config: buildBackendConversationLLMConfig() || undefined,
+				}),
+				signal: controller.signal,
+			});
+
+			if (!response.ok || !response.body) {
+				throw new Error("SE-Team 响应失败");
+			}
+
+			const reader = response.body.getReader();
+			const decoder = new TextDecoder();
+			let buffer = "";
+
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				buffer += decoder.decode(value, { stream: true });
+				const blocks = buffer.split(/\n\n/);
+				buffer = blocks.pop() || "";
+
+				for (const block of blocks) {
+					if (!block.trim()) continue;
+					let event = "message";
+					let dataText = "";
+					block.split(/\n/).forEach((line) => {
+						if (line.startsWith("event:")) event = line.slice(6).trim();
+						else if (line.startsWith("data:")) dataText += `${line.slice(5).trimStart()}\n`;
+					});
+					if (!dataText.trim()) continue;
+					let parsed: any = dataText.trim();
+					try { parsed = JSON.parse(dataText); } catch (_e) { }
+					if (parsed?.session_id && !seTeamSessionId) setSeTeamSessionId(String(parsed.session_id));
+
+					const sseEvent = { ...parsed, type: parsed.type || parsed.event || event, event: parsed.event || parsed.type || event };
+					const eventType = sseEvent.type || sseEvent.event;
+
+					if (eventType === "route_decision") {
+						const isSimpleQa = Number(sseEvent.route_code) === 2 || sseEvent.mode === "simple_qa";
+						setSeTeamBackendPending(!isSimpleQa);
+						const steps = isSimpleQa ? SIMPLE_QA_STEPS : STEPS;
+						setActiveStepsConfig(steps);
+						const initialStatuses: Record<string, "pending" | "running" | "completed"> = {};
+						steps.forEach((s) => {
+							initialStatuses[s.stage] = "pending";
+						});
+						setSeTeamStepStatus(initialStatuses);
+					} else if (eventType === "workflow_start") {
+						const isSimpleQa = sseEvent.mode === "simple_qa";
+						setSeTeamBackendPending(!isSimpleQa);
+						const steps = isSimpleQa ? SIMPLE_QA_STEPS : STEPS;
+						setActiveStepsConfig(steps);
+						const initialStatuses: Record<string, "pending" | "running" | "completed"> = {};
+						steps.forEach((s) => {
+							initialStatuses[s.stage] = "pending";
+						});
+						setSeTeamStepStatus(initialStatuses);
+						setWorkflowCompleted(false);
+					} else if (eventType === "stage_start") {
+						const stepInfo = (sseEvent.mode === "simple_qa" ? SIMPLE_QA_STEPS : STEPS).find((s) => s.stage === sseEvent.stage) || {
+							step: Number(sseEvent.step) || 0,
+							stage: sseEvent.stage,
+							display: sseEvent.display_name || sseEvent.stage || "阶段",
+							type: sseEvent.agent_type === "advisor" ? "advisor" : "standard",
+							icon: sseEvent.icon || "🧩",
+						};
+						setSeTeamStepStatus((prev) => ({ ...prev, [sseEvent.stage]: "running" }));
+						setSeTeamStageCards((prev) => {
+							const idx = prev.findIndex((c) => c.stage === sseEvent.stage && c.queryId === currentQueryIdRef.current);
+							if (idx >= 0) {
+								const next = [...prev];
+								next[idx] = {
+									stage: sseEvent.stage,
+									display: stepInfo.display,
+									type: stepInfo.type as "advisor" | "standard",
+									icon: stepInfo.icon,
+									status: "running",
+									content: "",
+									queryId: currentQueryIdRef.current,
+								};
+								return next;
+							} else {
+								return [
+									...prev,
+									{
+										stage: sseEvent.stage,
+										display: stepInfo.display,
+										type: stepInfo.type as "advisor" | "standard",
+										icon: stepInfo.icon,
+										status: "running",
+										content: "",
+										queryId: currentQueryIdRef.current,
+									},
+								];
+							}
+						});
+					} else if (eventType === "experience_matched") {
+						const exps = sseEvent.experiences || [];
+						setMatchedExperiences(exps);
+						if (sseEvent.stage) {
+							setSeTeamStageCards((prev) =>
+								prev.map((c) => (c.stage === sseEvent.stage && c.queryId === currentQueryIdRef.current ? { ...c, experiences: exps } : c))
+							);
+						}
+					} else if (eventType === "stream_chunk" || event === "stream_chunk") {
+						if (sseEvent.stage) {
+							setSeTeamStageCards((prev) =>
+								prev.map((c) => (c.stage === sseEvent.stage && c.queryId === currentQueryIdRef.current ? { ...c, content: (c.content || "") + (sseEvent.content || "") } : c))
+							);
+						}
+					} else if (eventType === "task_exploration") {
+						updateSeTeamTaskExploration(currentQueryIdRef.current, sseEvent.task_exploration);
+					} else if (eventType === "output_write") {
+						updateSeTeamOutputWrite(currentQueryIdRef.current, sseEvent.output_write);
+					} else if (eventType === "stage_complete") {
+						setSeTeamStepStatus((prev) => ({ ...prev, [sseEvent.stage]: "completed" }));
+						setSeTeamStageCards((prev) => {
+							const updated = prev.map((c) => (c.stage === sseEvent.stage && c.queryId === currentQueryIdRef.current ? { ...c, status: "completed" as const, content: toStringValue(sseEvent.output, c.content || ""), artifactFiles: sseEvent.artifact_files || sseEvent.artifact_paths || [] } : c));
+							return ensureNextStageCard(updated, activeStepsConfig, String(sseEvent.stage || ""), currentQueryIdRef.current);
+						});
+					} else if (eventType === "stage_suspended" || sseEvent.event === "stage_suspended" || sseEvent.event === "workflow_suspend") {
+						const stage = sseEvent.stage || "clarification";
+						setSeTeamStepStatus((prev) => ({ ...prev, [stage]: "completed" }));
+						setSuspendedQuestions(sseEvent.questions || []);
+						setClarificationAnswers(new Array((sseEvent.questions || []).length).fill(""));
+						setSeTeamLoading(false);
+					} else if (eventType === "workflow_complete") {
+						setWorkflowCompleted(true);
+						setSuspendedQuestions([]);
+						setSeTeamBackendPending(false);
+					} else if (eventType === "workflow_error" || eventType === "stage_error" || eventType === "error") {
+						setSeTeamError(sseEvent.reason || sseEvent.error || sseEvent.message || "SE-Team 执行失败");
+						setSeTeamBackendPending(false);
+					} else if (eventType === "rollback") {
+						setRollbacks((prev) => [...prev, { from: sseEvent.from_step, to: sseEvent.to_step, reason: sseEvent.reason }]);
+						setWorkflowCompleted(true);
+					}
+				}
+			}
+		} catch (err) {
+			setSeTeamError(err instanceof Error ? err.message : "请求失败");
+		} finally {
+			setSeTeamLoading(seTeamBackendPendingRef.current);
+			try {
+				chatAbortRef.current?.abort();
+			} catch (_e) {}
+			chatAbortRef.current = null;
+		}
+	}, [activeStepsConfig, seTeamInput, seTeamLoading, seTeamSessionId, activeProjectPath, seTeamSessionMode, updateSeTeamOutputWrite, updateSeTeamTaskExploration]);
+
+	const handleResumeSeTeamClarification = useCallback(async () => {
+		if (!seTeamSessionId || seTeamLoading) return;
+		const answers = [...clarificationAnswers];
+		if (answers.some((ans) => !ans.trim())) {
+			setSeTeamError("请填写所有问题的回答");
+			return;
+		}
+
+		setSuspendedQuestions([]);
+		setSeTeamLoading(true);
+		setSeTeamError(null);
+
+		try {
+			const controller = new AbortController();
+			chatAbortRef.current = controller;
+			const response = await fetch("/api/session/resume-stream", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					session_id: seTeamSessionId,
+					answers: answers,
+				}),
+				signal: controller.signal,
+			});
+
+			if (!response.ok || !response.body) {
+				throw new Error("SE-Team 恢复失败");
+			}
+
+			const reader = response.body.getReader();
+			const decoder = new TextDecoder();
+			let buffer = "";
+
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				buffer += decoder.decode(value, { stream: true });
+				const blocks = buffer.split(/\n\n/);
+				buffer = blocks.pop() || "";
+
+				for (const block of blocks) {
+					if (!block.trim()) continue;
+					let event = "message";
+					let dataText = "";
+					block.split(/\n/).forEach((line) => {
+						if (line.startsWith("event:")) event = line.slice(6).trim();
+						else if (line.startsWith("data:")) dataText += `${line.slice(5).trimStart()}\n`;
+					});
+					if (!dataText.trim()) continue;
+					let parsed: any = dataText.trim();
+					try { parsed = JSON.parse(dataText); } catch (_e) { }
+					if (parsed?.session_id && !seTeamSessionId) setSeTeamSessionId(String(parsed.session_id));
+
+					const sseEvent = { ...parsed, type: parsed.type || parsed.event || event, event: parsed.event || parsed.type || event };
+					const eventType = sseEvent.type || sseEvent.event;
+
+					if (eventType === "route_decision") {
+						const isSimpleQa = Number(sseEvent.route_code) === 2 || sseEvent.mode === "simple_qa";
+						setSeTeamBackendPending(!isSimpleQa);
+						const steps = isSimpleQa ? SIMPLE_QA_STEPS : STEPS;
+						setActiveStepsConfig(steps);
+						const initialStatuses: Record<string, "pending" | "running" | "completed"> = {};
+						steps.forEach((s) => {
+							initialStatuses[s.stage] = "pending";
+						});
+						setSeTeamStepStatus(initialStatuses);
+					} else if (eventType === "workflow_start") {
+						const isSimpleQa = sseEvent.mode === "simple_qa";
+						setSeTeamBackendPending(!isSimpleQa);
+						const steps = isSimpleQa ? SIMPLE_QA_STEPS : STEPS;
+						setActiveStepsConfig(steps);
+						const initialStatuses: Record<string, "pending" | "running" | "completed"> = {};
+						steps.forEach((s) => {
+							initialStatuses[s.stage] = "pending";
+						});
+						setSeTeamStepStatus(initialStatuses);
+						setWorkflowCompleted(false);
+					} else if (eventType === "stage_start") {
+						const stepInfo = (sseEvent.mode === "simple_qa" ? SIMPLE_QA_STEPS : STEPS).find((s) => s.stage === sseEvent.stage) || {
+							step: Number(sseEvent.step) || 0,
+							stage: sseEvent.stage,
+							display: sseEvent.display_name || sseEvent.stage || "阶段",
+							type: sseEvent.agent_type === "advisor" ? "advisor" : "standard",
+							icon: sseEvent.icon || "🧩",
+						};
+						setSeTeamStepStatus((prev) => ({ ...prev, [sseEvent.stage]: "running" }));
+						setSeTeamStageCards((prev) => {
+							const idx = prev.findIndex((c) => c.stage === sseEvent.stage && c.queryId === currentQueryIdRef.current);
+							if (idx >= 0) {
+								const next = [...prev];
+								next[idx] = {
+									stage: sseEvent.stage,
+									display: stepInfo.display,
+									type: stepInfo.type as "advisor" | "standard",
+									icon: stepInfo.icon,
+									status: "running",
+									content: "",
+									queryId: currentQueryIdRef.current,
+								};
+								return next;
+							}
+							return [
+								...prev,
+								{
+									stage: sseEvent.stage,
+									display: stepInfo.display,
+									type: stepInfo.type as "advisor" | "standard",
+									icon: stepInfo.icon,
+									status: "running",
+									content: "",
+									queryId: currentQueryIdRef.current,
+								},
+							];
+						});
+					} else if (eventType === "experience_matched") {
+						const exps = sseEvent.experiences || [];
+						setMatchedExperiences(exps);
+						if (sseEvent.stage) {
+							setSeTeamStageCards((prev) =>
+								prev.map((c) => (c.stage === sseEvent.stage && c.queryId === currentQueryIdRef.current ? { ...c, experiences: exps } : c))
+							);
+						}
+					} else if (eventType === "stream_chunk" || event === "stream_chunk") {
+						if (sseEvent.stage) {
+							setSeTeamStageCards((prev) =>
+								prev.map((c) => (c.stage === sseEvent.stage && c.queryId === currentQueryIdRef.current ? { ...c, content: (c.content || "") + (sseEvent.content || "") } : c))
+							);
+						}
+					} else if (eventType === "task_exploration") {
+						updateSeTeamTaskExploration(currentQueryIdRef.current, sseEvent.task_exploration);
+					} else if (eventType === "output_write") {
+						updateSeTeamOutputWrite(currentQueryIdRef.current, sseEvent.output_write);
+					} else if (eventType === "stage_complete") {
+						setSeTeamStepStatus((prev) => ({ ...prev, [sseEvent.stage]: "completed" }));
+						setSeTeamStageCards((prev) => {
+							const updated = prev.map((c) => (c.stage === sseEvent.stage && c.queryId === currentQueryIdRef.current ? { ...c, status: "completed" as const, content: toStringValue(sseEvent.output, c.content || ""), artifactFiles: sseEvent.artifact_files || sseEvent.artifact_paths || [] } : c));
+							return ensureNextStageCard(updated, activeStepsConfig, String(sseEvent.stage || ""), currentQueryIdRef.current);
+						});
+					} else if (eventType === "stage_suspended" || sseEvent.event === "stage_suspended" || sseEvent.event === "workflow_suspend") {
+						const stage = sseEvent.stage || "clarification";
+						setSeTeamStepStatus((prev) => ({ ...prev, [stage]: "completed" }));
+						setSuspendedQuestions(sseEvent.questions || []);
+						setClarificationAnswers(new Array((sseEvent.questions || []).length).fill(""));
+						setSeTeamLoading(false);
+					} else if (eventType === "rollback") {
+						setRollbacks((prev) => [...prev, { from: sseEvent.from_step, to: sseEvent.to_step, reason: sseEvent.reason }]);
+						setWorkflowCompleted(true);
+					} else if (eventType === "workflow_complete") {
+						setWorkflowCompleted(true);
+						setSuspendedQuestions([]);
+						setSeTeamBackendPending(false);
+					} else if (eventType === "workflow_error" || eventType === "stage_error" || eventType === "error") {
+						setSeTeamError(sseEvent.reason || sseEvent.error || sseEvent.message || "SE-Team 执行失败");
+						setSeTeamBackendPending(false);
+					}
+				}
+			}
+		} catch (err) {
+			setSeTeamError(err instanceof Error ? err.message : "恢复失败");
+		} finally {
+			setSeTeamLoading(seTeamBackendPendingRef.current);
+			try {
+				chatAbortRef.current?.abort();
+			} catch (_e) {}
+			chatAbortRef.current = null;
+		}
+	}, [activeStepsConfig, seTeamSessionId, seTeamLoading, clarificationAnswers, updateSeTeamOutputWrite, updateSeTeamTaskExploration]);
+
+	const refreshPersonaSkillState = useCallback(async () => {
+		if (!serverBaseUrl) {
+			setPersonaSkillItems([]);
+			setActivePersonaSkill(null);
+			return;
+		}
+
+		const [items, active] = await Promise.all([
+			createGraphExtensionsApi.listPersonaSkills("/api"),
+			createGraphExtensionsApi.fetchActivePersonaSkill("/api"),
+		]);
+		setPersonaSkillItems(items);
+		setActivePersonaSkill(active.persona || null);
+	}, [serverBaseUrl]);
+
+	const handleImportSkill = useCallback(async () => {
+		if (!personaSkillPath.trim()) {
+			setPersonaSkillStatus("请先输入 skill 绝对路径");
+			return;
+		}
+		setImportingSkill(true);
+		setPersonaSkillStatus("正在导入 skill ...");
+		try {
+			const importResp = await fetch("/api/skills/persona/import", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ skill_path: personaSkillPath.trim() }),
+			});
+			const importPayload = await importResp.json().catch(() => ({}));
+			if (!importResp.ok) {
+				throw new Error(importPayload.error || `导入失败（${importResp.status}）`);
+			}
+
+			const personaId = importPayload?.persona?.personaId;
+			if (personaId) {
+				const activateResp = await fetch("/api/skills/persona/activate", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ persona_id: personaId }),
+				});
+				const activatePayload = await activateResp.json().catch(() => ({}));
+				if (!activateResp.ok) {
+					throw new Error(activatePayload.error || `激活失败（${activateResp.status}）`);
+				}
+			}
+
+			const personaName = importPayload?.persona?.name || importPayload?.persona?.personaId || "skill";
+			setPersonaSkillStatus(`导入并激活成功：${personaName}`);
+			await refreshPersonaSkillState();
+		} catch (error) {
+			setPersonaSkillStatus(`导入失败：${error instanceof Error ? error.message : String(error)}`);
+		} finally {
+			setImportingSkill(false);
+		}
+	}, [personaSkillPath, refreshPersonaSkillState]);
+
+	const handleRemoveSkill = useCallback(async () => {
+		setDeactivatingSkill(true);
+		setPersonaSkillStatus("正在去除 skill ...");
+		try {
+			const resp = await fetch("/api/skills/persona/deactivate", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({}),
+			});
+			const payload = await resp.json().catch(() => ({}));
+			if (!resp.ok) {
+				throw new Error(payload.error || `去除失败（${resp.status}）`);
+			}
+			setPersonaSkillStatus("已去除 Skill，后续回复将使用默认语气");
+			await refreshPersonaSkillState();
+		} catch (error) {
+			setPersonaSkillStatus(`去除失败：${error instanceof Error ? error.message : String(error)}`);
+		} finally {
+			setDeactivatingSkill(false);
+		}
+	}, [refreshPersonaSkillState]);
+
+	const refreshPersonaSkillStatus = useCallback(async () => {
+		try {
+			const resp = await fetch("/api/skills/persona/active");
+			const payload = await resp.json().catch(() => ({}));
+			if (!resp.ok) return;
+			const persona = payload?.persona;
+			const personaName = persona?.name || persona?.personaId || "";
+			if (personaName) {
+				setPersonaSkillStatus(`当前已启用 Skill：${personaName}`);
+			} else {
+				setPersonaSkillStatus("当前未启用 Skill");
+			}
+		} catch {
+			// ignore
+		}
+	}, []);
+
+	useEffect(() => {
+		if (rightPanelTab === "rag") {
+			void refreshPersonaSkillStatus();
+		}
+	}, [rightPanelTab, refreshPersonaSkillStatus]);
 
 	const [advisorPriorityInput, setAdvisorPriorityInput] = useState("");
 
@@ -1767,6 +2711,8 @@ export const RightPanel = () => {
 
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
+	const currentRagRunIdRef = useRef<string | null>(null);
+	const autoPolledMultiAgentSessionRef = useRef<string | null>(null);
 
 	const partitionSummaries = useMemo(
 		() => toPartitionSummaries(hierarchyContract),
@@ -1780,6 +2726,7 @@ export const RightPanel = () => {
 	const ragEvidence = useMemo(() => toRagEvidence(ragResponse), [ragResponse]);
 	const ragJudgment = useMemo(() => toRagJudgment(ragResponse), [ragResponse]);
 	const ragAnswer = useMemo(() => toRagAnswer(ragResponse), [ragResponse]);
+	const ragModeSummary = useMemo(() => toRagModeSummary(ragResponse), [ragResponse]);
 	const ragSnippetBlocks = useMemo(
 		() => toRagSnippetBlocks(ragResponse),
 		[ragResponse],
@@ -1960,6 +2907,14 @@ export const RightPanel = () => {
 	const ragSwarmFinal = useMemo(
 		() => toRagSwarmView(toRagSwarmPayloadFromResponse(ragResponse)),
 		[ragResponse],
+	);
+	const ragTaskExploration = useMemo(
+		() => toRagTaskExploration(ragSessionStatus),
+		[ragSessionStatus],
+	);
+	const ragOutputWrite = useMemo(
+		() => toRagOutputWrite(ragResponse, ragSessionStatus),
+		[ragResponse, ragSessionStatus],
 	);
 	const ragExecutionCards = useMemo(
 		() => toRagExecutionCards(ragResponse, ragSwarmFinal),
@@ -2158,15 +3113,115 @@ export const RightPanel = () => {
 			),
 		[ragReplayEntries, ragReplayFilter],
 	);
-	const activeProjectPath = useMemo(() => {
-		if (availableRepos.length === 0) return undefined;
-		const matchedPath = projectName
-			? availableRepos.find((repo) => repo.name === projectName)?.path
-			: undefined;
-		if (matchedPath) return matchedPath;
-		if (availableRepos.length === 1) return availableRepos[0].path;
-		return undefined;
-	}, [availableRepos, projectName]);
+
+	const handleImportPersonaSkill = useCallback(async () => {
+		const skillPath = personaSkillPathInput.trim();
+		if (!skillPath) {
+			setPersonaSkillMessage("请先输入 skill 绝对路径");
+			return;
+		}
+		setPersonaSkillBusy(true);
+		setPersonaSkillMessage(null);
+		try {
+			const response = await createGraphExtensionsApi.importPersonaSkill(
+				"/api",
+				skillPath,
+			);
+			setPersonaSkillPathInput("");
+			setPersonaSkillMessage(`已导入 persona：${response.persona.name}`);
+			await refreshPersonaSkillState();
+		} catch (error) {
+			setPersonaSkillMessage(
+				error instanceof Error ? error.message : String(error),
+			);
+		} finally {
+			setPersonaSkillBusy(false);
+		}
+	}, [personaSkillPathInput, refreshPersonaSkillState]);
+
+	const handleActivatePersonaSkill = useCallback(
+		async (personaId: string) => {
+			setPersonaSkillBusy(true);
+			setPersonaSkillMessage(null);
+			try {
+				const response = await createGraphExtensionsApi.activatePersonaSkill(
+					"/api",
+					personaId,
+				);
+				setActivePersonaSkill(response.persona || null);
+				setPersonaSkillMessage(
+					response.persona
+						? `已激活：${response.persona.name}`
+						: "已激活 persona",
+				);
+				await refreshPersonaSkillState();
+			} catch (error) {
+				setPersonaSkillMessage(
+					error instanceof Error ? error.message : String(error),
+				);
+			} finally {
+				setPersonaSkillBusy(false);
+			}
+		},
+		[refreshPersonaSkillState],
+	);
+
+	const handleDeactivatePersonaSkill = useCallback(async () => {
+		setPersonaSkillBusy(true);
+		setPersonaSkillMessage(null);
+		try {
+			await createGraphExtensionsApi.deactivatePersonaSkill("/api");
+			setActivePersonaSkill(null);
+			setPersonaSkillMessage("已退出角色视角，恢复默认问答模式");
+			await refreshPersonaSkillState();
+		} catch (error) {
+			setPersonaSkillMessage(
+				error instanceof Error ? error.message : String(error),
+			);
+		} finally {
+			setPersonaSkillBusy(false);
+		}
+	}, [refreshPersonaSkillState]);
+
+	const handleDeletePersonaSkill = useCallback(
+		async (persona: CreateGraphPersonaSkillItem) => {
+			if (!persona.personaId) return;
+			const confirmed = window.confirm(
+				`确认删除 persona：${persona.name || persona.personaId} ?`,
+			);
+			if (!confirmed) return;
+
+			setPersonaSkillBusy(true);
+			setPersonaSkillMessage(null);
+			try {
+				await createGraphExtensionsApi.deletePersonaSkill(
+					"/api",
+					persona.personaId,
+				);
+				setPersonaSkillMessage(
+					`已删除 persona：${persona.name || persona.personaId}`,
+				);
+				await refreshPersonaSkillState();
+			} catch (error) {
+				setPersonaSkillMessage(
+					error instanceof Error ? error.message : String(error),
+				);
+			} finally {
+				setPersonaSkillBusy(false);
+			}
+		},
+		[refreshPersonaSkillState],
+	);
+
+	useEffect(() => {
+		if (activeTab !== "chat") return;
+		if (!serverBaseUrl) {
+			setPersonaSkillItems([]);
+			setActivePersonaSkill(null);
+			return;
+		}
+		void refreshPersonaSkillState();
+	}, [activeTab, refreshPersonaSkillState, serverBaseUrl]);
 
 	const prioritizedExperienceLibraries = useMemo(() => {
 		const rawItems = advisorPriorityInput
@@ -2226,13 +3281,6 @@ export const RightPanel = () => {
 		() => pathAnalyses.find((item) => item.id === selectedPathId) ?? null,
 		[pathAnalyses, selectedPathId],
 	);
-
-	// Auto-scroll to bottom when messages update or while streaming
-	useEffect(() => {
-		if (messagesEndRef.current) {
-			messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
-		}
-	});
 
 	const pushRagProgressEvent = useCallback((entry: string) => {
 		if (!entry.trim()) return;
@@ -2845,10 +3893,76 @@ export const RightPanel = () => {
 	}, []);
 
 	// Chat handlers
+	// Slash 命令状态：跟踪用户是否在 textarea 中输入了 /skill 或 /models
+	const [slashState, setSlashState] = useState<{
+		kind: SlashCommandKind;
+		query: string;
+		start: number;
+		end: number;
+	} | null>(null);
+	const handleSlashSelect = useCallback(
+		(kind: SlashCommandKind, item: SlashCommandItem) => {
+			if (!slashState) return;
+			// 把整段 `/xxx` 从 textarea 中剥掉，**不在对话框中残留 `/...` 前缀**；
+			// 只把光标之后用户真正输入的问题文本保留下来。
+			const newText =
+				chatInput.slice(0, slashState.start) +
+				chatInput.slice(slashState.end);
+			setChatInput(newText);
+			setSlashState(null);
+			// 重新聚焦 textarea，光标停在被删除的 / 段位置
+			requestAnimationFrame(() => {
+				const ta = textareaRef.current;
+				if (ta) {
+					ta.focus();
+					ta.setSelectionRange(slashState.start, slashState.start);
+					adjustTextareaHeight();
+				}
+			});
+
+			// 反斜框选择后：真正触发与"点击 skill 关键"相同的激活效果
+			// - persona skill：调用 /api/skills/persona/activate，并刷新 UI 状态
+			// - 内置 se-team：先清掉现有 persona，再切到 SE-Team 模式
+			if (item.id === BUILTIN_SE_TEAM.id) {
+				void (async () => {
+					setPersonaSkillBusy(true);
+					setPersonaSkillMessage(null);
+					try {
+						await fetch("/api/skills/persona/deactivate", {
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify({}),
+						}).catch(() => undefined);
+						setActivePersonaSkill(null);
+						setPersonaSkillMessage(
+							"已切换至 SE-Team 智能体工作流增强模式（在 SE-Team 标签中继续提问）",
+						);
+						await refreshPersonaSkillState();
+					} finally {
+						setPersonaSkillBusy(false);
+					}
+				})();
+			} else {
+				void handleActivatePersonaSkill(item.id);
+			}
+		},
+		[
+			slashState,
+			chatInput,
+			adjustTextareaHeight,
+			handleActivatePersonaSkill,
+			refreshPersonaSkillState,
+		],
+	);
+	const handleSlashClose = useCallback(() => {
+		setSlashState(null);
+	}, []);
+
 	const handleSendMessage = async () => {
 		if (!chatInput.trim()) return;
 		const text = chatInput.trim();
 		setChatInput("");
+		setSlashState(null);
 		// Reset textarea height after sending
 		if (textareaRef.current) {
 			textareaRef.current.style.height = "36px";
@@ -2888,6 +4002,7 @@ export const RightPanel = () => {
 		setCopiedExecutionCardKey(null);
 		setSavedRunbookPath(null);
 		setCurrentRagRunId(runId);
+		currentRagRunIdRef.current = runId;
 		setCurrentRagRunStartedAt(Date.now());
 		setCurrentRagRunQuery(query);
 		setActiveRagReplayId(runId);
@@ -2952,7 +4067,8 @@ export const RightPanel = () => {
 								selectedOptionLabels: activeClarification.selectedOptionLabels,
 								clarification_context: finalClarificationContext,
 								llm_config: llmConfig || undefined,
-								auto_start_multi_agent: shouldAutoApplyOutput,
+								auto_start_multi_agent: true,
+								advisor_enabled: true,
 								opencode_enabled: true,
 								output_root: effectiveOutputRoot || undefined,
 								auto_apply_output: shouldAutoApplyOutput,
@@ -2964,7 +4080,8 @@ export const RightPanel = () => {
 							conversation_id: continuationPlan.startConversationId,
 							clarification_context: finalClarificationContext,
 							llm_config: llmConfig || undefined,
-							auto_start_multi_agent: shouldAutoApplyOutput,
+							auto_start_multi_agent: true,
+							advisor_enabled: true,
 							opencode_enabled: true,
 							output_root: effectiveOutputRoot || undefined,
 							auto_apply_output: shouldAutoApplyOutput,
@@ -3377,17 +4494,19 @@ export const RightPanel = () => {
 								setRagInput("");
 								return;
 							}
-							pushRagProgressEvent("结果回补｜已从会话结果恢复回答");
-							setRagClarification(null);
-							setRagPendingHandoff(null);
-							setRagResponse(
-								toRagResponseFromConversationResult(
-									query,
-									recoveredResult as CreateGraphConversationSessionResultResponse,
-								),
-							);
-							setRagInput("");
-							return;
+							if (currentRagRunIdRef.current === runId) {
+								pushRagProgressEvent("结果回补｜已从会话结果恢复回答");
+								setRagClarification(null);
+								setRagPendingHandoff(null);
+								setRagResponse(
+									toRagResponseFromConversationResult(
+										query,
+										recoveredResult as CreateGraphConversationSessionResultResponse,
+									),
+								);
+								setRagInput("");
+								return;
+							}
 						} catch (_terminalResultRecoverError) {
 							// Ignore and fall back to conversation message recovery below.
 						}
@@ -3446,8 +4565,9 @@ export const RightPanel = () => {
 							const recoveredAnswer = toRagResponseFromConversationMessages(
 								query,
 								conversationMessages as CreateGraphConversationMessagesResponse,
+								sessionId,
 							);
-							if (recoveredAnswer) {
+							if (recoveredAnswer && currentRagRunIdRef.current === runId) {
 								pushRagProgressEvent("结果回补｜已从会话记录恢复回答");
 								setRagClarification(null);
 								setRagPendingHandoff(null);
@@ -3516,6 +4636,7 @@ export const RightPanel = () => {
 					return;
 				}
 
+				if (currentRagRunIdRef.current !== runId) return;
 				const mappedResponse = toRagResponseFromConversationResult(
 					query,
 					conversationResult as CreateGraphConversationSessionResultResponse,
@@ -3661,7 +4782,7 @@ export const RightPanel = () => {
 			}
 
 			let finalStatus: CreateGraphMultiAgentSessionStatusResponse | null = null;
-			const multiAgentPollDeadline = Date.now() + 360_000;
+			const multiAgentPollDeadline = Date.now() + 1_800_000;
 			while (Date.now() < multiAgentPollDeadline) {
 				let status: CreateGraphMultiAgentSessionStatusResponse;
 				try {
@@ -3727,8 +4848,15 @@ export const RightPanel = () => {
 			}
 
 			if (!finalStatus || finalStatus.status !== "completed") {
+				const finalStatusRecord = isRecord(finalStatus as unknown) ? (finalStatus as unknown as Record<string, unknown>) : null;
+				const statusTaskExploration = isRecord(finalStatusRecord?.taskExploration)
+					? finalStatusRecord.taskExploration
+					: null;
+				const waitHint = isRecord(statusTaskExploration)
+					? toStringValue(statusTaskExploration.message, "OpenCode 仍在勘探")
+					: "OpenCode 仍在勘探";
 				throw new Error(
-					"Multi-agent 执行超时（已停止长轮询）。请点击“继续查询状态”。",
+					`Multi-agent 执行等待超时，但后端可能仍在运行：${waitHint}`,
 				);
 			}
 
@@ -3756,6 +4884,24 @@ export const RightPanel = () => {
 			setRagLoading(false);
 		}
 	}, [pushRagProgressEvent, ragPendingHandoff]);
+
+	useEffect(() => {
+		if (!ragPendingHandoff?.sessionId) {
+			autoPolledMultiAgentSessionRef.current = null;
+			return;
+		}
+		if (!ragPendingHandoff.autoStarted || ragLoading) {
+			return;
+		}
+		if (ragPendingHandoff.status === "completed" || ragPendingHandoff.status === "failed") {
+			return;
+		}
+		if (autoPolledMultiAgentSessionRef.current === ragPendingHandoff.sessionId) {
+			return;
+		}
+		autoPolledMultiAgentSessionRef.current = ragPendingHandoff.sessionId;
+		void handleStartPendingMultiAgent();
+	}, [handleStartPendingMultiAgent, ragLoading, ragPendingHandoff]);
 
 	const handleClarificationOptionSelect = useCallback(
 		(option: CreateGraphClarificationOption) => {
@@ -4706,8 +5852,468 @@ export const RightPanel = () => {
 				</div>
 			)}
 
-			{/* RAG Tab */}
+			{/* RAG Tab as Advanced SE-Team Workspace */}
 			{activeTab === "rag" && (
+				<div className="flex-1 min-h-0 flex flex-col overflow-hidden bg-background">
+					{/* Panel Header */}
+					<div className="px-4 py-3 border-b border-border-subtle bg-elevated/40 flex items-center justify-between">
+						<div>
+							<div className="text-sm font-semibold text-violet-200">
+								问答
+							</div>
+							<div className="text-xs text-text-muted mt-0.5">
+								{seTeamSessionMode === "global" ? "当前处于全局经验检索模式" : `针对当前项目：${projectName || "未选择项目"}`}
+							</div>
+						</div>
+						<div className="flex items-center gap-2">
+							<button
+								type="button"
+								onClick={() => setSeTeamPersonaPanelOpen((prev) => !prev)}
+								className={`px-2.5 py-1 text-xs rounded border transition-all ${
+									seTeamPersonaPanelOpen
+										? "bg-violet-500/20 text-violet-200 border-violet-500/40 font-semibold"
+										: "border-border-subtle text-text-secondary hover:text-text-primary hover:bg-hover"
+								}`}
+							>
+								Persona
+							</button>
+							{activePersonaSkill ? (
+								<span className="text-[11px] px-2 py-1 rounded-full bg-emerald-500/15 text-emerald-200 border border-emerald-500/30">
+									当前角色：{activePersonaSkill.name}
+								</span>
+							) : (
+								<span className="text-[11px] px-2 py-1 rounded-full bg-surface border border-border-subtle text-text-muted">
+									未激活角色
+								</span>
+							)}
+						</div>
+					</div>
+
+					{seTeamPersonaPanelOpen && (
+						<div className="px-4 py-3 border-b border-border-subtle bg-elevated/35 space-y-2">
+							<div className="text-[11px] uppercase tracking-[0.14em] text-text-muted">
+								Persona Skill 一键导入
+							</div>
+							<div className="flex items-center gap-2">
+								<input
+									type="text"
+									value={personaSkillPath}
+									onChange={(event) => setPersonaSkillPath(event.target.value)}
+									placeholder="skill 目录绝对路径（例如 D:/代码仓库生图/借鉴项目/huangqing-perspective）"
+									className="flex-1 bg-surface border border-border-subtle rounded px-2.5 py-1.5 text-xs text-text-primary placeholder:text-text-muted font-mono"
+									disabled={importingSkill || deactivatingSkill}
+								/>
+								<button
+									type="button"
+									onClick={() => {
+										void handleImportSkill();
+									}}
+									className="px-2 py-1 text-xs rounded border border-emerald-500/40 text-emerald-200 hover:bg-emerald-500/15 font-semibold"
+									disabled={importingSkill || deactivatingSkill}
+								>
+									{importingSkill ? "导入中..." : "导入"}
+								</button>
+								<button
+									type="button"
+									onClick={() => {
+										void refreshPersonaSkillState();
+									}}
+									className="px-2 py-1 text-xs rounded border border-border-subtle text-text-secondary hover:text-text-primary hover:bg-hover"
+									disabled={importingSkill || deactivatingSkill}
+								>
+									刷新
+								</button>
+							</div>
+
+							{personaSkillStatus && (
+								<div className="text-xs text-text-secondary rounded border border-border-subtle bg-surface/70 px-2.5 py-2">
+									{personaSkillStatus}
+								</div>
+							)}
+
+							<div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+								{personaSkillItems.length === 0 ? (
+									<div className="text-xs text-text-muted rounded border border-border-subtle bg-surface/70 px-2.5 py-2">
+										暂无已导入 persona
+									</div>
+								) : (
+									personaSkillItems.map((item) => {
+										const isActive =
+											Boolean(activePersonaSkill) &&
+											activePersonaSkill?.personaId === item.personaId;
+										return (
+											<div
+												key={item.personaId}
+												className="flex items-center gap-2 rounded border border-border-subtle bg-surface/70 px-2.5 py-2"
+											>
+												<div className="min-w-0 flex-1">
+													<div className="text-xs text-text-primary truncate font-medium">
+														{item.name || item.personaId}
+													</div>
+													{item.description && (
+														<div className="text-[11px] text-text-muted truncate mt-0.5">
+															{item.description}
+														</div>
+													)}
+												</div>
+												{isActive ? (
+													<span className="text-[11px] px-2 py-1 rounded border border-emerald-500/30 text-emerald-200 bg-emerald-500/10 font-semibold">
+														已激活
+													</span>
+												) : (
+													<button
+														type="button"
+														onClick={() => {
+															void handleActivatePersonaSkill(item.personaId);
+														}}
+														className="text-[11px] px-2 py-1 rounded border border-cyan-500/40 text-cyan-200 hover:bg-cyan-500/15"
+														disabled={importingSkill || deactivatingSkill}
+													>
+														激活
+													</button>
+												)}
+												<button
+													type="button"
+													onClick={() => {
+														void handleDeletePersonaSkill(item);
+													}}
+													className="text-[11px] px-2 py-1 rounded border border-rose-500/40 text-rose-200 hover:bg-rose-500/15"
+													disabled={importingSkill || deactivatingSkill}
+												>
+													删除
+												</button>
+											</div>
+										);
+									})
+								)}
+							</div>
+						</div>
+					)}
+
+
+					<div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin p-4 space-y-4">
+						<div className="space-y-6">
+								{seTeamMessages.filter((m) => m.role === 'user' && !m.isClarificationReply).length === 0 ? (
+									<div className="flex flex-col items-center justify-center py-12 text-center">
+										<Sparkles className="w-10 h-10 text-violet-500/50 mb-3 animate-pulse" />
+										<div className="font-semibold text-sm text-text-primary">单局智能体团队待命</div>
+										<div className="text-xs text-text-muted mt-1 max-w-[260px] leading-relaxed">
+											输入本项目的开发需求，AI 顾问与实现专家将开启协同分析、设计、测试
+										</div>
+									</div>
+								) : (
+					seTeamMessages.filter((m) => m.role === 'user' && !m.isClarificationReply).map((msg, qIdx) => {
+						const qId = (msg as any).queryId;
+						const cardsForThisQuery = seTeamStageCards.filter((c) => c.queryId === qId);
+						const queryTaskExploration = qId ? seTeamTaskExplorationByQuery[qId] : undefined;
+						const queryOutputWrite = qId ? seTeamOutputWriteByQuery[qId] : undefined;
+						const isLatestQuery = qIdx === seTeamMessages.filter((m) => m.role === 'user' && !m.isClarificationReply).length - 1;
+
+										return (
+											<div key={qId || qIdx} className={`space-y-4 ${!isLatestQuery ? 'border-b border-dashed border-border-subtle pb-6' : ''}`}>
+												{/* User's original request */}
+												<div className="self-end max-w-[85%] bg-violet-600 text-white rounded-lg p-3 text-sm shadow-md ml-auto break-words">
+													{msg.content}
+												</div>
+
+												{/* Requirement Breakdown Banner */}
+												<div className="rounded-lg border border-border-subtle bg-surface/50 p-3">
+													<div className="flex items-center gap-2 mb-2 text-violet-200 font-semibold text-xs">
+														<Sparkles className="w-4 h-4 text-violet-400" />
+														SE-Team 接收并分析当前需求
+													</div>
+													<div className="text-xs text-text-secondary leading-relaxed">
+														{msg.content}
+													</div>
+												</div>
+
+												{/* Render cards for this query */}
+												{cardsForThisQuery.length === 0 ? (
+													<div className="flex flex-col items-center justify-center py-6 text-center">
+														<Loader2 className="w-5 h-5 animate-spin text-text-muted mb-2" />
+														<div className="text-xs text-text-muted">智能体正在拆解与执行，请稍候...</div>
+													</div>
+												) : (
+													<div className="relative flex flex-col gap-4">
+														{/* Vertical Connector Line */}
+														<div className="absolute left-[15px] top-4 bottom-4 w-0.5 bg-border-subtle z-0" />
+
+														{cardsForThisQuery.map((card) => {
+															const isAdvisor = card.type === 'advisor';
+															const isRunning = card.status === 'running';
+
+															return (
+																<div key={card.stage} className="relative pl-10 z-10">
+																	{/* Circle Node Icon */}
+																	<div className={`absolute left-0 top-0 w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all ${
+																		isRunning
+																			? isAdvisor
+																				? 'border-amber-400 bg-amber-400/10 shadow-[0_0_8px_rgba(251,191,36,0.3)]'
+																				: 'border-violet-500 bg-violet-500/10 shadow-[0_0_8px_rgba(124,58,237,0.3)]'
+																			: isAdvisor
+																				? 'border-amber-400/80 bg-amber-400/20'
+																				: 'border-emerald-500/80 bg-emerald-500/20'
+																	}`}>
+																		{isRunning ? (
+																			<Loader2 className={`w-3.5 h-3.5 animate-spin ${isAdvisor ? 'text-amber-400' : 'text-violet-400'}`} />
+																		) : (
+																			<span className={`text-xs ${isAdvisor ? 'text-amber-400' : 'text-emerald-400'}`}>✓</span>
+																		)}
+																	</div>
+
+																	{/* Main Card Box */}
+																	<div className={`rounded-lg border bg-surface/40 overflow-hidden transition-all ${
+																		isRunning
+																			? isAdvisor
+																				? 'border-amber-400/50 shadow-[0_0_12px_rgba(251,191,36,0.1)]'
+																				: 'border-violet-500/50 shadow-[0_0_12px_rgba(124,58,237,0.1)]'
+																			: isAdvisor
+																				? 'border-amber-400/20'
+																				: 'border-emerald-500/20'
+																	}`}>
+																		{/* Card Header */}
+																		<div className="flex items-center justify-between px-3 py-2 bg-elevated/20 border-b border-border-subtle">
+																			<div className="flex items-center gap-2">
+																				{isAdvisor ? (
+																					<span className="text-[10px] text-amber-300 font-semibold bg-amber-500/10 px-1.5 py-0.5 rounded">专家</span>
+																				) : (
+																					<span className="text-[10px] text-violet-300 font-semibold bg-violet-500/10 px-1.5 py-0.5 rounded">模块</span>
+																				)}
+																				<span className={`text-xs font-semibold ${isAdvisor ? 'text-amber-200' : 'text-text-primary'}`}>
+																					{card.icon} {card.display}
+																				</span>
+																			</div>
+																			<div className="text-[10px] text-text-muted">
+																				{isRunning ? '进行中...' : '已完成'}
+																			</div>
+																		</div>
+
+																		{/* Card Body */}
+																		<div className="p-3 text-xs leading-relaxed space-y-2">
+																			<div className={isAdvisor ? 'text-amber-100/90' : 'text-text-secondary'}>
+																				<MarkdownRenderer
+																					content={card.content || ""}
+																					onLinkClick={handleLinkClick}
+																				/>
+																			</div>
+
+																			{/* Files list */}
+																			{card.artifactFiles && card.artifactFiles.length > 0 && (
+																				<div className="mt-2 bg-background/50 border border-border-subtle rounded-md p-2">
+																					<div className="text-[10px] text-violet-300 font-semibold mb-1">📁 已产出文件:</div>
+																					{card.artifactFiles.map((f) => (
+																						<div key={f} className="text-[10px] text-text-muted font-mono truncate">
+																							{f.split(/[/\\]/).slice(-2).join('/')}
+																						</div>
+																					))}
+																				</div>
+																			)}
+
+																			{/* Exp refs inside card */}
+																			{card.experiences && card.experiences.length > 0 && (
+																				<div className="mt-2 space-y-1.5">
+																					{card.experiences.map((exp, expIdx) => {
+																						const expId = `${card.stage}-${expIdx}`;
+																						const isExpExpanded = !!expandedExps[expId];
+																						const projectName = exp.project_name || '参考经验';
+																						const pathCount = (exp.partitions || []).reduce((sum: number, p: any) => sum + (p.paths || []).length, 0);
+
+																						if (pathCount === 0) return null;
+
+																						return (
+																							<div key={expId} className="border border-amber-500/20 rounded bg-amber-500/5 overflow-hidden">
+																								<button
+																									type="button"
+																									onClick={() => toggleExpCollapse(expId)}
+																									className="w-full flex items-center justify-between px-2.5 py-1.5 text-[10px] font-semibold text-amber-200"
+																								>
+																									<div className="flex items-center gap-1.5">
+																										<span>📂</span>
+																										<span>【{projectName}】</span>
+																									</div>
+																									<ChevronDown className={`w-3 h-3 transition-transform ${isExpExpanded ? '' : '-rotate-90'}`} />
+																								</button>
+																								{isExpExpanded && (
+																									<div className="px-2.5 pb-2 pt-1 border-t border-amber-500/10 bg-background/30 space-y-2">
+																										{(exp.partitions || []).map((part: any, pIdx: number) => 
+																											(part.paths || []).map((pathItem: any, pathIdx: number) => (
+																												<div key={`${pIdx}-${pathIdx}`} className="text-[10px] border-b border-white/5 pb-1 last:border-0 last:pb-0">
+																													<div className="text-violet-300 font-medium">{pathItem.path_name}</div>
+																													<div className="text-text-muted">{pathItem.path_description}</div>
+																												</div>
+																											))
+																										)}
+																									</div>
+																								)}
+																							</div>
+																						);
+																					})}
+																				</div>
+																			)}
+																		</div>
+																	</div>
+																</div>
+															);
+														})}
+													</div>
+												)}
+
+												{isLatestQuery && queryTaskExploration && (
+													<div className="rounded-lg border border-sky-500/30 bg-sky-500/10 p-3 space-y-2">
+														<div className="flex items-center justify-between gap-2">
+															<div className="text-[11px] uppercase tracking-wide text-sky-200">任务勘探 · OpenCode</div>
+															<div className="text-[10px] px-2 py-0.5 rounded border border-sky-400/40 bg-sky-500/15 text-sky-100">{queryTaskExploration.status}</div>
+														</div>
+														<div className="text-xs text-text-primary">
+															<MarkdownRenderer content={queryTaskExploration.message} onLinkClick={handleLinkClick} />
+														</div>
+														<div className="grid grid-cols-1 gap-2 md:grid-cols-2 text-[11px] text-text-secondary">
+															<div>阶段：{queryTaskExploration.phase}</div>
+															<div>等待秒数：{typeof queryTaskExploration.waitSeconds === "number" ? queryTaskExploration.waitSeconds : "-"}</div>
+															{queryTaskExploration.sessionId && <div className="break-all">OpenCode Session：{queryTaskExploration.sessionId}</div>}
+															{queryTaskExploration.model && <div>模型：{queryTaskExploration.model}</div>}
+														</div>
+													</div>
+												)}
+
+												{isLatestQuery && queryOutputWrite && (
+													<div className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-3 space-y-3">
+														<div className="text-[11px] uppercase tracking-wide text-emerald-200">输出落盘与文件变更</div>
+														<div className="text-[11px] text-text-secondary space-y-1">
+															<div>落盘模式：{queryOutputWrite.materializationMode}</div>
+															<div>成功：{queryOutputWrite.writtenCount}，失败：{queryOutputWrite.failedCount}</div>
+															{queryOutputWrite.outputRoot && <div className="break-all">输出目录：{queryOutputWrite.outputRoot}</div>}
+															{queryOutputWrite.generatedProjectRoot && <div className="break-all">新项目目录：{queryOutputWrite.generatedProjectRoot}</div>}
+														</div>
+														{queryOutputWrite.modifiedFiles.length > 0 && (
+															<div className="space-y-1">
+																<div className="text-[10px] uppercase tracking-wide text-emerald-200">修改文件</div>
+																{queryOutputWrite.modifiedFiles.slice(0, 12).map((item) => {
+																	const modifiedKey = toStringValue(item.relativePath, toStringValue(item.path, "未知文件"));
+																	return <div key={modifiedKey} className="text-[10px] text-text-secondary break-all">• {toStringValue(item.relativePath, toStringValue(item.path, "未知文件"))} · {toStringValue(item.changeType, "modify")}</div>;
+																})}
+															</div>
+														)}
+														{queryOutputWrite.diffBlocks.length > 0 && (
+															<div className="space-y-2">
+																<div className="text-[10px] uppercase tracking-wide text-emerald-200">修改前后对比</div>
+																{queryOutputWrite.diffBlocks.slice(0, 6).map((diff) => {
+																	const diffKey = toStringValue(diff.relativePath, toStringValue(diff.path, "diff-block"));
+																	return (
+																		<div key={diffKey} className="rounded border border-border-subtle bg-surface/40 p-2 text-[11px] space-y-2">
+																			<div className="text-text-primary font-medium break-all">{toStringValue(diff.relativePath, toStringValue(diff.path, diffKey))}</div>
+																			{toStringValue(diff.unifiedDiff) && <pre className="overflow-x-auto rounded bg-background/70 p-2 text-[10px] text-emerald-100"><code>{toStringValue(diff.unifiedDiff)}</code></pre>}
+																		</div>
+																	);
+																})}
+															</div>
+														)}
+													</div>
+												)}
+
+												{/* Interactive widgets (rollbacks, clarification questions, completion banners) - Only for the active query */}
+												{isLatestQuery && (
+													<>
+														{/* Rollback alerts */}
+														{rollbacks.map((rb, idx) => (
+															<div key={idx} className="flex items-center gap-2 p-3 rounded-lg border border-red-500/30 bg-red-500/10 text-xs text-red-300">
+																<AlertTriangle className="w-4 h-4 animate-pulse text-red-400 shrink-0" />
+																<span>
+																	{rb.reason}：步骤 {rb.from} → {rb.to}
+																</span>
+															</div>
+														))}
+
+														{/* Clarifications questions input */}
+														{suspendedQuestions.length > 0 && (
+															<div className="rounded-lg border border-amber-400/30 bg-amber-500/5 p-4 space-y-3">
+																<div className="flex items-center gap-2 text-xs font-semibold text-amber-300">
+																	<AlertTriangle className="w-4 h-4" />
+																	AI 顾问需要您补充以下澄清信息
+																</div>
+																{suspendedQuestions.map((q, idx) => (
+																	<div key={idx} className="space-y-1">
+																		<label className="text-xs text-text-primary block font-medium">
+																			问题 {idx + 1}: {q}
+																		</label>
+																		<textarea
+																			value={clarificationAnswers[idx] || ''}
+																			onChange={(e) => {
+																				const val = e.target.value;
+																				setClarificationAnswers((prev) => {
+																					const next = [...prev];
+																					next[idx] = val;
+																					return next;
+																				});
+																			}}
+																			placeholder="请输入您的回答..."
+																			className="w-full bg-background border border-border-subtle rounded-md px-3 py-1.5 text-xs text-text-primary resize-y min-h-[44px]"
+																		/>
+																	</div>
+																))}
+																<button
+																	type="button"
+																	onClick={handleResumeSeTeamClarification}
+																	className="w-full py-1.5 rounded bg-violet-600 hover:bg-violet-500 text-white font-semibold text-xs transition-colors"
+																>
+																	提交回答并继续
+																</button>
+															</div>
+														)}
+
+														{/* Completion banner */}
+														{workflowCompleted && (
+															<div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4 text-center space-y-1">
+																<div className="text-sm font-bold text-emerald-400">🎉 SE-Team 开发执行完成</div>
+																<div className="text-xs text-text-muted">已顺利产出当前项目的最优实现与架构验证成果</div>
+															</div>
+														)}
+													</>
+												)}
+											</div>
+										);
+									})
+								)}
+							</div>
+
+					</div>
+
+					{seTeamError && (
+						<div className="px-4 py-2 border-t border-rose-500/20 bg-rose-500/10 text-xs text-rose-300">
+							{seTeamError}
+						</div>
+					)}
+
+					{/* Chat Textarea Input Area at Bottom */}
+					<div className="p-3 border-t border-border-subtle bg-surface/30 flex gap-2 items-end">
+						<textarea
+							value={seTeamInput}
+							onChange={(e) => setSeTeamInput(e.target.value)}
+							placeholder="请输入问题，开始当前项目的协同开发与问答..."
+							rows={2}
+							className="flex-1 bg-background border border-border-subtle rounded-md px-2.5 py-1.5 text-xs text-text-primary placeholder:text-text-muted resize-none min-h-[44px]"
+							onKeyDown={(e) => {
+								if (e.key === 'Enter' && !e.shiftKey) {
+									e.preventDefault();
+									handleSendSeTeamChat();
+								}
+							}}
+						/>
+						<button
+							type="button"
+							onClick={handleSendSeTeamChat}
+							disabled={seTeamLoading || !seTeamInput.trim()}
+							className="px-3.5 py-2 text-xs rounded-md bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white font-semibold flex items-center gap-1 shrink-0"
+						>
+							{seTeamLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+							<span>发送</span>
+						</button>
+					</div>
+				</div>
+			)}
+
+			{/* RAG Tab disabled */}
+			{(activeTab as string) === "rag_old_disabled" && (
 				<div className="flex-1 min-h-0 flex flex-col">
 					<div className="px-4 py-3 border-b border-border-subtle bg-elevated/40">
 						<div className="text-sm font-semibold text-violet-200">
@@ -5097,7 +6703,7 @@ export const RightPanel = () => {
 								</div>
 
 								<div className="text-sm text-text-primary whitespace-pre-wrap">
-									{ragClarification.prompt}
+									<MarkdownRenderer content={ragClarification.prompt} />
 								</div>
 
 								<div className="rounded border border-border-subtle bg-surface/40 p-2.5 text-xs text-text-secondary">
@@ -5105,7 +6711,7 @@ export const RightPanel = () => {
 										推断意图
 									</div>
 									<div className="whitespace-pre-wrap">
-										{ragClarification.inferredIntent}
+										<MarkdownRenderer content={ragClarification.inferredIntent} />
 									</div>
 								</div>
 
@@ -5182,6 +6788,33 @@ export const RightPanel = () => {
 
 						{ragResponse && (
 							<>
+								{ragModeSummary && (
+									<div className="rounded-lg border border-violet-500/25 bg-violet-500/10 p-3 space-y-2">
+										<div className="text-xs uppercase tracking-wide text-violet-200">
+											当前模式
+										</div>
+										<div className="flex flex-wrap items-center gap-2 text-sm text-text-primary">
+											<span className="px-2 py-0.5 rounded border border-violet-400/35 bg-violet-500/15 text-violet-100">
+												{ragModeSummary.mode || "unknown"}
+											</span>
+											{ragModeSummary.nextStep && (
+												<span className="text-text-secondary">下一步：{ragModeSummary.nextStep}</span>
+											)}
+											<span className="text-text-secondary">置信度：{ragModeSummary.confidence}</span>
+										</div>
+										{ragModeSummary.reason && (
+										<div className="text-[12px] text-text-secondary whitespace-pre-wrap">
+											<MarkdownRenderer content={ragModeSummary.reason} />
+										</div>
+										)}
+										{ragModeSummary.projectPath && (
+											<div className="text-[11px] text-text-muted break-all">
+												项目：{ragModeSummary.projectPath}
+											</div>
+										)}
+									</div>
+								)}
+
 								{ragJudgment && (
 									<div className="rounded-lg border border-border-subtle bg-elevated/20 p-3">
 										<div className="text-xs uppercase tracking-wide text-cyan-300 mb-2">
@@ -5209,7 +6842,7 @@ export const RightPanel = () => {
 									</div>
 								)}
 
-								{ragSwarmFinal && (
+				{ragSwarmFinal && (
 									<div className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 p-3 space-y-3">
 										<div className="flex items-center justify-between gap-2">
 											<div className="text-xs uppercase tracking-wide text-cyan-200">
@@ -5220,9 +6853,9 @@ export const RightPanel = () => {
 											</div>
 										</div>
 										{ragSwarmFinal.consensus?.summary && (
-											<div className="text-sm text-text-primary whitespace-pre-wrap">
-												{ragSwarmFinal.consensus.summary}
-											</div>
+										<div className="text-sm text-text-primary whitespace-pre-wrap">
+											<MarkdownRenderer content={ragSwarmFinal.consensus.summary} />
+										</div>
 										)}
 
 										{ragSwarmFinal.consensus &&
@@ -5277,17 +6910,82 @@ export const RightPanel = () => {
 																{agent.confidence} · {agent.status}
 															</span>
 														</div>
-														<div className="text-text-secondary whitespace-pre-wrap">
-															{agent.summary}
-														</div>
+												<div className="text-text-secondary whitespace-pre-wrap">
+													<MarkdownRenderer content={agent.summary} />
+												</div>
 													</div>
 												))}
 											</div>
 										)}
-									</div>
-								)}
+					</div>
+				)}
 
-								{ragExecutionCards.length > 0 && (
+				{ragTaskExploration && (
+					<div className="rounded-lg border border-sky-500/30 bg-sky-500/10 p-3 space-y-2">
+						<div className="flex items-center justify-between gap-2">
+							<div className="text-xs uppercase tracking-wide text-sky-200">
+								任务勘探 · OpenCode
+							</div>
+							<div className="text-[11px] px-2 py-0.5 rounded border border-sky-400/40 bg-sky-500/15 text-sky-100">
+								{ragTaskExploration.status}
+							</div>
+						</div>
+						<div className="text-sm text-text-primary whitespace-pre-wrap">
+							<MarkdownRenderer content={ragTaskExploration.message} />
+						</div>
+						<div className="grid grid-cols-1 gap-2 md:grid-cols-2 text-[11px] text-text-secondary">
+							<div>阶段：{ragTaskExploration.phase}</div>
+							<div>等待秒数：{typeof ragTaskExploration.waitSeconds === "number" ? ragTaskExploration.waitSeconds : "-"}</div>
+							{ragTaskExploration.sessionId && <div className="break-all">OpenCode Session：{ragTaskExploration.sessionId}</div>}
+							{ragTaskExploration.model && <div>模型：{ragTaskExploration.model}</div>}
+						</div>
+					</div>
+				)}
+
+				{ragOutputWrite && (
+					<div className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-3 space-y-3">
+						<div className="text-xs uppercase tracking-wide text-emerald-200">
+							输出落盘与文件变更
+						</div>
+						<div className="text-[12px] text-text-secondary space-y-1">
+							<div>落盘模式：{ragOutputWrite.materializationMode}</div>
+							<div>成功：{ragOutputWrite.writtenCount}，失败：{ragOutputWrite.failedCount}</div>
+							{ragOutputWrite.outputRoot && <div className="break-all">输出目录：{ragOutputWrite.outputRoot}</div>}
+							{ragOutputWrite.generatedProjectRoot && <div className="break-all">新项目目录：{ragOutputWrite.generatedProjectRoot}</div>}
+						</div>
+						{ragOutputWrite.modifiedFiles.length > 0 && (
+							<div className="space-y-1">
+								<div className="text-[11px] uppercase tracking-wide text-emerald-200">修改文件</div>
+								{ragOutputWrite.modifiedFiles.slice(0, 12).map((item) => {
+									const modifiedKey = toStringValue(item.relativePath, toStringValue(item.path, "未知文件"));
+									return (
+										<div key={modifiedKey} className="text-[11px] text-text-secondary break-all">
+											• {toStringValue(item.relativePath, toStringValue(item.path, "未知文件"))} · {toStringValue(item.changeType, "modify")}
+										</div>
+									);
+								})}
+							</div>
+						)}
+						{ragOutputWrite.diffBlocks.length > 0 && (
+							<div className="space-y-2">
+								<div className="text-[11px] uppercase tracking-wide text-emerald-200">修改前后对比</div>
+								{ragOutputWrite.diffBlocks.slice(0, 6).map((diff) => {
+									const diffKey = toStringValue(diff.relativePath, toStringValue(diff.path, "diff-block"));
+									return (
+										<div key={diffKey} className="rounded border border-border-subtle bg-surface/40 p-2 text-xs space-y-2">
+											<div className="text-text-primary font-medium break-all">{toStringValue(diff.relativePath, toStringValue(diff.path, diffKey))}</div>
+											{toStringValue(diff.unifiedDiff) && (
+												<pre className="overflow-x-auto rounded bg-background/70 p-2 text-[11px] text-emerald-100"><code>{toStringValue(diff.unifiedDiff)}</code></pre>
+											)}
+										</div>
+									);
+								})}
+							</div>
+						)}
+					</div>
+				)}
+
+				{false && ragExecutionCards.length > 0 && (
 									<div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 space-y-3">
 										<div className="flex items-center justify-between gap-2">
 											<div className="text-xs uppercase tracking-wide text-amber-200">
@@ -5479,7 +7177,7 @@ export const RightPanel = () => {
 										结论摘要
 									</div>
 									<div className="text-sm text-text-primary whitespace-pre-wrap">
-										{ragAnswer}
+										<MarkdownRenderer content={ragAnswer} />
 									</div>
 								</div>
 
@@ -5863,7 +7561,41 @@ export const RightPanel = () => {
 				<div className="flex-1 flex flex-col overflow-hidden">
 					{/* Status bar */}
 					<div className="flex items-center gap-2.5 px-4 py-3 bg-elevated/50 border-b border-border-subtle">
+						<div className="flex items-center gap-2">
+							<button
+								type="button"
+								onClick={() => {
+									setPersonaSkillPanelOpen((current) => !current);
+									setPersonaSkillMessage(null);
+								}}
+								className="px-2 py-1 text-xs rounded border border-border-subtle text-text-secondary hover:text-text-primary hover:bg-hover"
+								disabled={!serverBaseUrl}
+							>
+								Persona
+							</button>
+							{activePersonaSkill ? (
+								<span className="text-[11px] px-2 py-1 rounded-full bg-emerald-500/15 text-emerald-200 border border-emerald-500/30">
+									当前角色：{activePersonaSkill.name}
+								</span>
+							) : (
+								<span className="text-[11px] px-2 py-1 rounded-full bg-surface border border-border-subtle text-text-muted">
+									未激活角色
+								</span>
+							)}
+						</div>
 						<div className="ml-auto flex items-center gap-2">
+							{activePersonaSkill && (
+								<button
+									type="button"
+									onClick={() => {
+										void handleDeactivatePersonaSkill();
+									}}
+									className="text-[11px] px-2 py-1 rounded border border-rose-500/40 text-rose-200 hover:bg-rose-500/15"
+									disabled={personaSkillBusy}
+								>
+									退出角色
+								</button>
+							)}
 							{!isAgentReady && (
 								<span className="text-[11px] px-2 py-1 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">
 									配置 AI
@@ -5876,6 +7608,107 @@ export const RightPanel = () => {
 							)}
 						</div>
 					</div>
+
+					{personaSkillPanelOpen && (
+						<div className="px-4 py-3 border-b border-border-subtle bg-elevated/35 space-y-2">
+							<div className="text-[11px] uppercase tracking-[0.14em] text-text-muted">
+								Persona Skill 一键导入
+							</div>
+							<div className="flex items-center gap-2">
+								<input
+									type="text"
+									value={personaSkillPathInput}
+									onChange={(event) => setPersonaSkillPathInput(event.target.value)}
+									placeholder="skill 目录绝对路径（例如 D:/代码仓库生图/借鉴项目/huangqing-perspective）"
+									className="flex-1 bg-surface border border-border-subtle rounded px-2.5 py-1.5 text-xs text-text-primary placeholder:text-text-muted"
+									disabled={!serverBaseUrl || personaSkillBusy}
+								/>
+								<button
+									type="button"
+									onClick={() => {
+										void handleImportPersonaSkill();
+									}}
+									className="px-2 py-1 text-xs rounded border border-emerald-500/40 text-emerald-200 hover:bg-emerald-500/15"
+									disabled={!serverBaseUrl || personaSkillBusy}
+								>
+									导入
+								</button>
+								<button
+									type="button"
+									onClick={() => {
+										void refreshPersonaSkillState();
+									}}
+									className="px-2 py-1 text-xs rounded border border-border-subtle text-text-secondary hover:text-text-primary hover:bg-hover"
+									disabled={!serverBaseUrl || personaSkillBusy}
+								>
+									刷新
+								</button>
+							</div>
+
+							{personaSkillMessage && (
+								<div className="text-xs text-text-secondary rounded border border-border-subtle bg-surface/70 px-2.5 py-2">
+									{personaSkillMessage}
+								</div>
+							)}
+
+							<div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+								{personaSkillItems.length === 0 ? (
+									<div className="text-xs text-text-muted rounded border border-border-subtle bg-surface/70 px-2.5 py-2">
+										暂无已导入 persona
+									</div>
+								) : (
+									personaSkillItems.map((item) => {
+										const isActive =
+											Boolean(activePersonaSkill) &&
+											activePersonaSkill?.personaId === item.personaId;
+										return (
+											<div
+												key={item.personaId}
+												className="flex items-center gap-2 rounded border border-border-subtle bg-surface/70 px-2.5 py-2"
+											>
+												<div className="min-w-0 flex-1">
+													<div className="text-xs text-text-primary truncate">
+														{item.name || item.personaId}
+													</div>
+													{item.description && (
+														<div className="text-[11px] text-text-muted truncate">
+															{item.description}
+														</div>
+													)}
+												</div>
+												{isActive ? (
+													<span className="text-[11px] px-2 py-1 rounded border border-emerald-500/30 text-emerald-200 bg-emerald-500/10">
+														已激活
+													</span>
+												) : (
+													<button
+														type="button"
+														onClick={() => {
+															void handleActivatePersonaSkill(item.personaId);
+														}}
+														className="text-[11px] px-2 py-1 rounded border border-cyan-500/40 text-cyan-200 hover:bg-cyan-500/15"
+														disabled={personaSkillBusy}
+													>
+														激活
+													</button>
+												)}
+												<button
+													type="button"
+													onClick={() => {
+														void handleDeletePersonaSkill(item);
+													}}
+													className="text-[11px] px-2 py-1 rounded border border-rose-500/40 text-rose-200 hover:bg-rose-500/15"
+													disabled={personaSkillBusy}
+												>
+													删除
+												</button>
+											</div>
+										);
+									})
+								)}
+							</div>
+						</div>
+					)}
 
 					<div className="px-4 py-3 border-b border-border-subtle bg-elevated/30 space-y-2">
 						<div className="text-[11px] uppercase tracking-[0.14em] text-text-muted">
@@ -6068,17 +7901,31 @@ export const RightPanel = () => {
 					</div>
 
 					{/* Input */}
-					<div className="p-3 bg-surface border-t border-border-subtle">
+					<div className="p-3 bg-surface border-t border-border-subtle relative">
 						<div className="flex items-end gap-2 px-3 py-2 bg-elevated border border-border-subtle rounded-xl transition-all focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/20">
 							<textarea
 								ref={textareaRef}
 								value={chatInput}
 								onChange={(e) => {
-									setChatInput(e.target.value);
+									const next = e.target.value;
+									setChatInput(next);
 									requestAnimationFrame(adjustTextareaHeight);
+									// 解析是否触发了 /skill /models 反斜框
+									const cursor = e.target.selectionStart ?? next.length;
+									const parsed = parseSlashCommand(next, cursor);
+									if (parsed.kind) {
+										setSlashState({
+											kind: parsed.kind,
+											query: parsed.query,
+											start: parsed.start,
+											end: parsed.end,
+										});
+									} else {
+										setSlashState(null);
+									}
 								}}
 								onKeyDown={handleKeyDown}
-								placeholder="输入你想了解的代码问题…"
+								placeholder="输入你想了解的代码问题…试试 /skill 或 /models"
 								rows={1}
 								className="flex-1 bg-transparent border-none outline-none text-base leading-7 text-text-primary placeholder:text-text-muted resize-none min-h-[44px] scrollbar-thin"
 								style={{ height: "44px", overflowY: "hidden" }}
@@ -6111,6 +7958,12 @@ export const RightPanel = () => {
 								</button>
 							)}
 						</div>
+						<SlashCommandMenu
+							activeKind={slashState?.kind ?? null}
+							activeQuery={slashState?.query ?? ""}
+							onSelect={handleSlashSelect}
+							onClose={handleSlashClose}
+						/>
 						{!isAgentReady && !isAgentInitializing && (
 							<div className="mt-2 text-xs text-amber-200 flex items-center gap-2">
 								<AlertTriangle className="w-3.5 h-3.5" />

@@ -464,9 +464,9 @@ return (
     <div className="relative w-full max-w-6xl">
       <section className="hidden rounded-[28px] border border-border-default bg-surface/92 p-8 shadow-2xl">
         <div className="max-w-2xl">
-          <div className="inline-flex items-center rounded-full border border-border-subtle bg-elevated px-3 py-1 text-xs text-text-secondary">
-            create_graph 前端工作台
-          </div>
+			<div className="inline-flex items-center rounded-full border border-border-subtle bg-elevated px-3 py-1 text-xs text-text-secondary">
+				ForgeFlow 前端工作台
+			</div>
           <h1 className="mt-4 text-3xl font-semibold tracking-tight text-text-primary">
             用更清晰的入口，把代码仓带入可浏览、可提问、可定位的知识图谱。
           </h1>
@@ -518,7 +518,7 @@ return (
             <FolderOpen className="w-10 h-10 text-white" />
           </div>
 
-          <div className="text-[11px] uppercase tracking-[0.2em] text-text-muted text-center mb-2">create_graph 工作台入口</div>
+			<div className="text-[11px] uppercase tracking-[0.2em] text-text-muted text-center mb-2">ForgeFlow 工作台入口</div>
           <h2 className="text-xl font-semibold text-text-primary text-center mb-2">
             训练专属经验库（本地路径）
           </h2>

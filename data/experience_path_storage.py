@@ -202,7 +202,23 @@ class ExperiencePathStorage:
                 print(f"[ExperiencePathStorage] ⚠️ 读取文件失败 {filepath}: {e}")
         return projects
 
+    def delete_project_entries(self, project_path: str) -> int:
+        """删除 experience_paths 目录下属于指定项目的所有 JSON 文件。"""
+        normalized = os.path.normpath(project_path or "")
+        if not normalized:
+            return 0
 
-
-
-
+        removed = 0
+        for filepath in self.storage_dir.glob("*.json"):
+            try:
+                with filepath.open("r", encoding="utf-8") as f:
+                    data = json.load(f)
+                payload_project_path = os.path.normpath(str(data.get("project_path") or ""))
+                if payload_project_path != normalized:
+                    continue
+                filepath.unlink(missing_ok=True)
+                if not filepath.exists():
+                    removed += 1
+            except Exception:
+                continue
+        return removed

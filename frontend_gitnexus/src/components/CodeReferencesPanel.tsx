@@ -57,6 +57,12 @@ const getEntityTypeText = (kind?: string, fallbackLabel?: string): string => {
   return kind || fallbackLabel || '未知类型';
 };
 
+const isFunctionLikeNode = (kind?: string, fallbackLabel?: string): boolean => {
+  const normalizedKind = String(kind || '').trim().toLowerCase();
+  if (normalizedKind === 'function' || normalizedKind === 'method') return true;
+  return fallbackLabel === 'Function' || fallbackLabel === 'Method';
+};
+
 const formatPropertyValue = (value: unknown): string => {
   if (value === null || value === undefined) return '暂无';
   if (Array.isArray(value)) return value.length > 0 ? value.join('、') : '暂无';
@@ -370,6 +376,11 @@ export const CodeReferencesPanel = ({ onFocusNode }: CodeReferencesPanelProps) =
     || selectedNode?.label === 'Interface'
     || propertyItems.length > 0;
 
+  const isFunctionLikeDetail = useMemo(
+    () => isFunctionLikeNode(nodeDetail?.kind, selectedNode?.label),
+    [nodeDetail?.kind, selectedNode?.label]
+  );
+
   const hasIoData = useMemo(() => {
     const io = nodeDetail?.io;
     if (!io) return false;
@@ -383,27 +394,35 @@ export const CodeReferencesPanel = ({ onFocusNode }: CodeReferencesPanelProps) =
 
   const availableDetailTabs = useMemo<DetailTab[]>(() => {
     const tabs: DetailTab[] = [];
+    if (isFunctionLikeDetail) {
+      tabs.push({ key: 'snippet', label: '源码片段' });
+      tabs.push({ key: 'cfg', label: '控制流图' });
+      tabs.push({ key: 'dfg', label: '数据流图' });
+      tabs.push({ key: 'io', label: '输入输出' });
+      return tabs;
+    }
+
     if (nodeDetail?.source?.snippet) tabs.push({ key: 'snippet', label: '源码片段' });
     if (supportsPropertiesTab) tabs.push({ key: 'properties', label: '属性信息' });
     if (nodeDetail?.cfg) tabs.push({ key: 'cfg', label: '控制流图' });
     if (nodeDetail?.dfg) tabs.push({ key: 'dfg', label: '数据流图' });
     if (hasIoData) tabs.push({ key: 'io', label: '输入输出' });
     return tabs;
-  }, [hasIoData, nodeDetail, supportsPropertiesTab]);
+  }, [hasIoData, isFunctionLikeDetail, nodeDetail, supportsPropertiesTab]);
+
+  const firstAvailableDetailTab = availableDetailTabs[0]?.key;
 
   useEffect(() => {
-    const firstAvailable = availableDetailTabs[0]?.key;
-    setActiveDetailTab(firstAvailable || 'snippet');
-  }, [selectedNode?.id]);
+    setActiveDetailTab(firstAvailableDetailTab || 'snippet');
+  }, [firstAvailableDetailTab]);
 
   useEffect(() => {
-    const firstAvailable = availableDetailTabs[0]?.key;
-    if (!firstAvailable) {
+    if (!firstAvailableDetailTab) {
       setActiveDetailTab('snippet');
       return;
     }
-    setActiveDetailTab((prev) => (availableDetailTabs.some((tab) => tab.key === prev) ? prev : firstAvailable));
-  }, [availableDetailTabs]);
+    setActiveDetailTab((prev) => (availableDetailTabs.some((tab) => tab.key === prev) ? prev : firstAvailableDetailTab));
+  }, [availableDetailTabs, firstAvailableDetailTab]);
 
   if (isCollapsed) {
     return (
@@ -548,25 +567,31 @@ export const CodeReferencesPanel = ({ onFocusNode }: CodeReferencesPanelProps) =
 
                   {!nodeDetailLoading && !nodeDetailError && (
                     <div className="px-3 py-3 space-y-2">
-                      {activeDetailTab === 'snippet' && nodeDetail?.source?.snippet && (
-                        <div className="rounded-lg border border-border-subtle overflow-hidden">
-                          <SyntaxHighlighter
-                            language={detailLanguage}
-                            style={customTheme}
-                            showLineNumbers
-                            startingLineNumber={(nodeDetail.source.line_start ?? nodeDetail.line_start ?? 1)}
-                            lineNumberStyle={{
-                              minWidth: '3em',
-                              paddingRight: '1em',
-                              color: '#5a5a70',
-                              textAlign: 'right',
-                              userSelect: 'none',
-                            }}
-                            wrapLines
-                          >
-                            {nodeDetail.source.snippet}
-                          </SyntaxHighlighter>
-                        </div>
+                      {activeDetailTab === 'snippet' && (
+                        nodeDetail?.source?.snippet ? (
+                          <div className="rounded-lg border border-border-subtle overflow-hidden">
+                            <SyntaxHighlighter
+                              language={detailLanguage}
+                              style={customTheme}
+                              showLineNumbers
+                              startingLineNumber={(nodeDetail.source.line_start ?? nodeDetail.line_start ?? 1)}
+                              lineNumberStyle={{
+                                minWidth: '3em',
+                                paddingRight: '1em',
+                                color: '#5a5a70',
+                                textAlign: 'right',
+                                userSelect: 'none',
+                              }}
+                              wrapLines
+                            >
+                              {nodeDetail.source.snippet}
+                            </SyntaxHighlighter>
+                          </div>
+                        ) : isFunctionLikeDetail ? (
+                          <div className="rounded border border-border-subtle bg-surface/40 p-3 text-[11px] text-text-muted">
+                            当前函数暂无源码片段。
+                          </div>
+                        ) : null
                       )}
 
                       {activeDetailTab === 'properties' && (
@@ -584,35 +609,53 @@ export const CodeReferencesPanel = ({ onFocusNode }: CodeReferencesPanelProps) =
                         </div>
                       )}
 
-                      {activeDetailTab === 'cfg' && nodeDetail?.cfg && (
-                        <GraphVizBlock dotString={nodeDetail.cfg} color="violet" />
+                      {activeDetailTab === 'cfg' && (
+                        nodeDetail?.cfg ? (
+                          <GraphVizBlock dotString={nodeDetail.cfg} color="violet" />
+                        ) : (
+                          <div className="rounded border border-border-subtle bg-surface/40 p-3 text-[11px] text-text-muted">
+                            当前节点暂无 CFG。
+                          </div>
+                        )
                       )}
 
-                      {activeDetailTab === 'dfg' && nodeDetail?.dfg && (
-                        <GraphVizBlock dotString={nodeDetail.dfg} color="fuchsia" />
+                      {activeDetailTab === 'dfg' && (
+                        nodeDetail?.dfg ? (
+                          <GraphVizBlock dotString={nodeDetail.dfg} color="fuchsia" />
+                        ) : (
+                          <div className="rounded border border-border-subtle bg-surface/40 p-3 text-[11px] text-text-muted">
+                            当前节点暂无 DFG。
+                          </div>
+                        )
                       )}
 
-                      {activeDetailTab === 'io' && hasIoData && nodeDetail?.io && (
-                        <div className="rounded-lg border border-border-subtle overflow-hidden">
-                          <div className="px-3 py-2 space-y-1 text-[11px] text-text-secondary">
-                            <div>
-                              <span className="text-emerald-300">输入：</span>{' '}
-                              <span>{JSON.stringify(nodeDetail.io.inputs ?? [])}</span>
-                            </div>
-                            <div>
-                              <span className="text-emerald-300">输出：</span>{' '}
-                              <span>{JSON.stringify(nodeDetail.io.outputs ?? [])}</span>
-                            </div>
-                            <div>
-                              <span className="text-emerald-300">全局读取：</span>{' '}
-                              <span>{JSON.stringify(nodeDetail.io.global_reads ?? [])}</span>
-                            </div>
-                            <div>
-                              <span className="text-emerald-300">全局写入：</span>{' '}
-                              <span>{JSON.stringify(nodeDetail.io.global_writes ?? [])}</span>
+                      {activeDetailTab === 'io' && (
+                        hasIoData && nodeDetail?.io ? (
+                          <div className="rounded-lg border border-border-subtle overflow-hidden">
+                            <div className="px-3 py-2 space-y-1 text-[11px] text-text-secondary">
+                              <div>
+                                <span className="text-emerald-300">输入：</span>{' '}
+                                <span>{JSON.stringify(nodeDetail.io.inputs ?? [])}</span>
+                              </div>
+                              <div>
+                                <span className="text-emerald-300">输出：</span>{' '}
+                                <span>{JSON.stringify(nodeDetail.io.outputs ?? [])}</span>
+                              </div>
+                              <div>
+                                <span className="text-emerald-300">全局读取：</span>{' '}
+                                <span>{JSON.stringify(nodeDetail.io.global_reads ?? [])}</span>
+                              </div>
+                              <div>
+                                <span className="text-emerald-300">全局写入：</span>{' '}
+                                <span>{JSON.stringify(nodeDetail.io.global_writes ?? [])}</span>
+                              </div>
                             </div>
                           </div>
-                        </div>
+                        ) : (
+                          <div className="rounded border border-border-subtle bg-surface/40 p-3 text-[11px] text-text-muted">
+                            当前节点暂无输入输出信息。
+                          </div>
+                        )
                       )}
 
                       {!nodeDetailLoading && !nodeDetailError && availableDetailTabs.length === 0 && (

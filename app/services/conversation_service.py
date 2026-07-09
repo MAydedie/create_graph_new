@@ -14,7 +14,7 @@ from concurrent.futures import TimeoutError as FuturesTimeoutError
 from datetime import datetime
 from pathlib import Path
 from queue import Empty, Queue
-from typing import Any, Callable, Dict, List, Optional, Union, cast
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union, cast
 from uuid import uuid4
 
 from flask import Response, jsonify, request, stream_with_context
@@ -22,6 +22,7 @@ from flask import Response, jsonify, request, stream_with_context
 from config.config import get_deepseek_settings, has_deepseek_config
 from app.services.codebase_retrieval_service import run_codebase_retrieval
 from app.services.opencode_qa_service import run_opencode_qa
+from app.services import persona_skill_service as pss
 from data.data_accessor import get_data_accessor
 from llm.agent.utils.question_detector import QuestionDetector
 from llm.rag_core.llm_api import DeepSeekAPI
@@ -29,6 +30,58 @@ from src.search.adapters.hybrid_shadow_adapter import run_hybrid_shadow
 
 
 data_accessor = get_data_accessor()
+
+_THINK_BLOCK_PATTERN = re.compile(
+    r"<think>[\s\S]*?</think>\s*",
+    re.IGNORECASE,
+)
+
+
+def _compose_persona_system_prompt(base_prompt: str) -> Dict[str, Any]:
+    payload = pss.compose_system_prompt(base_prompt)
+    if not isinstance(payload, dict):
+        return {"systemPrompt": base_prompt, "temperature": None, "activePersona": None}
+    return payload
+
+
+def _resolve_persona_temperature(default_temperature: float, prompt_bundle: Optional[Dict[str, Any]] = None) -> float:
+    if isinstance(prompt_bundle, dict):
+        raw_override = prompt_bundle.get("temperature")
+        if raw_override is not None:
+            try:
+                parsed = float(raw_override)
+                if 0 <= parsed <= 1.5:
+                    return parsed
+            except (TypeError, ValueError):
+                pass
+    return pss.resolve_temperature(default_temperature)
+
+
+def _finalize_persona_answer(answer: str) -> str:
+    text = _sanitize_user_visible_answer_text(answer)
+    disclaimer = str(pss.consume_pending_disclaimer() or "").strip()
+    if not disclaimer:
+        return text
+    if not text:
+        return disclaimer
+    if disclaimer in text:
+        return text
+    return f"{disclaimer}\n\n{text}"
+
+
+def _strip_thinking_block(text: str) -> str:
+    body = str(text or "")
+    if not body:
+        return ""
+    cleaned = _THINK_BLOCK_PATTERN.sub("", body).strip()
+    return cleaned or ""
+
+
+def _sanitize_user_visible_answer_text(text: Any) -> str:
+    cleaned = _strip_thinking_block(str(text or "")).strip()
+    return cleaned
+
+
 _SERVER_LOAD_EPOCH: float = time.time()
 
 
@@ -208,6 +261,11 @@ def _is_project_bound_usage_query(user_query: str) -> bool:
     explicit_markers = (
         "当前已打开项目",
         "经验库已就绪",
+        "问答链路",
+        "会话链路",
+        "运行链路",
+        "怎么工作",
+        "如何工作",
         "主图谱",
         "功能层级",
         "经验路径",
@@ -238,6 +296,11 @@ def _is_project_bound_usage_query(user_query: str) -> bool:
         "当前项目",
         "这个项目",
         "该项目",
+        "问答链路",
+        "会话链路",
+        "运行链路",
+        "怎么工作",
+        "如何工作",
         "定位",
         "入口接口",
         "主问答入口",
@@ -302,6 +365,7 @@ def _is_project_runtime_architecture_question(user_query: str) -> bool:
         return False
     markers = (
         "主问答入口", "问答入口", "入口接口", "后端文件路径", "文件路径", "接口定义在哪里",
+        "问答链路", "会话链路", "运行链路", "怎么工作", "如何工作", "如何决定是否进入多智能体",
         "分析产物", "检索链路", "主图谱", "功能层级", "经验路径", "advisor", "多智能体流程",
         "已打开项目", "经验库已就绪", "workbench", "experience library", "experience paths",
         "which file", "where is", "api route", "conversation", "retrieval", "graph", "hierarchy",
@@ -328,13 +392,16 @@ def _build_project_bound_usage_answer(project_path: str, user_query: str) -> str
     if any(marker in lowered for marker in ("主问答入口", "问答入口", "入口接口", "后端文件路径", "api route", "which file")):
         lines = [
             "### 回答",
-            "- 当前主问答入口不是 `.skill` 或 `skill_callchain`，而是 conversations API。",
+            "- 当前主问答入口不是 `.skill` 或 `skill_callchain`，而是 `app.py` 启动后的 conversations API。",
+            "- Flask 应用在 `create_graph_app_factory.py` 创建，路由注册在 `app/routes/api_routes.py`。",
             "- 前端问答入口在 `frontend_gitnexus/src/components/RightPanel.tsx`，会调用 `/api/conversations/session/start`。",
-            "- 路由注册在 `app/routes/api_routes.py`，对应后端处理函数是 `app/services/conversation_service.py` 里的 `api_conversation_session_start()`。",
+            "- 对应后端处理函数是 `app/services/conversation_service.py` 里的 `api_conversation_session_start()`。",
             "",
             "### 真实主链",
             "- 打开项目后，先走 workbench 分析与经验库构建；问答阶段再进入 conversations 主链。",
-            "- 如果需要代码执行/生成，再从 conversations 主链切到 `multi_agent_service.py`。",
+            "- 检索由 `app/services/codebase_retrieval_service.py` 和图谱增强路径共同提供证据。",
+            "- 如果需要方案执行、代码生成或多步任务，再从 conversations 主链切到 `app/services/multi_agent_service.py`。",
+            "- 如果需要 OpenCode 问答或代码生成，再分别通过 `app/services/opencode_qa_service.py` 与 `app/services/opencode_kernel_service.py`。",
             "",
             "### 依据",
             *(runtime_lines or ["- 已根据当前项目主运行时结构进行归纳。"]),
@@ -357,6 +424,24 @@ def _build_project_bound_usage_answer(project_path: str, user_query: str) -> str
             "- `app/services/analysis_service.py`：workbench 分析与经验库状态",
             "- `app/services/conversation_service.py`：conversations 问答与 retrieval 主链",
             "- `app/services/multi_agent_service.py`：QA context bundle / advisor / 多智能体扩展",
+        ]
+        return "\n".join(lines)
+
+    if any(marker in lowered for marker in ("问答链路", "会话链路", "运行链路", "怎么工作", "如何工作")):
+        lines = [
+            "### 回答",
+            "- 当前 create_graph 的问答主链是：`app.py` -> `create_graph_app_factory.py` -> `app/routes/api_routes.py` -> `app/services/conversation_service.py`。",
+            "- 如果问题偏代码事实定位，会优先走 retrieval / evidence-first 路径。",
+            "- 如果问题需要方案执行、代码生成或多步任务，才进一步切入 `app/services/multi_agent_service.py`。",
+            "- advisor 是按需介入的 sidecar 约束层，不是主问答入口。",
+            "- opencode 也是辅助执行层，分别通过 `app/services/opencode_qa_service.py` 和 `app/services/opencode_kernel_service.py` 接入。",
+            "",
+            "### 分层说明",
+            "- `conversation_service.py`：会话主控、澄清、直答、检索路由。",
+            "- `codebase_retrieval_service.py`：代码库检索与证据命中。",
+            "- `multi_agent_service.py`：三省六部/多智能体执行链。",
+            "- `advisor_consultant_lab/*`：advisor sidecar 的独立实验与运行时产物。",
+            "- `opencode_qa_service.py` / `opencode_kernel_service.py`：OpenCode 问答与代码执行桥。",
         ]
         return "\n".join(lines)
 
@@ -442,7 +527,7 @@ def _build_skill_first_fallback_answer(user_query: str, project_path: str, llm_e
 def _prefer_project_intro_action(user_query: str, project_path: str) -> Optional[Dict[str, Any]]:
     if not _is_project_purpose_query(user_query):
         return None
-    if _is_project_bound_usage_query(user_query):
+    if _is_project_bound_usage_query(user_query) or _is_project_runtime_architecture_question(user_query):
         return {
             "action": "run_retrieval",
             "task_mode": "none",
@@ -943,7 +1028,7 @@ def _run_opencode_qa_answer(
     )
     if isinstance(result, dict) and str(result.get("status") or "") == "ready":
         _remember_opencode_qa_session_id(conversation_id, result.get("session_id") or stored_session_id)
-        text = str(result.get("text") or "").strip()
+        text = _sanitize_user_visible_answer_text(result.get("text") or "")
         if text:
             return text
     return None
@@ -961,6 +1046,7 @@ def _looks_like_incomplete_qa_answer(text: str) -> bool:
     if not lowered:
         return True
     markers = (
+        "我把这个问题读作",
         "i read this as",
         "i'm gathering",
         "i am gathering",
@@ -972,6 +1058,13 @@ def _looks_like_incomplete_qa_answer(text: str) -> bool:
         "还在查",
         "还在检索",
         "继续梳理",
+        "<think>",
+        "the user wants me to act as",
+        "required output structure",
+        "input context",
+        "let me think about this",
+        "carefully parse the requirements",
+        "cross-library comparison expert",
     )
     return any(marker in lowered for marker in markers)
 
@@ -1069,7 +1162,7 @@ def _extract_text_from_response(response: Dict[str, Any]) -> str:
     if not isinstance(message, dict):
         return ""
     content = message.get("content")
-    return str(content or "").strip()
+    return _sanitize_user_visible_answer_text(content)
 
 
 def _parse_json_text(text: str) -> Dict[str, Any]:
@@ -1306,9 +1399,20 @@ def _generate_chat_answer(
     opencode_enabled: Optional[bool] = None,
     qa_context: Optional[Dict[str, Any]] = None,
 ) -> str:
+    if pss.is_persona_exit_command(user_query):
+        deactivated = pss.deactivate_persona_skill()
+        persona_raw = deactivated.get("persona") if isinstance(deactivated, dict) else None
+        persona_name = str((persona_raw or {}).get("name") or "角色").strip() if isinstance(persona_raw, dict) else "角色"
+        return f"已退出{persona_name}视角，恢复默认问答模式。"
+
     project_profile = _build_project_identity_profile(project_path)
     profile_evidence = project_profile.get("evidence") if isinstance(project_profile.get("evidence"), list) else []
     project_bound_usage = _is_project_bound_usage_query(user_query)
+    if project_bound_usage and _is_project_runtime_architecture_question(user_query):
+        direct_answer = _build_project_bound_usage_answer(project_path, user_query)
+        if direct_answer:
+            return _finalize_persona_answer(direct_answer)
+
     profile_hint = {
         "project_profile": {
             "purpose": str(project_profile.get("purpose") or ""),
@@ -1322,58 +1426,56 @@ def _generate_chat_answer(
             "avoid": "不要把检索基础设施描述成项目主目标。",
         },
     }
+    base_system_prompt = (
+        "你是代码项目智能问答助手。"
+        "优先结合当前会话历史回答，回答要简洁、可执行。"
+        "当信息不足时，明确指出还缺什么。"
+    )
+    prompt_bundle = _compose_persona_system_prompt(base_system_prompt)
+    system_prompt = str(prompt_bundle.get("systemPrompt") or base_system_prompt)
+    answer_temperature = _resolve_persona_temperature(0.3, prompt_bundle)
     context_payload = _merge_qa_context_payload(profile_hint, qa_context)
     opencode_answer = _run_opencode_qa_answer(
         conversation_id=conversation_id,
         project_path=project_path,
         user_query=user_query,
-        system_prompt=(
-            "你是代码项目智能问答助手。优先结合当前会话历史回答，回答要简洁、可执行。"
-            "当信息不足时，明确指出还缺什么。"
-        ),
+        system_prompt=system_prompt,
         context_payload=context_payload,
         opencode_enabled=opencode_enabled,
     )
-    if opencode_answer:
-        return opencode_answer
-
-    if project_bound_usage and _is_project_runtime_architecture_question(user_query):
-        direct_answer = _build_project_bound_usage_answer(project_path, user_query)
-        if direct_answer:
-            return direct_answer
+    if _is_valid_qa_answer(str(opencode_answer or '')):
+        return _finalize_persona_answer(str(opencode_answer or ''))
 
     history = _history_for_prompt(conversation_id, limit=10)
     client = _create_deepseek_client(llm_config=llm_config)
     if client is None:
         if _is_project_purpose_query(user_query) and not project_bound_usage:
-            return str(project_profile.get("purpose") or "这是一个代码问答系统。")
-        return f"我收到你的问题：{user_query}。当前会话模式已启用，你也可以继续补充上下文，我会基于后续信息持续更新答案。"
+            return _finalize_persona_answer(str(project_profile.get("purpose") or "这是一个代码问答系统。"))
+        return _finalize_persona_answer(f"我收到你的问题：{user_query}。当前会话模式已启用，你也可以继续补充上下文，我会基于后续信息持续更新答案。")
 
-    system_prompt = (
-        "你是代码项目智能问答助手。"
-        "优先结合当前会话历史回答，回答要简洁、可执行。"
-        "当信息不足时，明确指出还缺什么。"
-    )
     messages = [{"role": "system", "content": system_prompt}] + history
     messages.append({"role": "system", "content": json.dumps(context_payload or profile_hint, ensure_ascii=False)})
     messages.append({"role": "user", "content": user_query})
 
     llm_error = ""
     try:
-        response = client.chat(messages=messages, temperature=0.3, max_tokens=700, timeout=35)
+        response = client.chat(messages=messages, temperature=answer_temperature, max_tokens=700, timeout=35)
         text = _extract_text_from_response(response)
         if text:
-            return text
+            if not _is_valid_qa_answer(text):
+                text = ""
+        if text:
+            return _finalize_persona_answer(text)
     except Exception as exc:
         llm_error = str(exc)
 
     if _is_project_purpose_query(user_query) and not project_bound_usage:
-        return _build_project_intro_answer(project_path, [])
+        return _finalize_persona_answer(_build_project_intro_answer(project_path, []))
 
     if bool(project_profile.get("isSkillFirst")) and not project_bound_usage:
-        return _build_skill_first_fallback_answer(user_query, project_path, llm_error)
+        return _finalize_persona_answer(_build_skill_first_fallback_answer(user_query, project_path, llm_error))
 
-    return f"我理解你的问题是：{user_query}。你可以再补充一点背景，我会给出更具体的可执行建议。"
+    return _finalize_persona_answer(f"我理解你的问题是：{user_query}。你可以再补充一点背景，我会给出更具体的可执行建议。")
 
 
 def _llm_decide_next_action(
@@ -1456,6 +1558,22 @@ def _normalize_action_decision(
     intro_action = _prefer_project_intro_action(user_query, project_path)
     if isinstance(intro_action, dict):
         return intro_action
+
+    if _is_project_bound_usage_query(user_query) and _is_project_runtime_architecture_question(user_query):
+        return {
+            "action": "run_retrieval",
+            "task_mode": "none",
+            "reason": "项目结构与运行链路问题强制走 evidence-first 检索路径",
+            "confidence": 0.92,
+        }
+
+    if _looks_like_codebase_fact_question(user_query):
+        return {
+            "action": "run_retrieval",
+            "task_mode": "none",
+            "reason": "具体代码事实问题保持检索优先",
+            "confidence": 0.9,
+        }
 
     llm_decision = _llm_decide_next_action(user_query, conversation_id, project_path, heuristic_decision, llm_config=llm_config)
     if isinstance(llm_decision, dict):
@@ -2412,41 +2530,40 @@ def _generate_direct_retrieval_answer(
     conversation_project_path = conversation_payload.get("projectPath") if isinstance(conversation_payload, dict) else "."
     effective_project_path = str(project_path or conversation_project_path or ".")
     context_payload = _merge_qa_context_payload({"retrieval_highlights": highlights, "answer_style": "direct_qa"}, qa_context)
+    base_system_prompt = (
+        "你是代码库事实问答助手。直接根据检索证据回答用户问题，不要输出建议改动步骤、建议验证命令，也不要套固定模板。"
+        "必须先正面回答用户问的内容，只保留和问题有关的信息。"
+    )
+    prompt_bundle = _compose_persona_system_prompt(base_system_prompt)
+    system_prompt = str(prompt_bundle.get("systemPrompt") or base_system_prompt)
+    answer_temperature = _resolve_persona_temperature(0.15, prompt_bundle)
     opencode_answer = _run_opencode_qa_answer(
         conversation_id=conversation_id,
         project_path=effective_project_path,
         user_query=user_query,
-        system_prompt=(
-            "你是代码库事实问答助手。直接根据检索证据回答用户问题，不要输出建议改动步骤、建议验证命令，也不要套固定模板。"
-            "必须先正面回答用户问的内容，只保留和问题有关的信息。"
-        ),
+        system_prompt=system_prompt,
         context_payload=context_payload,
         opencode_enabled=opencode_enabled,
     )
     if _is_valid_qa_answer(str(opencode_answer or '')):
-        return str(opencode_answer or '')
+        return _finalize_persona_answer(str(opencode_answer or ''))
     client = _create_deepseek_client(llm_config=llm_config)
     if client is None:
-        return _build_direct_qa_fallback_answer(user_query, highlights)
+        return _finalize_persona_answer(_build_direct_qa_fallback_answer(user_query, highlights))
     history = _history_for_prompt(conversation_id, limit=6)
-    system_prompt = (
-        "你是代码库事实问答助手。"
-        "直接根据检索证据回答用户问题，不要输出建议改动步骤、建议验证命令，也不要套固定模板。"
-        "必须先正面回答用户问的内容，只保留和问题有关的信息。"
-    )
     user_payload = _merge_qa_context_payload({'query': user_query, 'retrieval_highlights': highlights, 'answer_style': 'direct_qa'}, qa_context) or {}
     messages = [{'role': 'system', 'content': system_prompt}] + history
     messages.append({'role': 'user', 'content': json.dumps(user_payload, ensure_ascii=False)})
     try:
-        response = client.chat(messages=messages, temperature=0.15, max_tokens=700, timeout=35)
+        response = client.chat(messages=messages, temperature=answer_temperature, max_tokens=700, timeout=35)
         answer = _extract_text_from_response(response)
         if answer:
             if not _is_valid_qa_answer(answer):
-                return _build_direct_qa_fallback_answer(user_query, highlights)
-            return answer
+                return _finalize_persona_answer(_build_direct_qa_fallback_answer(user_query, highlights))
+            return _finalize_persona_answer(answer)
     except Exception:
         pass
-    return _build_direct_qa_fallback_answer(user_query, highlights)
+    return _finalize_persona_answer(_build_direct_qa_fallback_answer(user_query, highlights))
 
 
 def _generate_codebase_fact_answer(
@@ -2462,45 +2579,42 @@ def _generate_codebase_fact_answer(
     if not isinstance(fact_payload, dict):
         return _generate_direct_retrieval_answer(user_query, conversation_id, project_path, highlights, llm_config=llm_config, opencode_enabled=opencode_enabled, qa_context=qa_context)
     context_payload = _merge_qa_context_payload({"facts": fact_payload}, qa_context)
-    opencode_answer = _run_opencode_qa_answer(
-        conversation_id=conversation_id,
-        project_path=project_path,
-        user_query=user_query,
-        system_prompt=(
-            "你是代码库事实问答助手。你会基于已经提取好的文件结构事实来直接回答用户问题。"
-            "不要输出定位结论/关键证据/建议改动步骤/建议验证命令这类模板。"
-            "必须覆盖：类数量、方法数量、最重要的方法、文件作用、调用者、被调者。"
-            "如果 facts 里没有某项证据，就明确说未找到，不要猜。"
-        ),
-        context_payload=context_payload,
-        opencode_enabled=opencode_enabled,
-    )
-    if _is_valid_qa_answer(str(opencode_answer or '')):
-        return str(opencode_answer or '')
-    client = _create_deepseek_client(llm_config=llm_config)
-    if client is None:
-        return _build_codebase_fact_fallback_answer(fact_payload)
-    history = _history_for_prompt(conversation_id, limit=4)
-    system_prompt = (
-        "你是代码库事实问答助手。"
-        "你会基于已经提取好的文件结构事实来直接回答用户问题。"
+    base_system_prompt = (
+        "你是代码库事实问答助手。你会基于已经提取好的文件结构事实来直接回答用户问题。"
         "不要输出定位结论/关键证据/建议改动步骤/建议验证命令这类模板。"
         "必须覆盖：类数量、方法数量、最重要的方法、文件作用、调用者、被调者。"
         "如果 facts 里没有某项证据，就明确说未找到，不要猜。"
     )
+    prompt_bundle = _compose_persona_system_prompt(base_system_prompt)
+    system_prompt = str(prompt_bundle.get("systemPrompt") or base_system_prompt)
+    answer_temperature = _resolve_persona_temperature(0.1, prompt_bundle)
+    opencode_answer = _run_opencode_qa_answer(
+        conversation_id=conversation_id,
+        project_path=project_path,
+        user_query=user_query,
+        system_prompt=system_prompt,
+        context_payload=context_payload,
+        opencode_enabled=opencode_enabled,
+    )
+    if _is_valid_qa_answer(str(opencode_answer or '')):
+        return _finalize_persona_answer(str(opencode_answer or ''))
+    client = _create_deepseek_client(llm_config=llm_config)
+    if client is None:
+        return _finalize_persona_answer(_build_codebase_fact_fallback_answer(fact_payload))
+    history = _history_for_prompt(conversation_id, limit=4)
     user_payload = _merge_qa_context_payload({'query': user_query, 'facts': fact_payload}, qa_context) or {}
     messages = [{'role': 'system', 'content': system_prompt}] + history
     messages.append({'role': 'user', 'content': json.dumps(user_payload, ensure_ascii=False)})
     try:
-        response = client.chat(messages=messages, temperature=0.1, max_tokens=750, timeout=35)
+        response = client.chat(messages=messages, temperature=answer_temperature, max_tokens=750, timeout=35)
         answer = _extract_text_from_response(response)
         if answer:
             if not _is_valid_qa_answer(answer):
-                return _build_codebase_fact_fallback_answer(fact_payload)
-            return answer
+                return _finalize_persona_answer(_build_codebase_fact_fallback_answer(fact_payload))
+            return _finalize_persona_answer(answer)
     except Exception:
         pass
-    return _build_codebase_fact_fallback_answer(fact_payload)
+    return _finalize_persona_answer(_build_codebase_fact_fallback_answer(fact_payload))
 
 
 def _generate_retrieval_answer(
@@ -2544,33 +2658,29 @@ def _generate_retrieval_answer(
         },
         qa_context,
     )
+    base_system_prompt = (
+        "你是代码问答助手，采用 opencode 风格输出。必须只基于提供的检索证据，不得虚构仓库事实。"
+        "输出必须使用以下4个Markdown二级标题，且按顺序输出：`### 定位结论`、`### 关键证据`、`### 建议改动步骤`、`### 建议验证命令`。"
+        "关键证据必须引用具体文件与行号（若有）。改动步骤必须是可执行动作，避免空话。"
+    )
+    prompt_bundle = _compose_persona_system_prompt(base_system_prompt)
+    system_prompt = str(prompt_bundle.get("systemPrompt") or base_system_prompt)
+    answer_temperature = _resolve_persona_temperature(0.2, prompt_bundle)
     opencode_answer = _run_opencode_qa_answer(
         conversation_id=conversation_id,
         project_path=project_path,
         user_query=user_query,
-        system_prompt=(
-            "你是代码问答助手，采用 opencode 风格输出。必须只基于提供的检索证据，不得虚构仓库事实。"
-            "输出必须使用以下4个Markdown二级标题，且按顺序输出：`### 定位结论`、`### 关键证据`、`### 建议改动步骤`、`### 建议验证命令`。"
-            "关键证据必须引用具体文件与行号（若有）。改动步骤必须是可执行动作，避免空话。"
-        ),
+        system_prompt=system_prompt,
         context_payload=context_payload,
         opencode_enabled=opencode_enabled,
     )
-    if opencode_answer:
-        return opencode_answer
+    if _is_valid_qa_answer(str(opencode_answer or '')):
+        return _finalize_persona_answer(str(opencode_answer or ''))
     client = _create_deepseek_client(llm_config=llm_config)
     if client is None:
-        return _build_retrieval_fallback_answer(user_query, highlights, validation_commands)
+        return _finalize_persona_answer(_build_retrieval_fallback_answer(user_query, highlights, validation_commands))
 
     history = _history_for_prompt(conversation_id, limit=6)
-    system_prompt = (
-        "你是代码问答助手，采用 opencode 风格输出。"
-        "必须只基于提供的检索证据，不得虚构仓库事实。"
-        "输出必须使用以下4个Markdown二级标题，且按顺序输出："
-        "`### 定位结论`、`### 关键证据`、`### 建议改动步骤`、`### 建议验证命令`。"
-        "关键证据必须引用具体文件与行号（若有）。"
-        "改动步骤必须是可执行动作，避免空话。"
-    )
     user_payload = _merge_qa_context_payload({
         "query": user_query,
         "retrieval_highlights": highlights,
@@ -2585,13 +2695,16 @@ def _generate_retrieval_answer(
     messages = [{"role": "system", "content": system_prompt}] + history
     messages.append({"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)})
     try:
-        response = client.chat(messages=messages, temperature=0.2, max_tokens=700, timeout=35)
+        response = client.chat(messages=messages, temperature=answer_temperature, max_tokens=700, timeout=35)
         text = _extract_text_from_response(response)
         if text:
-            return text
+            if not _is_valid_qa_answer(text):
+                text = ""
+        if text:
+            return _finalize_persona_answer(text)
     except Exception:
         pass
-    return _build_retrieval_fallback_answer(user_query, highlights, validation_commands)
+    return _finalize_persona_answer(_build_retrieval_fallback_answer(user_query, highlights, validation_commands))
 
 
 def _execute_with_timeout(timeout_seconds: float, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
@@ -2881,11 +2994,33 @@ def _sync_multi_agent_result_to_conversation(conversation_id: str, multi_agent_s
                         "type": "task_result",
                         "content": summary,
                         "metadata": {
+                            "mode": "team",
                             "multiAgentSessionId": multi_agent_session_id,
                             "resultReady": True,
                             "resultEndpoint": f"/api/multi_agent/session/{multi_agent_session_id}/result",
                             "outputWrite": output_write,
+                            "output_write": output_write,
+                            "solution_packet": result.get("solution_packet") if isinstance(result.get("solution_packet"), dict) else {},
+                            "output_protocol": result.get("output_protocol") if isinstance(result.get("output_protocol"), dict) else {},
+                            "evidence_verdict": result.get("evidence_verdict") if isinstance(result.get("evidence_verdict"), dict) else {},
+                            "opencode_kernel": result.get("opencode_kernel") if isinstance(result.get("opencode_kernel"), dict) else {},
+                            "swarm_packet": result.get("swarm_packet") if isinstance(result.get("swarm_packet"), dict) else {},
+                            "result_summary": {
+                                "mode": "team",
+                                "nextStep": "send_chat",
+                                "confidence": "high",
+                                "reason": "multi_agent_opencode_completed",
+                                "projectPath": str(result.get("projectPath") or ""),
+                            },
                         },
+                    },
+                )
+                _emit_conversation_event(
+                    conversation_id,
+                    "multi_agent.completed",
+                    {
+                        "multiAgentSessionId": multi_agent_session_id,
+                        "status": "completed",
                     },
                 )
                 return
@@ -2905,8 +3040,18 @@ def _sync_multi_agent_result_to_conversation(conversation_id: str, multi_agent_s
                         "type": "task_error",
                         "content": error,
                         "metadata": {
+                            "mode": "team",
                             "multiAgentSessionId": multi_agent_session_id,
                         },
+                    },
+                )
+                _emit_conversation_event(
+                    conversation_id,
+                    "multi_agent.failed",
+                    {
+                        "multiAgentSessionId": multi_agent_session_id,
+                        "status": "failed",
+                        "error": error,
                     },
                 )
                 return
@@ -2955,13 +3100,44 @@ def _build_reconciled_answer_result(
 ) -> Dict[str, Any]:
     mode = str((metadata or {}).get("mode") or "").strip().lower()
     next_step = "retrieval_answer" if mode == "retrieval" else "send_chat"
+    advisor = (metadata or {}).get("advisor") if isinstance((metadata or {}).get("advisor"), dict) else None
+    team = (metadata or {}).get("team") if isinstance((metadata or {}).get("team"), dict) else None
+    retrieval = (metadata or {}).get("retrieval") if isinstance((metadata or {}).get("retrieval"), dict) else None
+    result_summary = (metadata or {}).get("result_summary") if isinstance((metadata or {}).get("result_summary"), dict) else None
+    solution_packet = (metadata or {}).get("solution_packet") if isinstance((metadata or {}).get("solution_packet"), dict) else None
+    output_protocol = (metadata or {}).get("output_protocol") if isinstance((metadata or {}).get("output_protocol"), dict) else None
+    evidence_verdict = (metadata or {}).get("evidence_verdict") if isinstance((metadata or {}).get("evidence_verdict"), dict) else None
+    opencode_kernel = (metadata or {}).get("opencode_kernel") if isinstance((metadata or {}).get("opencode_kernel"), dict) else None
+    swarm_packet = (metadata or {}).get("swarm_packet") if isinstance((metadata or {}).get("swarm_packet"), dict) else None
+    output_write = (metadata or {}).get("output_write") if isinstance((metadata or {}).get("output_write"), dict) else None
     return {
         "conversationId": conversation_payload.get("conversationId") or session_payload.get("conversationId"),
         "projectPath": session_payload.get("projectPath") or conversation_payload.get("projectPath"),
         "nextStep": next_step,
         "safeToCodegen": mode in {"inline_codegen"},
         "taskMode": None,
+        "mode": mode or "general_chat",
         "answer": answer,
+        "advisor": advisor,
+        "team": team,
+        "retrieval": retrieval,
+        "result_summary": result_summary,
+        "solution_packet": solution_packet,
+        "output_protocol": output_protocol,
+        "evidence_verdict": evidence_verdict,
+        "opencode_kernel": opencode_kernel,
+        "swarm_packet": swarm_packet,
+        "output_write": output_write,
+    }
+
+
+def _build_result_summary(*, mode: str, next_step: str, confidence: str, reason: str, project_path: str) -> Dict[str, Any]:
+    return {
+        "mode": str(mode or "general_chat"),
+        "nextStep": str(next_step or "send_chat"),
+        "confidence": str(confidence or "medium"),
+        "reason": str(reason or ""),
+        "projectPath": str(project_path or ""),
     }
 
 
@@ -3006,19 +3182,39 @@ def _reconcile_terminal_conversation_session(
         raw_parts = conversation.get("parts")
         parts: List[Dict[str, Any]] = [item for item in raw_parts if isinstance(item, dict)] if isinstance(raw_parts, list) else []
         latest_handoff: Optional[Dict[str, Any]] = None
+        latest_task_result: Optional[Dict[str, Any]] = None
+        latest_task_error: Optional[Dict[str, Any]] = None
         latest_answer_part: Optional[Dict[str, Any]] = None
         for item in reversed(parts):
             if not isinstance(item, dict):
                 continue
             part_type = str(item.get("type") or "").strip()
+            if latest_task_result is None and part_type == "task_result":
+                latest_task_result = item
+            if latest_task_error is None and part_type == "task_error":
+                latest_task_error = item
             if latest_handoff is None and part_type == "task_handoff":
                 latest_handoff = item
             if latest_answer_part is None and part_type == "assistant_text":
                 latest_answer_part = item
-            if latest_handoff is not None and latest_answer_part is not None:
+            if latest_handoff is not None and latest_task_result is not None and latest_task_error is not None and latest_answer_part is not None:
                 break
 
-        if latest_handoff is not None:
+        if latest_task_result is not None:
+            result_text = str(latest_task_result.get("content") or "").strip()
+            result_metadata = latest_task_result.get("metadata") if isinstance(latest_task_result.get("metadata"), dict) else {}
+            if result_text:
+                reconciled_result = _build_reconciled_answer_result(session_payload, conversation, result_text, result_metadata)
+                reconciled_status = "completed"
+                reconciled_stage = "done"
+                reconciled_message = "会话回合完成"
+        elif latest_task_error is not None:
+            error_text = str(latest_task_error.get("content") or "").strip() or "multi-agent 执行失败"
+            reconciled_status = "failed"
+            reconciled_stage = "failed"
+            reconciled_message = error_text
+            reconciled_error = error_text
+        elif latest_handoff is not None:
             reconciled_result = {
                 "conversationId": conversation.get("conversationId") or conversation_id,
                 "projectPath": session_payload.get("projectPath") or conversation.get("projectPath"),
@@ -3079,14 +3275,7 @@ def _reconcile_terminal_conversation_session(
     if reconciled_status is None:
         if not _is_stale_running_session(session_payload):
             return session_payload
-        updated_payload = dict(session_payload)
-        updated_payload["status"] = "failed"
-        updated_payload["stage"] = "failed"
-        updated_payload["message"] = "会话回合处理超时"
-        updated_payload["error"] = "会话回合处理超时，服务端未能完成该任务（可能因服务重启）"
-        updated_payload["updatedAt"] = _utcnow_iso()
-        data_accessor.save_conversation_session(str(updated_payload.get("sessionId") or ""), updated_payload)
-        return updated_payload
+        return session_payload
 
     updated_payload = dict(session_payload)
     updated_payload["status"] = reconciled_status
@@ -3226,7 +3415,11 @@ def _post_turn_housekeeping(
 
 
 def _should_try_inline_codegen(task_mode: str) -> bool:
-    return task_mode in {"write_new_code", "modify_existing"}
+    return False
+
+
+def _is_forced_opencode_code_task(task_mode: str) -> bool:
+    return str(task_mode or "").strip() in {"write_new_code", "modify_existing"}
 
 
 def _build_inline_codegen_answer(result: Dict[str, Any]) -> str:
@@ -3285,6 +3478,7 @@ def _try_inline_codegen_result(
     output_root: Optional[str],
     auto_apply_output: bool,
     opencode_enabled: Optional[bool],
+    advisor_enabled: Optional[bool],
 ) -> Dict[str, Any]:
     from app.services import multi_agent_service as mas
 
@@ -3295,6 +3489,7 @@ def _try_inline_codegen_result(
         clarification_context or {},
         swarm_enabled=True,
         conversation_id=conversation_id,
+        advisor_enabled=advisor_enabled,
         output_root=output_root,
         auto_apply_output=bool(auto_apply_output),
         opencode_enabled=opencode_enabled,
@@ -3346,6 +3541,7 @@ def _run_conversation_turn(
     auto_apply_output: bool = False,
     opencode_enabled: Optional[bool] = None,
     llm_config: Optional[Dict[str, str]] = None,
+    advisor_enabled: Optional[bool] = None,
 ) -> None:
     try:
         _update_conversation_session(session_id, status="running", stage="intake", message="正在写入会话消息")
@@ -3391,6 +3587,66 @@ def _run_conversation_turn(
                 },
             )
 
+        if pss.is_persona_exit_command(user_query):
+            deactivated = pss.deactivate_persona_skill()
+            persona_raw = deactivated.get("persona") if isinstance(deactivated, dict) else None
+            persona_name = str((persona_raw or {}).get("name") or "角色").strip() if isinstance(persona_raw, dict) else "角色"
+            assistant_text = f"已退出{persona_name}视角，恢复默认问答模式。"
+            _emit_conversation_event(
+                conversation_id,
+                "turn.decided",
+                {
+                    "sessionId": session_id,
+                    "action": "general_chat",
+                    "taskMode": "none",
+                    "reason": "persona_exit_command",
+                    "confidence": "high",
+                },
+            )
+            data_accessor.append_conversation_message(
+                conversation_id,
+                {
+                    "role": "assistant",
+                    "content": assistant_text,
+                    "createdAt": _utcnow_iso(),
+                    "sessionId": session_id,
+                },
+            )
+            data_accessor.append_conversation_part(
+                conversation_id,
+                {
+                    "type": "assistant_text",
+                    "content": assistant_text,
+                    "metadata": {"mode": "general_chat", "sessionId": session_id},
+                },
+            )
+            housekeeping = _post_turn_housekeeping(
+                conversation_id,
+                user_query=user_query,
+                project_path=project_path,
+                action="general_chat",
+                task_mode=None,
+                reason="persona_exit_command",
+                clarification_context=clarification_context,
+            )
+            _finalize_conversation_session(
+                session_id,
+                {
+                    "conversationId": conversation_id,
+                    "intentGuess": "general_chat",
+                    "nextStep": "send_chat",
+                    "safeToCodegen": False,
+                    "confidence": "high",
+                    "reason": "persona_exit_command",
+                    "taskMode": None,
+                    "projectPath": project_path,
+                    "answer": assistant_text,
+                    "memory": housekeeping.get("keyFacts"),
+                    "compaction": housekeeping.get("compaction"),
+                },
+            )
+            return
+
         _update_conversation_session(session_id, stage="decide", message="正在评估本轮动作")
         heuristic_decision = QuestionDetector.assess_clarification_need(
             user_query,
@@ -3415,10 +3671,14 @@ def _run_conversation_turn(
         action = str(action_decision.get("action") or "start_multi_agent")
         task_mode = str(action_decision.get("task_mode") or "modify_existing")
         should_escalate_to_multi_agent = action == "start_multi_agent" or _should_try_inline_codegen(task_mode)
+        if auto_start_multi_agent and task_mode in {"write_new_code", "modify_existing"} and action != "clarify":
+            action = "start_multi_agent"
         if auto_start_multi_agent and not forced and action != "clarify" and should_escalate_to_multi_agent:
             action = "start_multi_agent"
         if action == "start_multi_agent" and task_mode == "none":
             task_mode = "modify_existing"
+        if _is_forced_opencode_code_task(task_mode) and action != "clarify":
+            action = "start_multi_agent"
         confidence = _confidence_level(action_decision.get("confidence"))
         decision_reason = str(action_decision.get("reason") or "动作决策完成")
         _emit_conversation_event(
@@ -3442,33 +3702,60 @@ def _run_conversation_turn(
                 use_llm=not force_fallback_clarification,
                 llm_config=llm_config,
             )
-            pending = data_accessor.set_conversation_pending_question(conversation_id, clarification_payload)
+            existing_pending = data_accessor.get_conversation_pending_question(conversation_id)
+
+            def _clarification_signature(payload: Optional[Dict[str, Any]]) -> Tuple[str, Tuple[Tuple[str, str, str], ...]]:
+                if not isinstance(payload, dict):
+                    return "", tuple()
+                question = str(payload.get("question") or "").strip()
+                raw_options_value = payload.get("options")
+                raw_options: List[Any] = cast(List[Any], raw_options_value) if isinstance(raw_options_value, list) else []
+                normalized_options: List[Tuple[str, str, str]] = []
+                for item in raw_options:
+                    if not isinstance(item, dict):
+                        continue
+                    normalized_options.append(
+                        (
+                            str(item.get("label") or "").strip(),
+                            str(item.get("description") or "").strip(),
+                            str(item.get("promptFragment") or "").strip(),
+                        )
+                    )
+                return question, tuple(normalized_options)
+
+            duplicate_pending = False
+            if isinstance(existing_pending, dict) and _clarification_signature(existing_pending) == _clarification_signature(clarification_payload):
+                pending = existing_pending
+                duplicate_pending = True
+            else:
+                pending = data_accessor.set_conversation_pending_question(conversation_id, clarification_payload)
 
             assistant_text = str(clarification_payload.get("question") or "请先补充需求细节。")
-            data_accessor.append_conversation_message(
-                conversation_id,
-                {
-                    "role": "assistant",
-                    "content": assistant_text,
-                    "createdAt": _utcnow_iso(),
-                },
-            )
-            data_accessor.append_conversation_part(
-                conversation_id,
-                {
-                    "type": "question_request",
-                    "content": assistant_text,
-                    "metadata": pending or clarification_payload,
-                },
-            )
-            _emit_conversation_event(
-                conversation_id,
-                "clarification.requested",
-                {
-                    "sessionId": session_id,
-                    "questionId": (pending or clarification_payload).get("questionId"),
-                },
-            )
+            if not duplicate_pending:
+                data_accessor.append_conversation_message(
+                    conversation_id,
+                    {
+                        "role": "assistant",
+                        "content": assistant_text,
+                        "createdAt": _utcnow_iso(),
+                    },
+                )
+                data_accessor.append_conversation_part(
+                    conversation_id,
+                    {
+                        "type": "question_request",
+                        "content": assistant_text,
+                        "metadata": pending or clarification_payload,
+                    },
+                )
+                _emit_conversation_event(
+                    conversation_id,
+                    "clarification.requested",
+                    {
+                        "sessionId": session_id,
+                        "questionId": (pending or clarification_payload).get("questionId"),
+                    },
+                )
 
             housekeeping = _post_turn_housekeeping(
                 conversation_id,
@@ -3678,6 +3965,7 @@ def _run_conversation_turn(
                     "role": "assistant",
                     "content": answer,
                     "createdAt": _utcnow_iso(),
+                    "sessionId": session_id,
                 },
             )
             data_accessor.append_conversation_part(
@@ -3687,6 +3975,7 @@ def _run_conversation_turn(
                     "content": answer,
                     "metadata": {
                         "mode": "retrieval",
+                        "sessionId": session_id,
                         "validationCommands": validation_commands,
                         "search": retrieval_search_summary,
                     },
@@ -3748,6 +4037,7 @@ def _run_conversation_turn(
                     "role": "assistant",
                     "content": answer,
                     "createdAt": _utcnow_iso(),
+                    "sessionId": session_id,
                 },
             )
             data_accessor.append_conversation_part(
@@ -3755,7 +4045,7 @@ def _run_conversation_turn(
                 {
                     "type": "assistant_text",
                     "content": answer,
-                    "metadata": {"mode": "general_chat"},
+                    "metadata": {"mode": "general_chat", "sessionId": session_id},
                 },
             )
             housekeeping = _post_turn_housekeeping(
@@ -3796,6 +4086,7 @@ def _run_conversation_turn(
             "auto_apply_output": bool(auto_apply_output),
             "opencode_enabled": bool(opencode_enabled) if opencode_enabled is not None else None,
             "opencodeEnabled": bool(opencode_enabled) if opencode_enabled is not None else None,
+            "opencodeAuthoritative": _is_forced_opencode_code_task(task_mode),
         }
         if auto_start_multi_agent and _should_try_inline_codegen(task_mode):
             try:
@@ -3811,6 +4102,7 @@ def _run_conversation_turn(
                     output_root=output_root,
                     auto_apply_output=bool(auto_apply_output),
                     opencode_enabled=opencode_enabled,
+                    advisor_enabled=advisor_enabled,
                 )
                 inline_session = _as_dict(inline_payload.get("session"))
                 inline_result = _as_dict(inline_payload.get("result"))
@@ -3846,6 +4138,7 @@ def _run_conversation_turn(
                         "role": "assistant",
                         "content": answer,
                         "createdAt": _utcnow_iso(),
+                        "sessionId": session_id,
                     },
                 )
                 data_accessor.append_conversation_part(
@@ -3855,6 +4148,7 @@ def _run_conversation_turn(
                         "content": answer,
                         "metadata": {
                             "mode": "inline_codegen",
+                            "sessionId": session_id,
                             "multiAgentSessionId": inline_session.get("sessionId"),
                             "outputWrite": output_write,
                             "hasSolution": bool(solution_packet),
@@ -3926,6 +4220,7 @@ def _run_conversation_turn(
                     output_root=output_root,
                     auto_apply_output=bool(auto_apply_output),
                     opencode_enabled=opencode_enabled,
+                    advisor_enabled=advisor_enabled,
                 )
                 ma_thread = threading.Thread(
                     target=mas._run_multi_agent_session,
@@ -4042,6 +4337,8 @@ def api_conversation_session_start():
     auto_apply_output = bool(data.get("auto_apply_output", False))
     opencode_enabled_raw = data.get("opencode_enabled")
     opencode_enabled = bool(opencode_enabled_raw) if opencode_enabled_raw is not None else None
+    advisor_enabled_raw = data.get("advisor_enabled")
+    advisor_enabled = bool(advisor_enabled_raw) if advisor_enabled_raw is not None else None
     llm_config = _parse_runtime_llm_config(data.get("llm_config"))
 
     if not user_query:
@@ -4090,6 +4387,7 @@ def api_conversation_session_start():
             auto_apply_output,
             opencode_enabled,
             llm_config,
+            advisor_enabled,
         ),
         daemon=True,
     )
@@ -4303,6 +4601,8 @@ def api_conversation_events(conversation_id: str):
     timeout_seconds = max(10, min(_safe_int(request.args.get("timeout"), 120), 600))
     interval_ms = max(100, min(_safe_int(request.args.get("intervalMs"), 1000), 5000))
     interval_seconds = float(interval_ms) / 1000.0
+    final_only_raw = str(request.args.get("final_only", "1") or "1").strip().lower()
+    final_only = final_only_raw not in {"0", "false", "no", "off"}
     target_session_id = str(request.args.get("session_id") or "").strip()
     reconciled_target_session: Optional[Dict[str, Any]] = None
     if target_session_id:
@@ -4341,6 +4641,9 @@ def api_conversation_events(conversation_id: str):
                         "payload": event.get("payload") if isinstance(event.get("payload"), dict) else {},
                         "createdAt": event.get("createdAt"),
                     }
+                    if final_only and event_type not in {"turn.completed", "turn.failed"}:
+                        cursor = max(cursor, seq)
+                        continue
                     yield f"id: {seq}\n"
                     yield f"event: {event_type}\n"
                     yield f"data: {json.dumps(frame, ensure_ascii=False)}\n\n"

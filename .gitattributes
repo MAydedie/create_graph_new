@@ -5,3 +5,4 @@
 /tests/test_formal_protocol.py text eol=lf
 /requirements.txt text eol=lf
 /formal_protocol/* text eol=lf
+/segment_*/*.py text eol=lf

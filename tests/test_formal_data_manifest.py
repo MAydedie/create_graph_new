@@ -179,3 +179,13 @@ def test_excluded_variants_are_not_formal() -> None:
     assert all(item["formal"] is False for item in cce_exclusions)
     csn_exclusions = indexed["codesearchnet"]["exclusions"]
     assert csn_exclusions[0]["formal"] is False
+    for dataset in indexed.values():
+        split = _load_json(FORMAL_DATA / dataset["split_file"])
+        assert isinstance(split, dict)
+        non_formal_ids = {unit["id"] for unit in split["formal_units"] if unit["formal"] is False}
+        declared_ids = {
+            unit_id
+            for exclusion in dataset["exclusions"]
+            for unit_id in exclusion["split_unit_ids"]
+        }
+        assert non_formal_ids == declared_ids

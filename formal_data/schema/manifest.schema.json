@@ -33,9 +33,10 @@
     },
     "exclusion": {
       "type": "object",
-      "required": ["id", "reason", "formal"],
+      "required": ["id", "split_unit_ids", "reason", "formal"],
       "properties": {
         "id": {"type": "string"},
+        "split_unit_ids": {"type": "array", "items": {"type": "string"}, "minItems": 1, "uniqueItems": true},
         "reason": {"type": "string"},
         "formal": {"type": "boolean"}
       },

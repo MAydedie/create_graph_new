@@ -67,7 +67,7 @@
       "deviations": ["Go is an adapted expansion and excluded from the official paper subset."],
       "loader": "formal_data.loaders.repoqa.inspect_repoqa",
       "readiness": "PROTOCOL_READY",
-      "exclusions": [{"id": "repoqa_go_adapted_expansion", "reason": "Not in frozen official paper subset", "formal": false}]
+      "exclusions": [{"id": "repoqa_go_adapted_expansion", "split_unit_ids": ["go_adapted_expansion"], "reason": "Not in frozen official paper subset", "formal": false}]
     },
     {
       "id": "codesearchnet",
@@ -91,7 +91,7 @@
       "deviations": ["Excluded from official relevance scoring until queries and human relevance gold are supplied."],
       "loader": "formal_data.loaders.codesearchnet.inspect_codesearchnet",
       "readiness": "LOADER_READY",
-      "exclusions": [{"id": "codesearchnet_official_relevance_scoring", "reason": "Official 99-query human relevance gold is not present locally", "formal": false}]
+      "exclusions": [{"id": "codesearchnet_official_relevance_scoring", "split_unit_ids": ["go_test", "java_test", "javascript_test", "php_test", "python_test", "ruby_test"], "reason": "Official 99-query human relevance gold is not present locally", "formal": false}]
     },
     {
       "id": "repobench_r",
@@ -188,8 +188,8 @@
       "loader": "formal_data.loaders.crosscodeeval.inspect_crosscodeeval",
       "readiness": "PROTOCOL_READY",
       "exclusions": [
-        {"id": "crosscodeeval_csharp_oracle_openai_cosine_sim_short", "reason": "1767 rows, not aligned with 1768-row C# base", "formal": false},
-        {"id": "crosscodeeval_csharp_rg1_openai_cosine_sim_short", "reason": "1767 rows, not aligned with 1768-row C# base", "formal": false}
+        {"id": "crosscodeeval_csharp_oracle_openai_cosine_sim_short", "split_unit_ids": ["csharp_oracle_openai_cosine_sim"], "reason": "1767 rows, not aligned with 1768-row C# base", "formal": false},
+        {"id": "crosscodeeval_csharp_rg1_openai_cosine_sim_short", "split_unit_ids": ["csharp_rg1_openai_cosine_sim"], "reason": "1767 rows, not aligned with 1768-row C# base", "formal": false}
       ]
     },
     {
@@ -231,7 +231,7 @@
       "deviations": ["No runnable C1 formal split until repository checkout and test environment are verified."],
       "loader": "formal_data.loaders.fea_bench.inspect_fea_bench",
       "readiness": "LOADER_READY",
-      "exclusions": [{"id": "fea_bench_c1_runnable_formal_split", "reason": "Repository checkout and test environment unverified", "formal": false}]
+      "exclusions": [{"id": "fea_bench_c1_runnable_formal_split", "split_unit_ids": ["public_metadata", "medium_enriched_local_sample"], "reason": "Repository checkout and test environment unverified", "formal": false}]
     },
     {
       "id": "swe_bench_verified",
@@ -251,7 +251,7 @@
       "deviations": ["No runnable formal split until Docker/harness environment is verified."],
       "loader": "formal_data.loaders.swe_bench_verified.inspect_swe_bench_verified",
       "readiness": "GOLD_READY",
-      "exclusions": [{"id": "swe_bench_verified_runnable_formal_split", "reason": "Docker/harness execution unverified", "formal": false}]
+      "exclusions": [{"id": "swe_bench_verified_runnable_formal_split", "split_unit_ids": ["verified_metadata_gold", "eval_yaml"], "reason": "Docker/harness execution unverified", "formal": false}]
     }
   ]
 }

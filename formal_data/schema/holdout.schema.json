@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "formal_data/schema/holdout.schema.json",
+  "type": "object",
+  "required": ["status", "optional", "repositories", "activation_requirements"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "status": {"const": "NOT_PROVIDED"},
+    "optional": {"const": true},
+    "repositories": {"type": "array", "maxItems": 0},
+    "activation_requirements": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "notes": {"type": "string"}
+  },
+  "additionalProperties": false
+}

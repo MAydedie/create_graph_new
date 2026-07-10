@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "formal_data/schema/annotation_queue.schema.json",
+  "type": "object",
+  "required": ["$schema", "status", "template_not_gold", "qa_template", "c2_template"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "status": {"const": "TEMPLATE_ONLY"},
+    "template_not_gold": {"const": true},
+    "qa_template": {"$ref": "annotation_record.schema.json"},
+    "c2_template": {"$ref": "annotation_record.schema.json"}
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "formal_data/schema/annotation_record.schema.json",
+  "type": "object",
+  "required": ["record_id", "dataset", "repository", "commit_sha", "annotator_id", "human_reviewed", "template_not_gold"],
+  "properties": {
+    "record_id": {"type": "string"},
+    "dataset": {"type": "string"},
+    "repository": {"type": "string"},
+    "commit_sha": {"type": "string"},
+    "question": {"type": "string"},
+    "answer": {"type": "string"},
+    "specification": {"type": "string"},
+    "expected_code_behavior": {"type": "string"},
+    "evidence_paths": {"type": "array", "items": {"type": "string"}},
+    "annotator_id": {"type": "string"},
+    "human_reviewed": {"type": "boolean"},
+    "template_not_gold": {"type": "boolean"}
+  },
+  "additionalProperties": true
+}

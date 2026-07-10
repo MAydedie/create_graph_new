@@ -1,0 +1,36 @@
+{
+  "lock_version": "1.0.0",
+  "protocol_label": "formal",
+  "provider": "DeepSeek OpenAI-compatible API",
+  "api_compatible_base_url": "https://api.deepseek.com/v1",
+  "base_model": {
+    "name": "deepseek-v4-flash",
+    "version": "deepseek-v4-flash"
+  },
+  "embedding_model": {
+    "name": "BAAI/bge-small-zh-v1.5",
+    "version": "v1.5",
+    "runtime_snapshot_hash_required": true
+  },
+  "reranker_model": {
+    "name": "BAAI/bge-reranker-base",
+    "version": "repository-default",
+    "runtime_snapshot_hash_required": true
+  },
+  "decoding_parameters": {
+    "temperature": 0.2,
+    "max_output_tokens": 4096,
+    "max_turns": 1,
+    "timeout_seconds": 120,
+    "seed": 42
+  },
+  "package_constraints": {
+    "python": ">=3.9,<3.13",
+    "PyYAML": ">=6.0",
+    "pytest": ">=7.4.0",
+    "langchain-core": ">=0.2.0,<1.0",
+    "langchain-openai": ">=0.1.0",
+    "langchain-text-splitters": ">=0.2.0"
+  },
+  "decision_source": "config/config.py defaults plus conservative Stage 0 decoding freeze"
+}

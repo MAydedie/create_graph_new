@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "formal_data/schema/repoqa_row.schema.json",
+  "type": "object",
+  "required": ["repo", "commit_sha", "content", "functions", "needles"],
+  "properties": {
+    "repo": {"type": "string"},
+    "commit_sha": {"type": "string"},
+    "content": {"type": "string"},
+    "dependency": {},
+    "entrypoint_path": {"type": ["string", "null"]},
+    "functions": {"type": "array"},
+    "needles": {"type": "array"},
+    "topic": {"type": ["string", "null"]}
+  },
+  "additionalProperties": true
+}

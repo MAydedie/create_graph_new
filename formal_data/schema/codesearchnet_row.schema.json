@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "formal_data/schema/codesearchnet_row.schema.json",
+  "type": "object",
+  "required": ["code", "docstring", "func_name", "language", "repo", "sha", "path", "url"],
+  "properties": {
+    "code": {"type": "string"},
+    "docstring": {"type": "string"},
+    "func_name": {"type": "string"},
+    "language": {"type": "string"},
+    "repo": {"type": "string"},
+    "sha": {"type": "string"},
+    "path": {"type": "string"},
+    "url": {"type": "string"}
+  },
+  "additionalProperties": true
+}

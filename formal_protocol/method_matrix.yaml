@@ -1,0 +1,157 @@
+matrix_version: "1.0.0"
+protocol_label: formal
+declaration_scope: semantic_freeze_only
+formal_runner_implemented: false
+
+methods:
+  - id: B0
+    name: Direct
+    context_source: user_task_only
+    retrieval_mode: none
+    graph_context: false
+    partition_semantics: false
+    path_analysis: false
+    experience: false
+    graph_query: false
+    stage8_usage: none
+    final_input_token_limit: 16384
+    intended_status: formal_baseline
+    currently_runnable: false
+    implementation_status: pending_stage2_formal_runner
+
+  - id: B1
+    name: File-RAG-BM25
+    context_source: repository_file_chunks
+    retrieval_mode: bm25_lexical_file_level
+    graph_context: false
+    partition_semantics: false
+    path_analysis: false
+    experience: false
+    graph_query: false
+    stage8_usage: none
+    final_input_token_limit: 16384
+    intended_status: formal_baseline
+    currently_runnable: false
+    implementation_status: pending_stage2_formal_runner
+
+  - id: B2
+    name: File-RAG-Dense
+    context_source: repository_file_chunks
+    retrieval_mode: dense_file_level
+    graph_context: false
+    partition_semantics: false
+    path_analysis: false
+    experience: false
+    graph_query: false
+    stage8_usage: none
+    final_input_token_limit: 16384
+    intended_status: formal_baseline
+    currently_runnable: false
+    implementation_status: pending_stage2_formal_runner
+
+  - id: B3
+    name: Long-Context
+    context_source: deterministic_repository_file_packing
+    retrieval_mode: no_explicit_graph_retrieval
+    graph_context: false
+    partition_semantics: false
+    path_analysis: false
+    experience: false
+    graph_query: false
+    stage8_usage: none
+    final_input_token_limit: 16384
+    intended_status: formal_baseline
+    currently_runnable: false
+    implementation_status: pending_stage2_formal_runner
+
+  - id: S0
+    name: system baseline
+    context_source: user_task_only
+    retrieval_mode: system_direct
+    graph_context: false
+    partition_semantics: false
+    path_analysis: false
+    experience: false
+    graph_query: false
+    stage8_usage: none
+    feature_flags: all_FH_ENABLE_flags_disabled
+    final_input_token_limit: 16384
+    intended_status: formal_system_baseline
+    currently_runnable: false
+    implementation_status: pending_stage2_formal_runner
+
+  - id: S1
+    name: GraphOnly
+    context_source: repository_knowledge_graph
+    retrieval_mode: graph_context
+    graph_context: true
+    partition_semantics: false
+    path_analysis: false
+    experience: false
+    graph_query: false
+    stage8_usage: none
+    final_input_token_limit: 16384
+    intended_status: formal_system_method
+    currently_runnable: false
+    implementation_status: pending_stage2_formal_runner
+
+  - id: S2
+    name: Graph+Partition
+    context_source: repository_graph_and_partition_summaries
+    retrieval_mode: graph_context_with_partition
+    graph_context: true
+    partition_semantics: true
+    path_analysis: false
+    experience: false
+    graph_query: false
+    stage8_usage: none
+    final_input_token_limit: 16384
+    intended_status: formal_system_method
+    currently_runnable: false
+    implementation_status: pending_stage2_formal_runner
+
+  - id: S3
+    name: Graph+Partition+Path
+    context_source: repository_graph_partition_and_atomic_paths
+    retrieval_mode: graph_context_with_partition_and_path
+    graph_context: true
+    partition_semantics: true
+    path_analysis: true
+    experience: false
+    graph_query: false
+    stage8_usage: none
+    final_input_token_limit: 16384
+    intended_status: formal_system_method
+    currently_runnable: false
+    implementation_status: pending_stage2_formal_runner
+
+  - id: S4
+    name: Full+Experience
+    context_source: repository_graph_partition_paths_and_experience
+    retrieval_mode: full_graph_context
+    graph_context: true
+    partition_semantics: true
+    path_analysis: true
+    experience: true
+    graph_query: false
+    stage8_usage: none
+    final_input_token_limit: 16384
+    intended_status: formal_system_method
+    currently_runnable: false
+    implementation_status: pending_stage2_formal_runner
+
+  - id: S5
+    name: S4+Stage7 graph_query/graph_aware
+    context_source: stage7_graph_query_over_full_system_context
+    retrieval_mode: graph_query_graph_aware_hybrid
+    graph_context: true
+    partition_semantics: true
+    path_analysis: true
+    experience: true
+    graph_query: true
+    graph_query_stage: 7
+    stage8_usage: C2_graph_grounded_spec_generation_only
+    final_input_token_limit: 16384
+    intended_status: formal_system_method
+    currently_runnable: false
+    implementation_status: pending_stage2_formal_runner

@@ -1,0 +1,94 @@
+protocol_version: "1.0.0"
+protocol_label: formal
+stage: 0
+status: frozen_declarative_protocol
+
+supported_task_lines:
+  - id: repository_qa
+    label: code_project_question_answering
+  - id: repository_code_completion
+    label: code_project_continuation
+  - id: repository_grounded_generation
+    label: code_project_generation
+    sub_tasks:
+      - C1_repository_feature_implementation
+      - C2_graph_grounded_spec_and_code_generation
+
+runner:
+  formal_runner_implemented: false
+  implementation_stage: 2
+  excluded_runners:
+    - path: scripts/pdf_experiment_runner.py
+      protocol_labels:
+        - adapted
+        - preliminary
+      formal_runner: false
+
+generation:
+  base_llm:
+    provider: deepseek_openai_compatible
+    model_identifier: deepseek-v4-flash
+    decision_source: config/config.py repository production default
+  temperature: 0.2
+  max_output_tokens: 4096
+  max_turns: 1
+  timeout_seconds: 120
+  random_seed_policy:
+    dataset_and_tie_break_seed: 42
+    model_request_seed: 42
+    unsupported_seed_behavior: record_unsupported_and_preserve_temperature
+    decision_source: conservative deterministic Stage 0 author decision
+  prompt_template_version: formal-prompt-v1
+  decision_source: low-variance generation budget frozen for all B0-B3 and S0-S5 methods
+
+retrieval:
+  chunking:
+    strategy: recursive_character
+    chunk_size_characters: 800
+    chunk_overlap_characters: 100
+    decision_source: llm/rag_core/text_splitter.py repository default
+  top_k: 8
+  candidate_count: 25
+  reranker:
+    model_identifier: BAAI/bge-reranker-base
+    model_version: repository-default
+    candidate_limit: 25
+    output_top_k: 8
+    truncation_limit_tokens: 512
+  evidence_assembly_token_budget: 8192
+  max_retrieved_files: 8
+  max_retrieved_snippets: 8
+  decision_source: repository retrieval caps plus conservative common formal budget
+
+context_budget:
+  token_counting: model_input_tokens_after_prompt_and_evidence_assembly
+  reserved_output_tokens: 4096
+  B3_long_context_token_limit: 16384
+  S5_final_input_token_limit: 16384
+  equality_rule: B3_long_context_token_limit_must_equal_S5_final_input_token_limit
+  decision_source: conservative shared final-input ceiling for server execution
+
+additional_cost_accounting:
+  community_summary:
+    accounting: separate
+    metrics:
+      - preprocessing_latency_ms
+      - llm_calls
+      - input_tokens
+      - output_tokens
+  path_explanation:
+    accounting: separate
+    metrics:
+      - preprocessing_latency_ms
+      - llm_calls
+      - input_tokens
+      - output_tokens
+  final_context_rule: all included summaries and path explanations consume the common evidence and final-input budgets
+
+sample_outcome_policy:
+  completed: include_all_primary_and_secondary_metrics
+  partial: preserve_artifacts_include_available_submetrics_and_score_primary_task_failure
+  failed: preserve_artifacts_include_in_denominator_and_score_primary_task_failure
+  infrastructure_retry_limit: 1
+  silent_drop_allowed: false
+  decision_source: conservative no-silent-exclusion formal evaluation policy

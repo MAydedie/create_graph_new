@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "formal_data/schema/swe_bench_verified_row.schema.json",
+  "type": "object",
+  "required": ["repo", "instance_id", "base_commit", "patch", "test_patch", "problem_statement", "version", "FAIL_TO_PASS", "PASS_TO_PASS", "environment_setup_commit", "difficulty"],
+  "properties": {
+    "repo": {"type": "string"},
+    "instance_id": {"type": "string"},
+    "base_commit": {"type": "string"},
+    "patch": {"type": "string"},
+    "test_patch": {"type": "string"},
+    "problem_statement": {"type": "string"},
+    "version": {"type": "string"},
+    "FAIL_TO_PASS": {},
+    "PASS_TO_PASS": {},
+    "environment_setup_commit": {"type": ["string", "null"]},
+    "difficulty": {"type": ["string", "null"]}
+  },
+  "additionalProperties": true
+}

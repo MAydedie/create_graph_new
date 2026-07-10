@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "formal_data/schema/fea_bench_row.schema.json",
+  "type": "object",
+  "required": ["instance_id", "repo", "base_commit", "FAIL_TO_PASS", "PASS_TO_PASS", "environment_setup_commit"],
+  "properties": {
+    "instance_id": {"type": "string"},
+    "repo": {"type": "string"},
+    "base_commit": {"type": "string"},
+    "FAIL_TO_PASS": {"type": "array"},
+    "PASS_TO_PASS": {"type": "array"},
+    "environment_setup_commit": {"type": "string"},
+    "patch": {"type": "string"},
+    "test_patch": {"type": "string"}
+  },
+  "additionalProperties": true
+}

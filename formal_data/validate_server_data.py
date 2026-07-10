@@ -249,6 +249,106 @@ def _crosscodeeval_expected_rows(dataset: dict[str, Any], path: str) -> int:
     return counts["csharp_rows"]["default"]
 
 
+def _validate_policy_artifacts(
+    manifest: dict[str, Any], failures: list[dict[str, Any]], package_root: Path = PACKAGE_ROOT
+) -> int:
+    verified = 0
+    for dataset in manifest["datasets"]:
+        split_path = package_root / str(dataset["split_file"])
+        try:
+            split_payload = json.loads(split_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            _record_failure(failures, "split_parse", str(split_path), "valid JSON", str(exc))
+            continue
+        if split_payload.get("dataset") != dataset["id"]:
+            _record_failure(failures, "split_dataset", str(split_path), dataset["id"], split_payload.get("dataset"))
+            continue
+        units = split_payload.get("formal_units")
+        if not isinstance(units, list):
+            _record_failure(failures, "split_units", str(split_path), "list", type(units).__name__)
+            continue
+        unit_ids = [str(unit.get("id")) for unit in units if isinstance(unit, dict)]
+        if len(unit_ids) != len(units) or len(unit_ids) != len(set(unit_ids)):
+            _record_failure(failures, "split_unit_ids", str(split_path), "unique object IDs", unit_ids)
+            continue
+        excluded_ids = {
+            str(unit["id"])
+            for unit in units
+            if isinstance(unit, dict) and unit.get("formal") is False
+        }
+        declared_excluded_ids = {
+            str(unit_id)
+            for exclusion in dataset["exclusions"]
+            for unit_id in exclusion.get("split_unit_ids", [])
+        }
+        if excluded_ids != declared_excluded_ids:
+            _record_failure(
+                failures,
+                "split_exclusions",
+                str(split_path),
+                sorted(declared_excluded_ids),
+                sorted(excluded_ids),
+            )
+        for exclusion in dataset["exclusions"]:
+            if exclusion.get("formal") is not False:
+                _record_failure(failures, "manifest_exclusion", str(exclusion.get("id")), False, exclusion.get("formal"))
+        dataset_readiness = str(dataset["readiness"])
+        for unit in units:
+            if not isinstance(unit, dict):
+                continue
+            unit_readiness = str(unit.get("readiness"))
+            if unit_readiness not in READINESS_INDEX:
+                _record_failure(failures, "split_readiness", str(unit.get("id")), "known readiness", unit_readiness)
+                continue
+            if READINESS_INDEX[unit_readiness] > READINESS_INDEX[dataset_readiness]:
+                _record_failure(failures, "split_readiness", str(unit.get("id")), f"<= {dataset_readiness}", unit_readiness)
+            if unit.get("formal") is True and READINESS_INDEX[unit_readiness] < READINESS_INDEX["GOLD_READY"]:
+                _record_failure(failures, "formal_unit_readiness", str(unit.get("id")), ">= GOLD_READY", unit_readiness)
+        verified += 1
+
+    holdout_path = package_root / "holdout_repositories.json"
+    queue_path = package_root / "annotation_queue_template.json"
+    audit_path = package_root / "annotation_audit.jsonl"
+    qa_path = package_root / "custom_qa.jsonl"
+    c2_path = package_root / "custom_c2.jsonl"
+    try:
+        holdout = json.loads(holdout_path.read_text(encoding="utf-8"))
+        queue = json.loads(queue_path.read_text(encoding="utf-8"))
+        audit_rows = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        qa_text = qa_path.read_text(encoding="utf-8")
+        c2_text = c2_path.read_text(encoding="utf-8")
+    except (OSError, json.JSONDecodeError) as exc:
+        _record_failure(failures, "optional_artifacts", str(package_root), "parseable files", str(exc))
+        return verified
+    optional_checks = {
+        "holdout_status": ("NOT_PROVIDED", holdout.get("status")),
+        "holdout_optional": (True, holdout.get("optional")),
+        "holdout_repositories": ([], holdout.get("repositories")),
+        "custom_qa_empty": ("", qa_text),
+        "custom_c2_empty": ("", c2_text),
+        "annotation_audit_rows": (1, len(audit_rows)),
+        "queue_status": ("TEMPLATE_ONLY", queue.get("status")),
+        "queue_not_gold": (True, queue.get("template_not_gold")),
+    }
+    for check_id, (expected, actual) in optional_checks.items():
+        if actual != expected:
+            _record_failure(failures, "optional_artifacts", check_id, expected, actual)
+    if len(audit_rows) == 1:
+        audit = audit_rows[0]
+        audit_checks = {
+            "audit_status": ("NOT_PROVIDED", audit.get("status")),
+            "audit_optional": (True, audit.get("optional")),
+            "audit_human_reviewed": (False, audit.get("human_reviewed")),
+            "audit_human_gold": (False, audit.get("human_gold")),
+            "audit_qa_records": (0, audit.get("qa_records")),
+            "audit_c2_records": (0, audit.get("c2_records")),
+        }
+        for check_id, (expected, actual) in audit_checks.items():
+            if actual != expected:
+                _record_failure(failures, "optional_artifacts", check_id, expected, actual)
+    return verified + 5
+
+
 def _run_loader_plan(
     plan: list[dict[str, Any]], manifest: dict[str, Any], failures: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
@@ -288,7 +388,10 @@ def _run_loader_plan(
 def validate_server_data() -> dict[str, Any]:
     manifest = load_manifest()
     ledger = parse_checksum_ledger()
-    failures, verified_files = _compare_file_inventory(manifest, ledger)
+    failures: list[dict[str, Any]] = []
+    policy_artifact_count = _validate_policy_artifacts(manifest, failures)
+    inventory_failures, verified_files = _compare_file_inventory(manifest, ledger)
+    failures.extend(inventory_failures)
     loader_results = [] if failures else _run_loader_plan(build_loader_plan(manifest), manifest, failures)
     summary = {
         "manifest_path": str(MANIFEST_PATH),
@@ -298,6 +401,7 @@ def validate_server_data() -> dict[str, Any]:
         "overall_stage1_status": manifest["overall_stage1_status"],
         "verified_file_count": len(verified_files),
         "loader_run_count": len(loader_results),
+        "policy_artifact_count": policy_artifact_count,
         "failures": failures,
         "ok": not failures,
     }

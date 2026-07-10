@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+from copy import deepcopy
 from pathlib import Path
 
 import formal_data.validate_server_data as validator
@@ -17,6 +18,7 @@ from formal_data.validate_server_data import (
     _compare_file_inventory,
     _crosscodeeval_expected_rows,
     _run_loader_plan,
+    _validate_policy_artifacts,
     build_loader_plan,
     dataset_index,
     parse_checksum_ledger,
@@ -138,6 +140,7 @@ def test_inventory_failure_stops_before_loader_deserialization(monkeypatch: Monk
 
     monkeypatch.setattr(validator, "load_manifest", lambda: manifest)
     monkeypatch.setattr(validator, "parse_checksum_ledger", lambda: {})
+    monkeypatch.setattr(validator, "_validate_policy_artifacts", lambda _manifest, _failures: 0)
     monkeypatch.setattr(validator, "_compare_file_inventory", lambda _manifest, _ledger: ([{"scope": "manifest_sha256"}], []))
 
     def fail_if_called(_manifest: object) -> list[dict[str, object]]:
@@ -149,3 +152,21 @@ def test_inventory_failure_stops_before_loader_deserialization(monkeypatch: Monk
 
     assert summary["ok"] is False
     assert summary["loader_run_count"] == 0
+
+
+def test_policy_artifacts_enforce_optional_and_exclusion_semantics() -> None:
+    manifest = json.loads((PROJECT_ROOT / "formal_data" / "dataset_manifest.json").read_text(encoding="utf-8"))
+    failures: list[dict[str, object]] = []
+
+    verified = _validate_policy_artifacts(manifest, failures)
+
+    assert verified == 13
+    assert failures == []
+
+    invalid_manifest = deepcopy(manifest)
+    invalid_manifest["datasets"][0]["exclusions"][0]["split_unit_ids"] = ["official_paper_subset"]
+    invalid_failures: list[dict[str, object]] = []
+
+    _validate_policy_artifacts(invalid_manifest, invalid_failures)
+
+    assert any(failure["scope"] == "split_exclusions" for failure in invalid_failures)

@@ -1,0 +1,257 @@
+{
+  "$schema": "schema/manifest.schema.json",
+  "schema_version": "2020-12-stage1",
+  "stage": "Stage 1",
+  "status": "engineering_protocol_freeze",
+  "overall_stage1_status": "READY_FOR_STAGE2",
+  "gate_rationale": "Optional QA/C2 absence is explicitly allowed, dataset-level exclusions are documented, and unsupported splits are marked non-runnable rather than silently omitted.",
+  "generated_by": "model_free_stage1_inventory",
+  "evidence_timestamp": "2026-07-10T21:09:53.0159675+08:00",
+  "raw_root": "/opt/forge_flow/database",
+  "model_network_benchmark_use": "NONE",
+  "readiness_order": [
+    "NOT_PROVIDED",
+    "PRESENT",
+    "FORMAT_VERIFIED",
+    "LOADER_READY",
+    "GOLD_READY",
+    "PROTOCOL_READY"
+  ],
+  "official_references": {
+    "repoqa": [
+      "https://github.com/evalplus/repoqa/blob/ae876deb1365dbf5a15b0533723c8ed123eee586/README.md#L46-L56",
+      "https://arxiv.org/html/2406.06025v1"
+    ],
+    "codesearchnet": [
+      "https://github.com/github/CodeSearchNet/blob/106e827405c968597da938f6b373d30183918869/README.md#L89-L151"
+    ],
+    "repobench": [
+      "https://github.com/Leolty/repobench"
+    ],
+    "repobench_r": [
+      "https://huggingface.co/datasets/tianyang/repobench-r"
+    ],
+    "crosscodeeval": [
+      "https://github.com/amazon-science/cceval"
+    ],
+    "repoeval": [
+      "https://github.com/microsoft/CodeT"
+    ],
+    "fea_bench": [
+      "https://github.com/microsoft/FEA-Bench"
+    ],
+    "swe_bench_verified": [
+      "https://github.com/swe-bench/SWE-bench",
+      "https://huggingface.co/datasets/princeton-nlp/SWE-bench_Verified"
+    ]
+  },
+  "datasets": [
+    {
+      "id": "repoqa",
+      "name": "RepoQA",
+      "source_urls": [
+        "https://github.com/evalplus/repoqa/blob/ae876deb1365dbf5a15b0533723c8ed123eee586/README.md#L46-L56",
+        "https://arxiv.org/html/2406.06025v1"
+      ],
+      "task_notes": "Search Needle Function repository task with gold needle evidence anchored in repository content.",
+      "license_notes": "RepoQA benchmark code is Apache-2.0 licensed upstream.",
+      "files": [
+        {"path": "/opt/forge_flow/database/repoqa-2024-06-23.json.gz", "byte_size": 12525636, "sha256": "c050a2ad90a7df89d9dc1f1c3b3b20683edd20a56293b35fcaae43dec115d681", "format": "json.gz"},
+        {"path": "/opt/forge_flow/database/repoqa_data/repoqa-2024-06-23.json", "byte_size": 71510991, "sha256": "bd3f7cab47283cdeccee20daea31af587b680cf8f9db192ab4da1037730cd6e2", "format": "json"}
+      ],
+      "row_schema": "schema/repoqa_row.schema.json",
+      "split_file": "splits/repoqa_splits.json",
+      "fields": ["commit_sha", "content", "dependency", "entrypoint_path", "functions", "needles", "repo", "topic"],
+      "counts": {"local_languages": 6, "local_repos_per_language": 10, "local_needles_per_language": 100, "local_repos_total": 60, "local_needles_total": 600, "official_subset_repos": 50, "official_subset_needles": 500},
+      "split_gold_metric_or_harness": "Frozen official paper subset excludes Go; official scoring uses the syntax-nearest evaluator with threshold 0.8.",
+      "deviations": ["Go is an adapted expansion and excluded from the official paper subset."],
+      "loader": "formal_data.loaders.repoqa.inspect_repoqa",
+      "readiness": "PROTOCOL_READY",
+      "exclusions": [{"id": "repoqa_go_adapted_expansion", "reason": "Not in frozen official paper subset", "formal": false}]
+    },
+    {
+      "id": "codesearchnet",
+      "name": "CodeSearchNet",
+      "source_urls": ["https://github.com/github/CodeSearchNet/blob/106e827405c968597da938f6b373d30183918869/README.md#L89-L151"],
+      "task_notes": "Code search paired code/docstring test archives by language.",
+      "license_notes": "The CodeSearchNet benchmark repository is MIT-licensed upstream, while source repositories inside the dataset retain their own repository-specific licenses; official human-relevance NDCG evaluation assets are absent locally.",
+      "files": [
+        {"path": "/opt/forge_flow/database/CodeSearchNet/go.zip", "byte_size": 487525935, "sha256": "15d23f01dc2796447e1736263e6830079289d5ef41f09988011afdcf8da6b6e5", "format": "zip/jsonl.gz"},
+        {"path": "/opt/forge_flow/database/CodeSearchNet/java.zip", "byte_size": 1060569153, "sha256": "05f9204b1808413fab30f0e69229e298f6de4ad468279d53a2aa5797e3a78c17", "format": "zip/jsonl.gz"},
+        {"path": "/opt/forge_flow/database/CodeSearchNet/javascript.zip", "byte_size": 1664713350, "sha256": "fdc743f5af27f90c77584a2d29e2b7f8cecdd00c37b433c385b888ee062936dd", "format": "zip/jsonl.gz"},
+        {"path": "/opt/forge_flow/database/CodeSearchNet/php.zip", "byte_size": 851894048, "sha256": "c3bbf0d1b10010f88b058faea876f1f5471758399e30d58c11f78ff53660ce00", "format": "zip/jsonl.gz"},
+        {"path": "/opt/forge_flow/database/CodeSearchNet/python.zip", "byte_size": 940909997, "sha256": "7223c6460bebfa85697b586da91e47bc5d64790a4d60bba5917106458ab6b40e", "format": "zip/jsonl.gz"},
+        {"path": "/opt/forge_flow/database/CodeSearchNet/ruby.zip", "byte_size": 111758028, "sha256": "67aee5812d0f994df745c771c7791483f2b060561495747d424e307af4b342e6", "format": "zip/jsonl.gz"}
+      ],
+      "row_schema": "schema/codesearchnet_row.schema.json",
+      "split_file": "splits/codesearchnet_splits.json",
+      "fields": ["code", "docstring", "func_name", "language", "path", "repo", "sha", "url"],
+      "counts": {"go_test": 14291, "java_test": 26909, "javascript_test": 6483, "php_test": 28391, "python_test": 22176, "ruby_test": 2279, "test_total": 100529},
+      "split_gold_metric_or_harness": "Local archives contain test pairs, but not the official 99-query human relevance gold required for NDCG relevance evaluation.",
+      "deviations": ["Excluded from official relevance scoring until queries and human relevance gold are supplied."],
+      "loader": "formal_data.loaders.codesearchnet.inspect_codesearchnet",
+      "readiness": "LOADER_READY",
+      "exclusions": [{"id": "codesearchnet_official_relevance_scoring", "reason": "Official 99-query human relevance gold is not present locally", "formal": false}]
+    },
+    {
+      "id": "repobench_r",
+      "name": "RepoBench-R",
+      "source_urls": ["https://huggingface.co/datasets/tianyang/repobench-r"],
+      "task_notes": "Repository completion with CFF and CFR modes for Python and Java.",
+      "license_notes": "Use upstream Hugging Face dataset card terms.",
+      "files": [
+        {"path": "/opt/forge_flow/database/RepoBench-R/data/java_cff.gz", "byte_size": 283523586, "sha256": "f9cf6b6bb055c9b3f8b24f2374266687fc1f850f292c758ce57a8db4f30833d7", "format": "trusted_pickle.gz"},
+        {"path": "/opt/forge_flow/database/RepoBench-R/data/java_cfr.gz", "byte_size": 199557716, "sha256": "f99edc74853104f4223e4b1950371ea129ce5f3e80a1e031ebe1febae4cf302a", "format": "trusted_pickle.gz"},
+        {"path": "/opt/forge_flow/database/RepoBench-R/data/python_cff.gz", "byte_size": 146535986, "sha256": "3ccc13b41807e0612150b3e7b79f4083cfd184eef15c04995055ac3672b3d340", "format": "trusted_pickle.gz"},
+        {"path": "/opt/forge_flow/database/RepoBench-R/data/python_cfr.gz", "byte_size": 101396690, "sha256": "1f83ca53ee2f06620d1fd357898b3a936ea8a8adac91c4d68176db1a680824c7", "format": "trusted_pickle.gz"}
+      ],
+      "row_schema": "schema/repobench_r_row.schema.json",
+      "split_file": "splits/repobench_r_splits.json",
+      "fields": ["code", "context", "file_path", "golden_snippet_index", "import_statement", "next_line", "repo_name"],
+      "counts": {"cff_each_language_train_easy": 24000, "cff_each_language_train_hard": 24000, "cff_each_language_test_easy": 8000, "cff_each_language_test_hard": 8000, "cfr_each_language_train_easy": 12000, "cfr_each_language_train_hard": 12000, "cfr_each_language_test_easy": 4000, "cfr_each_language_test_hard": 4000, "languages": 2, "total_rows": 192000},
+      "split_gold_metric_or_harness": "Gold field golden_snippet_index present; next-line completion protocol ready.",
+      "deviations": ["Loader normalizes source typo golden_snippet_index/gold_snippet_index for inspection."],
+      "loader": "formal_data.loaders.repobench_r.inspect_repobench_r",
+      "readiness": "PROTOCOL_READY",
+      "exclusions": []
+    },
+    {
+      "id": "repobench_v11",
+      "name": "RepoBench v1.1",
+      "source_urls": ["https://github.com/Leolty/repobench"],
+      "task_notes": "Python and Java repository completion parquet shards for cross-file-first, cross-file-random, and in-file settings.",
+      "license_notes": "Use upstream RepoBench terms.",
+      "files": [
+        {"path": "/opt/forge_flow/database/repobench_java_v1.1/data/cross_file_first-00000-of-00002-dff72983dd5b8697.parquet", "byte_size": 31334356, "sha256": "87db97e3c3eb0d3fccb7dad281d143efe9720c3ff08eba0e084ade207d0c1a21", "format": "parquet"},
+        {"path": "/opt/forge_flow/database/repobench_java_v1.1/data/cross_file_first-00001-of-00002-3dd7fb93505dea96.parquet", "byte_size": 159123791, "sha256": "f8cca06ff8695b675cf5a80fa185ea939ff432b20600aeace2538c233bce7158", "format": "parquet"},
+        {"path": "/opt/forge_flow/database/repobench_java_v1.1/data/cross_file_random-00000-of-00002-646d3a97fc4c4438.parquet", "byte_size": 32882502, "sha256": "8528cf58df84b5d8903a8c14d8c151c67c904f7ad0bff07a3643f287f2c43637", "format": "parquet"},
+        {"path": "/opt/forge_flow/database/repobench_java_v1.1/data/cross_file_random-00001-of-00002-fe9e6724cee36f1d.parquet", "byte_size": 160515960, "sha256": "9533551bd86b100549775e8ff45180361d0318a2fd0fe41197042f1cc3bb6e67", "format": "parquet"},
+        {"path": "/opt/forge_flow/database/repobench_java_v1.1/data/in_file-00000-of-00002-175726bcd94b12f9.parquet", "byte_size": 33089003, "sha256": "e12d71d0abe37c8156813c48ccfdcc377808479064e3c9d8d8790f539e81cfb7", "format": "parquet"},
+        {"path": "/opt/forge_flow/database/repobench_java_v1.1/data/in_file-00001-of-00002-c3b636f4dac4ab76.parquet", "byte_size": 158851482, "sha256": "76162da140a7e1318ce4c6ee5bf6cbe092b5ff78200106628ea4f52c4fe92769", "format": "parquet"},
+        {"path": "/opt/forge_flow/database/repobench_python_v1.1/data/cross_file_first-00000-of-00002-baebda7f3a6e980a.parquet", "byte_size": 32066342, "sha256": "b647180f86f0db47c825ef7016d612545dbbdeb61a4d053d9d1cbf2e1406eaff", "format": "parquet"},
+        {"path": "/opt/forge_flow/database/repobench_python_v1.1/data/cross_file_first-00001-of-00002-5780ed62c5162a3e.parquet", "byte_size": 131888004, "sha256": "64d9c69a7050e08a54b4c4e1cfab77d319d9c2c205159b4768c3092e2e1bae8d", "format": "parquet"},
+        {"path": "/opt/forge_flow/database/repobench_python_v1.1/data/cross_file_random-00000-of-00001-523c739d72005569.parquet", "byte_size": 153067110, "sha256": "d304461ebe4e73cea70a2d8e78edd731e5b6c3a860b20998d2040cd832935677", "format": "parquet"},
+        {"path": "/opt/forge_flow/database/repobench_python_v1.1/data/in_file-00000-of-00001-9721c68f6224a587.parquet", "byte_size": 155972843, "sha256": "d88b0c82e60fd8e8d6bdb91263a3a70292e02663600b1e2ac7826d964ad95541", "format": "parquet"}
+      ],
+      "row_schema": "schema/repobench_v11_row.schema.json",
+      "split_file": "splits/repobench_v11_splits.json",
+      "fields": ["all_code", "context", "created_at", "cropped_code", "file_path", "gold_snippet_index", "import_statement", "level", "next_line", "repo_name", "token_num"],
+      "counts": {"python_cff": 8033, "python_cff_shards": [4017, 4016], "python_cfr": 7618, "python_in_file": 7910, "java_cff": 8722, "java_cff_shards": [4361, 4361], "java_cfr": 8705, "java_cfr_shards": [4353, 4352], "java_in_file": 8696, "java_in_file_shards": [4348, 4348], "total_rows": 49684},
+      "split_gold_metric_or_harness": "gold_snippet_index present; completion protocol ready.",
+      "deviations": [],
+      "loader": "formal_data.loaders.repobench_v11.inspect_repobench_v11",
+      "readiness": "PROTOCOL_READY",
+      "exclusions": []
+    },
+    {
+      "id": "crosscodeeval",
+      "name": "CrossCodeEval",
+      "source_urls": ["https://github.com/amazon-science/cceval"],
+      "task_notes": "Cross-file line completion with raw, oracle, and retrieved-context variants.",
+      "license_notes": "Use upstream CrossCodeEval terms.",
+      "files": [
+        {"path": "/opt/forge_flow/database/crosscodeeval/csharp/line_completion.jsonl", "byte_size": 20232706, "sha256": "70728d7fbc5a1bec9363079f6ca868efdcbe929d99d2c95ea548ef01628ff70c", "format": "jsonl"},
+        {"path": "/opt/forge_flow/database/crosscodeeval/csharp/line_completion_oracle_bm25.jsonl", "byte_size": 29839436, "sha256": "fd9c07a0160fa64c883c1b3f683a974b16f6cedb25b440cdbcc22d1fa3e2829c", "format": "jsonl"},
+        {"path": "/opt/forge_flow/database/crosscodeeval/csharp/line_completion_oracle_openai_cosine_sim.jsonl", "byte_size": 29732975, "sha256": "de990fb2ec0317355c52b7b8cc70188e39ed69dae6fb6d9fe555cc0803af3dd3", "format": "jsonl"},
+        {"path": "/opt/forge_flow/database/crosscodeeval/csharp/line_completion_oracle_unixcoder_cosine_sim.jsonl", "byte_size": 29447842, "sha256": "51225abee793983aff0cac9abad9ef3119c80fce01af9be43cf73a41b294abcf", "format": "jsonl"},
+        {"path": "/opt/forge_flow/database/crosscodeeval/csharp/line_completion_rg1_bm25.jsonl", "byte_size": 29883829, "sha256": "be70f7a18ba4fc31c343be1aa967fdc79ec610ab17afb5ea64e73b3591893f74", "format": "jsonl"},
+        {"path": "/opt/forge_flow/database/crosscodeeval/csharp/line_completion_rg1_openai_cosine_sim.jsonl", "byte_size": 29549927, "sha256": "521a4b65accd2121e9e515b6eee88bcc23b8710341c0255b29c72ae9df7f6b21", "format": "jsonl"},
+        {"path": "/opt/forge_flow/database/crosscodeeval/csharp/line_completion_rg1_unixcoder_cosine_sim.jsonl", "byte_size": 29806101, "sha256": "0d10e840bf8e016b4a094318c4a8dca9233f4a668333195e26e3c0d327722a54", "format": "jsonl"},
+        {"path": "/opt/forge_flow/database/crosscodeeval/typescript/line_completion.jsonl", "byte_size": 24987664, "sha256": "9c72d35a4642de5148109ceb72b0cf8f47040622b20343c489c5fdd37f269962", "format": "jsonl"},
+        {"path": "/opt/forge_flow/database/crosscodeeval/typescript/line_completion_oracle_bm25.jsonl", "byte_size": 41053238, "sha256": "01c241e9ca956ebb8ed04b21117b3728a75d9f647f397d6f1e08595ba9ff3d46", "format": "jsonl"},
+        {"path": "/opt/forge_flow/database/crosscodeeval/typescript/line_completion_oracle_openai_cosine_sim.jsonl", "byte_size": 41064679, "sha256": "1714eda92ed665b0ccf47dcd4c65e3d26938cef00e06802024fc6954a7e49067", "format": "jsonl"},
+        {"path": "/opt/forge_flow/database/crosscodeeval/typescript/line_completion_oracle_unixcoder_cosine_sim.jsonl", "byte_size": 41015730, "sha256": "2b3a695d8dfac3b232b2b699f4932686012ed9c8a94ac9e1eacefec778703352", "format": "jsonl"},
+        {"path": "/opt/forge_flow/database/crosscodeeval/typescript/line_completion_rg1_bm25.jsonl", "byte_size": 39364934, "sha256": "67f8fdbb58c11fe11352c46e69e446360d8b42e4e6ac5b1951350e85ed4a650c", "format": "jsonl"},
+        {"path": "/opt/forge_flow/database/crosscodeeval/typescript/line_completion_rg1_openai_cosine_sim.jsonl", "byte_size": 39111370, "sha256": "9ede1128d8104ca8b75354d64e79fab2beeff4e3d1c1bb90afdc94a4954d51d1", "format": "jsonl"},
+        {"path": "/opt/forge_flow/database/crosscodeeval/typescript/line_completion_rg1_unixcoder_cosine_sim.jsonl", "byte_size": 39677909, "sha256": "fcdab4d96c3843b83bf69db57355f329a761e4c8860a23ce5008bd738913ecbe", "format": "jsonl"},
+        {"path": "/opt/forge_flow/database/crosscodeeval/java/line_completion.jsonl", "byte_size": 17427700, "sha256": "4da8f1ff1efa112d126240d4a5e2425a2bda23f72ce06cfd2b0da3df03595d12", "format": "jsonl"},
+        {"path": "/opt/forge_flow/database/crosscodeeval/java/line_completion_oracle_bm25.jsonl", "byte_size": 30357128, "sha256": "c5c272046007c1cb3c43ed39c21aceaf66a7401181b5448e01c9dd174ebb2913", "format": "jsonl"},
+        {"path": "/opt/forge_flow/database/crosscodeeval/java/line_completion_oracle_openai_cosine_sim.jsonl", "byte_size": 30508544, "sha256": "42add6178a00ef846a2ca093128ab8f635d14f8aa27cc410dd592c4bc3722062", "format": "jsonl"},
+        {"path": "/opt/forge_flow/database/crosscodeeval/java/line_completion_oracle_unixcoder_cosine_sim.jsonl", "byte_size": 30721671, "sha256": "80d1218aac79f9a02837672768ccdb3a0503c3ecb1a7b70d7782612b11b0a682", "format": "jsonl"},
+        {"path": "/opt/forge_flow/database/crosscodeeval/java/line_completion_rg1_bm25.jsonl", "byte_size": 29136255, "sha256": "e264ae4bac39c3b69d08e55361d88dfd9e321ab28266000418bc763384c16903", "format": "jsonl"},
+        {"path": "/opt/forge_flow/database/crosscodeeval/java/line_completion_rg1_openai_cosine_sim.jsonl", "byte_size": 28891085, "sha256": "ffb0785a0afbea95f967987777f8ae5c18c37e9d62d33ddc593cf6588270214f", "format": "jsonl"},
+        {"path": "/opt/forge_flow/database/crosscodeeval/java/line_completion_rg1_unixcoder_cosine_sim.jsonl", "byte_size": 29364724, "sha256": "dce8d0888f7df874768323cbf59081d35f92119d4daaad085be230ab12d93dec", "format": "jsonl"},
+        {"path": "/opt/forge_flow/database/crosscodeeval/python/line_completion.jsonl", "byte_size": 19731825, "sha256": "83bf1c627fa8b91d78425aa679417ed9ec02f9731ec1db54f585c65f61fa509c", "format": "jsonl"},
+        {"path": "/opt/forge_flow/database/crosscodeeval/python/line_completion_oracle_bm25.jsonl", "byte_size": 35035944, "sha256": "bbad530d797c693b26780b942ec1f931c4193e0172dd1723c0c513eb75fb4966", "format": "jsonl"},
+        {"path": "/opt/forge_flow/database/crosscodeeval/python/line_completion_oracle_openai_cosine_sim.jsonl", "byte_size": 35088866, "sha256": "05d367b588b2b9babcc0b90eb5075b337599928a8f2fd89c7fa0dcc6ed96f80a", "format": "jsonl"},
+        {"path": "/opt/forge_flow/database/crosscodeeval/python/line_completion_oracle_unixcoder_cosine_sim.jsonl", "byte_size": 35311893, "sha256": "358b6f868cbadca3890ad59da6c7eabc98125a471737cee75e441356d78776f3", "format": "jsonl"},
+        {"path": "/opt/forge_flow/database/crosscodeeval/python/line_completion_rg1_bm25.jsonl", "byte_size": 33830453, "sha256": "2571dab59c6537fe4fbe9f8b70c9cf1f67cc3876fa4a9c01c5e58fa659f90499", "format": "jsonl"},
+        {"path": "/opt/forge_flow/database/crosscodeeval/python/line_completion_rg1_openai_cosine_sim.jsonl", "byte_size": 33899669, "sha256": "ba324854ccb99486aaf485407258feba326a39fc69f29cd0ad87a2d286910714", "format": "jsonl"},
+        {"path": "/opt/forge_flow/database/crosscodeeval/python/line_completion_rg1_unixcoder_cosine_sim.jsonl", "byte_size": 34210911, "sha256": "69c2c680019afffb158a93367fdf81c4198f90401a2a967db304ac33af974fdd", "format": "jsonl"}
+      ],
+      "row_schema": "schema/crosscodeeval_row.schema.json",
+      "split_file": "splits/crosscodeeval_splits.json",
+      "fields": ["crossfile_context", "groundtruth", "metadata.task_id", "prompt"],
+      "counts": {"variants": ["raw", "oracle_bm25", "oracle_openai_cosine_sim", "oracle_unixcoder_cosine_sim", "rg1_bm25", "rg1_openai_cosine_sim", "rg1_unixcoder_cosine_sim"], "csharp_rows": {"default": 1768, "oracle_openai_cosine_sim": 1767, "rg1_openai_cosine_sim": 1767}, "typescript_each_variant": 3356, "java_each_variant": 2139, "python_each_variant": 2665},
+      "split_gold_metric_or_harness": "Groundtruth present. Base and aligned variants are formal; two short C# OpenAI cosine variants are explicitly excluded from aligned formal scoring.",
+      "deviations": ["C# oracle_openai_cosine_sim and rg1_openai_cosine_sim have 1767 rows while other C# variants have 1768."],
+      "loader": "formal_data.loaders.crosscodeeval.inspect_crosscodeeval",
+      "readiness": "PROTOCOL_READY",
+      "exclusions": [
+        {"id": "crosscodeeval_csharp_oracle_openai_cosine_sim_short", "reason": "1767 rows, not aligned with 1768-row C# base", "formal": false},
+        {"id": "crosscodeeval_csharp_rg1_openai_cosine_sim_short", "reason": "1767 rows, not aligned with 1768-row C# base", "formal": false}
+      ]
+    },
+    {
+      "id": "repoeval",
+      "name": "RepoEval",
+      "source_urls": ["https://github.com/microsoft/CodeT"],
+      "task_notes": "Repository line, API, and function completion/evaluation members.",
+      "license_notes": "Use upstream CodeT/RepoEval terms.",
+      "files": [
+        {"path": "/opt/forge_flow/database/RepoEval/line_and_api_level.zip", "byte_size": 32488213, "sha256": "a8ecbf4a7414024f7f2e2f9def3c3a7a36cf713548bb9e606dcf710b3f3e59c6", "format": "zip/jsonl"},
+        {"path": "/opt/forge_flow/database/RepoEval/datasets.zip", "byte_size": 12829031, "sha256": "aa059c51491278bbabc17f97fe8822f4910e7d0300275f4f073db2554b5f76f2", "format": "zip/jsonl"},
+        {"path": "/opt/forge_flow/database/RepoEval/function_level.zip", "byte_size": 11215638, "sha256": "4d4e483d8c15890244dd26bfcb931d64e37b4a205a127e92c861d807637e4d7f", "format": "zip/jsonl"}
+      ],
+      "row_schema": "schema/repoeval_row.schema.json",
+      "split_file": "splits/repoeval_splits.json",
+      "fields": ["metadata.context_start_lineno", "metadata.fpath_tuple", "metadata.function_name", "metadata.ground_truth", "metadata.line_no", "metadata.lineno", "metadata.task_id", "prompt"],
+      "counts": {"line_members": 4, "line_rows_per_member": 1600, "line_rows_total": 6400, "api_members": 4, "api_rows_per_member": 1600, "api_rows_total": 6400, "function_members": 2, "function_rows_per_member": 455, "function_rows_total": 910, "total_rows": 13710},
+      "split_gold_metric_or_harness": "metadata.ground_truth present; repository-level harness protocol ready.",
+      "deviations": [],
+      "loader": "formal_data.loaders.repoeval.inspect_repoeval",
+      "readiness": "PROTOCOL_READY",
+      "exclusions": []
+    },
+    {
+      "id": "fea_bench",
+      "name": "FEA-Bench",
+      "source_urls": ["https://github.com/microsoft/FEA-Bench"],
+      "task_notes": "Feature engineering agent benchmark metadata plus local enriched medium sample.",
+      "license_notes": "Use upstream FEA-Bench terms.",
+      "files": [
+        {"path": "/opt/forge_flow/database/FEA-Bench/FEA-Bench-v1.0-medium.jsonl", "byte_size": 85652, "sha256": "b09ee461a49fc37b59d0d61419b339965820a33d599ce84adf3af4630ec5ff9d", "format": "jsonl"},
+        {"path": "/opt/forge_flow/database/FEA-Bench/data/test-00000-of-00001.parquet", "byte_size": 1227364, "sha256": "22ebac756180b3dfd63d1c7d57a1ed7cf5707a28c1e4ce59929dc30955cf0836", "format": "parquet"}
+      ],
+      "row_schema": "schema/fea_bench_row.schema.json",
+      "split_file": "splits/fea_bench_splits.json",
+      "fields": ["FAIL_TO_PASS", "PASS_TO_PASS", "base_commit", "environment_setup_commit", "instance_id", "patch", "repo", "test_patch"],
+      "counts": {"public_parquet_metadata_rows": 1401, "medium_jsonl_enriched_rows": 2},
+      "split_gold_metric_or_harness": "FAIL_TO_PASS/PASS_TO_PASS metadata present, but checkout and test environment are unverified.",
+      "deviations": ["No runnable C1 formal split until repository checkout and test environment are verified."],
+      "loader": "formal_data.loaders.fea_bench.inspect_fea_bench",
+      "readiness": "LOADER_READY",
+      "exclusions": [{"id": "fea_bench_c1_runnable_formal_split", "reason": "Repository checkout and test environment unverified", "formal": false}]
+    },
+    {
+      "id": "swe_bench_verified",
+      "name": "SWE-bench Verified",
+      "source_urls": ["https://github.com/swe-bench/SWE-bench", "https://huggingface.co/datasets/princeton-nlp/SWE-bench_Verified"],
+      "task_notes": "Verified SWE-bench issue-resolution instances with eval.yaml metadata.",
+      "license_notes": "Use upstream SWE-bench and dataset card terms.",
+      "files": [
+        {"path": "/opt/forge_flow/database/SWE-bench_Verified/data/test-00000-of-00001.parquet", "byte_size": 2090470, "sha256": "43ed5a3d1d98da36472c1ade65ddd2085d7b4ff694fcaf6a023a07c5c1f32f21", "format": "parquet"},
+        {"path": "/opt/forge_flow/database/SWE-bench_Verified/eval.yaml", "byte_size": 523, "sha256": "c056bd89e8c63930d4a0cd7d935b19f41685f4c9e0a993c3f45513ec95637c4a", "format": "yaml"}
+      ],
+      "row_schema": "schema/swe_bench_verified_row.schema.json",
+      "split_file": "splits/swe_bench_verified_splits.json",
+      "fields": ["FAIL_TO_PASS", "PASS_TO_PASS", "base_commit", "difficulty", "environment_setup_commit", "instance_id", "patch", "problem_statement", "repo", "test_patch", "version"],
+      "counts": {"verified_parquet_rows": 500, "eval_yaml_files": 1},
+      "split_gold_metric_or_harness": "Gold tests and patches present; Docker/harness execution is unverified.",
+      "deviations": ["No runnable formal split until Docker/harness environment is verified."],
+      "loader": "formal_data.loaders.swe_bench_verified.inspect_swe_bench_verified",
+      "readiness": "GOLD_READY",
+      "exclusions": [{"id": "swe_bench_verified_runnable_formal_split", "reason": "Docker/harness execution unverified", "formal": false}]
+    }
+  ]
+}

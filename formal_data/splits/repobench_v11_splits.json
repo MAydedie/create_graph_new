@@ -1,0 +1,11 @@
+{
+  "dataset": "repobench_v11",
+  "formal_units": [
+    {"id": "python_cff", "rows": 8033, "shards": [4017, 4016], "readiness": "PROTOCOL_READY", "formal": true},
+    {"id": "python_cfr", "rows": 7618, "shards": [7618], "readiness": "PROTOCOL_READY", "formal": true},
+    {"id": "python_in_file", "rows": 7910, "shards": [7910], "readiness": "PROTOCOL_READY", "formal": true},
+    {"id": "java_cff", "rows": 8722, "shards": [4361, 4361], "readiness": "PROTOCOL_READY", "formal": true},
+    {"id": "java_cfr", "rows": 8705, "shards": [4353, 4352], "readiness": "PROTOCOL_READY", "formal": true},
+    {"id": "java_in_file", "rows": 8696, "shards": [4348, 4348], "readiness": "PROTOCOL_READY", "formal": true}
+  ]
+}

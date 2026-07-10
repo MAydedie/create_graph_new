@@ -1,0 +1,8 @@
+{
+  "dataset": "swe_bench_verified",
+  "formal_units": [
+    {"id": "verified_metadata_gold", "rows": 500, "readiness": "GOLD_READY", "formal": false},
+    {"id": "eval_yaml", "rows": 1, "readiness": "GOLD_READY", "formal": false}
+  ],
+  "exclusion_reason": "Docker and harness execution remain unverified; no runnable formal split."
+}

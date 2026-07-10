@@ -1,0 +1,8 @@
+{
+  "dataset": "fea_bench",
+  "formal_units": [
+    {"id": "public_metadata", "rows": 1401, "readiness": "LOADER_READY", "formal": false},
+    {"id": "medium_enriched_local_sample", "rows": 2, "readiness": "LOADER_READY", "formal": false}
+  ],
+  "exclusion_reason": "Repository checkout and test environment remain unverified; no runnable C1 formal split."
+}

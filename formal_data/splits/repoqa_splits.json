@@ -1,0 +1,7 @@
+{
+  "dataset": "repoqa",
+  "formal_units": [
+    {"id": "official_paper_subset", "languages": ["cpp", "java", "python", "rust", "typescript"], "repositories": 50, "needles": 500, "readiness": "PROTOCOL_READY", "formal": true},
+    {"id": "go_adapted_expansion", "languages": ["go"], "repositories": 10, "needles": 100, "readiness": "PROTOCOL_READY", "formal": false, "reason": "Adapted local expansion, excluded from official frozen subset"}
+  ]
+}

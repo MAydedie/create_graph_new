@@ -1,0 +1,12 @@
+{
+  "dataset": "codesearchnet",
+  "formal_units": [
+    {"id": "go_test", "rows": 14291, "readiness": "LOADER_READY", "formal": false},
+    {"id": "java_test", "rows": 26909, "readiness": "LOADER_READY", "formal": false},
+    {"id": "javascript_test", "rows": 6483, "readiness": "LOADER_READY", "formal": false},
+    {"id": "php_test", "rows": 28391, "readiness": "LOADER_READY", "formal": false},
+    {"id": "python_test", "rows": 22176, "readiness": "LOADER_READY", "formal": false},
+    {"id": "ruby_test", "rows": 2279, "readiness": "LOADER_READY", "formal": false}
+  ],
+  "exclusion_reason": "Official 99-query human relevance gold is absent locally."
+}

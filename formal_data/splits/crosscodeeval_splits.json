@@ -1,0 +1,15 @@
+{
+  "dataset": "crosscodeeval",
+  "formal_units": [
+    {"id": "csharp_raw", "rows": 1768, "readiness": "PROTOCOL_READY", "formal": true},
+    {"id": "csharp_oracle_bm25", "rows": 1768, "readiness": "PROTOCOL_READY", "formal": true},
+    {"id": "csharp_oracle_openai_cosine_sim", "rows": 1767, "readiness": "PROTOCOL_READY", "formal": false},
+    {"id": "csharp_oracle_unixcoder_cosine_sim", "rows": 1768, "readiness": "PROTOCOL_READY", "formal": true},
+    {"id": "csharp_rg1_bm25", "rows": 1768, "readiness": "PROTOCOL_READY", "formal": true},
+    {"id": "csharp_rg1_openai_cosine_sim", "rows": 1767, "readiness": "PROTOCOL_READY", "formal": false},
+    {"id": "csharp_rg1_unixcoder_cosine_sim", "rows": 1768, "readiness": "PROTOCOL_READY", "formal": true},
+    {"id": "typescript_all_variants", "rows_per_variant": 3356, "variant_count": 7, "readiness": "PROTOCOL_READY", "formal": true},
+    {"id": "java_all_variants", "rows_per_variant": 2139, "variant_count": 7, "readiness": "PROTOCOL_READY", "formal": true},
+    {"id": "python_all_variants", "rows_per_variant": 2665, "variant_count": 7, "readiness": "PROTOCOL_READY", "formal": true}
+  ]
+}

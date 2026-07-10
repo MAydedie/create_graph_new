@@ -1,0 +1,8 @@
+{
+  "dataset": "repoeval",
+  "formal_units": [
+    {"id": "line", "members": ["line_level_completion_1k_context_codegen.test.jsonl", "line_level_completion_2k_context_codegen.test.jsonl", "line_level_completion_2k_context_codex.test.jsonl", "line_level_completion_4k_context_codex.test.jsonl"], "rows_per_member": 1600, "rows": 6400, "readiness": "PROTOCOL_READY", "formal": true},
+    {"id": "api", "members": ["api_level_completion_1k_context_codegen.test.jsonl", "api_level_completion_2k_context_codegen.test.jsonl", "api_level_completion_2k_context_codex.test.jsonl", "api_level_completion_4k_context_codex.test.jsonl"], "rows_per_member": 1600, "rows": 6400, "readiness": "PROTOCOL_READY", "formal": true},
+    {"id": "function", "members": ["function_level_completion_2k_context_codex.test.jsonl", "function_level_completion_4k_context_codex.test.jsonl"], "rows_per_member": 455, "rows": 910, "readiness": "PROTOCOL_READY", "formal": true}
+  ]
+}

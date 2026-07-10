@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import ntpath
 import os
 import shutil
 from datetime import datetime
@@ -21,12 +22,20 @@ class ProjectLibraryStorage:
         self.storage_dir.mkdir(parents=True, exist_ok=True)
 
     def _normalize_path(self, project_path: str) -> str:
-        return os.path.normpath(project_path or '')
+        raw_path = project_path or ''
+        if len(raw_path) >= 3 and raw_path[1] == ':' and raw_path[2] in {'/', '\\'}:
+            return ntpath.normpath(raw_path)
+        return os.path.normpath(raw_path)
+
+    def _project_name(self, normalized_path: str) -> str:
+        if len(normalized_path) >= 2 and normalized_path[1] == ':':
+            return ntpath.basename(normalized_path)
+        return os.path.basename(normalized_path)
 
     def _project_id(self, project_path: str) -> str:
         normalized = self._normalize_path(project_path)
         digest = hashlib.md5(normalized.encode('utf-8')).hexdigest()[:12]
-        project_name = os.path.basename(normalized) or 'unknown_project'
+        project_name = self._project_name(normalized) or 'unknown_project'
         safe_name = ''.join(ch if ch.isalnum() or ch in {'_', '-'} else '_' for ch in project_name)
         return f'{safe_name}_{digest}'
 
@@ -71,7 +80,7 @@ class ProjectLibraryStorage:
         now = datetime.utcnow().isoformat() + 'Z'
         payload = {
             'project_path': normalized,
-            'project_name': str(profile.get('project_name') or os.path.basename(normalized) or 'unknown_project'),
+            'project_name': str(profile.get('project_name') or self._project_name(normalized) or 'unknown_project'),
             'display_name': str(profile.get('display_name') or '').strip(),
             'analysis_timestamp': str(profile.get('analysis_timestamp') or now),
             'updated_at': now,
@@ -88,7 +97,7 @@ class ProjectLibraryStorage:
             payload = merged
             payload['project_path'] = normalized
             payload['updated_at'] = now
-            payload.setdefault('project_name', os.path.basename(normalized) or 'unknown_project')
+            payload.setdefault('project_name', self._project_name(normalized) or 'unknown_project')
         self._write_json(path, payload)
         return path
 
@@ -113,7 +122,7 @@ class ProjectLibraryStorage:
         self.save_project_profile(
             normalized,
             {
-                'project_name': os.path.basename(normalized) or 'unknown_project',
+                'project_name': self._project_name(normalized) or 'unknown_project',
                 'analysis_timestamp': metadata.get('analysis_timestamp'),
                 'has_graph': True,
             },
@@ -145,7 +154,7 @@ class ProjectLibraryStorage:
         self.save_project_profile(
             normalized,
             {
-                'project_name': os.path.basename(normalized) or 'unknown_project',
+                'project_name': self._project_name(normalized) or 'unknown_project',
                 'analysis_timestamp': datetime.utcnow().isoformat() + 'Z',
                 'has_hierarchy': True,
                 'path_count': path_count,
@@ -177,7 +186,7 @@ class ProjectLibraryStorage:
             items.append(
                 {
                     'project_path': project_path,
-                    'project_name': str(metadata.get('project_name') or os.path.basename(project_path) or 'unknown_project'),
+                    'project_name': str(metadata.get('project_name') or self._project_name(project_path) or 'unknown_project'),
                     'display_name': str(metadata.get('display_name') or '').strip(),
                     'analysis_timestamp': str(metadata.get('analysis_timestamp') or ''),
                     'updated_at': str(metadata.get('updated_at') or ''),

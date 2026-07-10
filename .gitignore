@@ -110,6 +110,23 @@ run_log.txt
 # Generated segment / stage outputs
 segment_*/
 
+# Track the canonical Segment source packages, but keep generated artifacts ignored.
+!segment_3_function_partition/
+segment_3_function_partition/*
+!segment_3_function_partition/*.py
+!segment_4_community_semantics/
+segment_4_community_semantics/*
+!segment_4_community_semantics/*.py
+!segment_6_persistence/
+segment_6_persistence/*
+!segment_6_persistence/*.py
+!segment_7_graph_query/
+segment_7_graph_query/*
+!segment_7_graph_query/*.py
+!segment_8_spec_generator/
+segment_8_spec_generator/*
+!segment_8_spec_generator/*.py
+
 # Runtime caches
 advisor_consultant_lab/runtime/
 skill_callchain_v1/runtime/

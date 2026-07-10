@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "formal_data/schema/repobench_v11_row.schema.json",
+  "type": "object",
+  "required": ["repo_name", "file_path", "context", "import_statement", "token_num", "cropped_code", "all_code", "next_line", "gold_snippet_index", "created_at", "level"],
+  "properties": {
+    "repo_name": {"type": "string"},
+    "file_path": {"type": "string"},
+    "context": {"type": "array"},
+    "import_statement": {},
+    "token_num": {"type": "integer"},
+    "cropped_code": {"type": "string"},
+    "all_code": {"type": "string"},
+    "next_line": {"type": "string"},
+    "gold_snippet_index": {"type": ["integer", "null"]},
+    "created_at": {"type": "string"},
+    "level": {"type": "string"}
+  },
+  "additionalProperties": true
+}

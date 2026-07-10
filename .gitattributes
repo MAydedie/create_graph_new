@@ -1,0 +1,7 @@
+/.gitattributes text eol=lf
+/llm/code_understanding_agent.py text eol=lf
+/analysis/path_semantic_analyzer.py text eol=lf
+/tests/test_experiment_runtime_regressions.py text eol=lf
+/tests/test_formal_protocol.py text eol=lf
+/requirements.txt text eol=lf
+/formal_protocol/* text eol=lf

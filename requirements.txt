@@ -26,6 +26,8 @@ flake8>=6.0.0
 pytest>=7.4.0
 # 正式实验协议 YAML 解析与一致性验证
 PyYAML>=6.0
+# Stage 1 formal_data parquet metadata inspection
+pyarrow>=14.0
 
 # 其他常用工具
 # 环境变量管理

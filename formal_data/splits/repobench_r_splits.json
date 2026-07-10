@@ -1,0 +1,9 @@
+{
+  "dataset": "repobench_r",
+  "formal_units": [
+    {"id": "python_cff", "train_easy": 24000, "train_hard": 24000, "test_easy": 8000, "test_hard": 8000, "readiness": "PROTOCOL_READY", "formal": true},
+    {"id": "python_cfr", "train_easy": 12000, "train_hard": 12000, "test_easy": 4000, "test_hard": 4000, "readiness": "PROTOCOL_READY", "formal": true},
+    {"id": "java_cff", "train_easy": 24000, "train_hard": 24000, "test_easy": 8000, "test_hard": 8000, "readiness": "PROTOCOL_READY", "formal": true},
+    {"id": "java_cfr", "train_easy": 12000, "train_hard": 12000, "test_easy": 4000, "test_hard": 4000, "readiness": "PROTOCOL_READY", "formal": true}
+  ]
+}

@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from formal_data.loaders.core import FormalDataError
 from formal_data.loaders.codesearchnet import inspect_codesearchnet
 from formal_data.loaders.crosscodeeval import inspect_crosscodeeval
 from formal_data.loaders.fea_bench import inspect_fea_bench
@@ -97,18 +98,23 @@ def _compare_file_inventory(manifest: dict[str, Any], ledger: dict[str, str]) ->
     for dataset in manifest["datasets"]:
         for file_record in dataset["files"]:
             path = Path(str(file_record["path"]))
+            file_ok = True
             if not path.is_file():
                 _record_failure(failures, "file_exists", str(path), True, False)
                 continue
             actual_size = path.stat().st_size
             if actual_size != int(file_record["byte_size"]):
                 _record_failure(failures, "byte_size", str(path), int(file_record["byte_size"]), actual_size)
+                file_ok = False
             actual_hash = _sha256_stream(path)
             if actual_hash != str(file_record["sha256"]):
                 _record_failure(failures, "manifest_sha256", str(path), str(file_record["sha256"]), actual_hash)
+                file_ok = False
             if ledger.get(str(path)) != str(file_record["sha256"]):
-                _record_failure(failures, "ledger_sha256", str(path), ledger.get(str(path)), str(file_record["sha256"]))
-            verified.append({"dataset": dataset["id"], "path": str(path), "byte_size": actual_size, "sha256": actual_hash})
+                _record_failure(failures, "ledger_sha256", str(path), str(file_record["sha256"]), ledger.get(str(path)))
+                file_ok = False
+            if file_ok:
+                verified.append({"dataset": dataset["id"], "path": str(path), "byte_size": actual_size, "sha256": actual_hash})
     return failures, verified
 
 
@@ -133,11 +139,18 @@ def _load_split(dataset_id: str) -> dict[str, Any]:
 def _validate_loader_result(plan_item: dict[str, Any], inspection: dict[str, Any], manifest: dict[str, Any], failures: list[dict[str, Any]]) -> dict[str, Any]:
     dataset_id = str(plan_item["dataset"])
     path = str(plan_item["path"])
+    if inspection["status"] != "ok":
+        _record_failure(failures, "loader_status", path, "ok", inspection["status"])
+        return {
+            "dataset": dataset_id,
+            "path": path,
+            "status": inspection["status"],
+            "counts": inspection.get("counts", {}),
+            "readiness": inspection.get("readiness", {}),
+        }
     indexed = dataset_index(manifest)
     dataset = indexed[dataset_id]
     expected_readiness = str(dataset["readiness"])
-    if inspection["status"] != "ok":
-        _record_failure(failures, "loader_status", path, "ok", inspection["status"])
     split_payload = _load_split(dataset_id)
     if dataset_id == "repoqa":
         _compare_simple(failures, path, inspection["counts"]["languages"], dataset["counts"]["local_languages"], "repoqa_languages")
@@ -223,7 +236,7 @@ def _repobench_v11_expected_rows(dataset: dict[str, Any], path: str) -> int:
 
 
 def _crosscodeeval_expected_rows(dataset: dict[str, Any], path: str) -> int:
-    lower = path.lower()
+    lower = path.replace("\\", "/").lower()
     counts = dataset["counts"]
     if "/typescript/" in lower:
         return counts["typescript_each_variant"]
@@ -236,14 +249,47 @@ def _crosscodeeval_expected_rows(dataset: dict[str, Any], path: str) -> int:
     return counts["csharp_rows"]["default"]
 
 
+def _run_loader_plan(
+    plan: list[dict[str, Any]], manifest: dict[str, Any], failures: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    for plan_item in plan:
+        try:
+            inspection = plan_item["inspector"](plan_item["path"], **plan_item["kwargs"])
+        except FormalDataError as exc:
+            _record_failure(failures, "loader_exception", str(plan_item["path"]), "ok", exc.as_error())
+            results.append(
+                {
+                    "dataset": str(plan_item["dataset"]),
+                    "path": str(plan_item["path"]),
+                    "status": exc.code,
+                    "counts": {},
+                    "readiness": {},
+                }
+            )
+            continue
+        except Exception as exc:
+            actual = {"type": type(exc).__name__, "message": str(exc)}
+            _record_failure(failures, "loader_exception", str(plan_item["path"]), "ok", actual)
+            results.append(
+                {
+                    "dataset": str(plan_item["dataset"]),
+                    "path": str(plan_item["path"]),
+                    "status": "unexpected_error",
+                    "counts": {},
+                    "readiness": {},
+                }
+            )
+            continue
+        results.append(_validate_loader_result(plan_item, inspection, manifest, failures))
+    return results
+
+
 def validate_server_data() -> dict[str, Any]:
     manifest = load_manifest()
     ledger = parse_checksum_ledger()
     failures, verified_files = _compare_file_inventory(manifest, ledger)
-    loader_results: list[dict[str, Any]] = []
-    for plan_item in build_loader_plan(manifest):
-        inspection = plan_item["inspector"](plan_item["path"], **plan_item["kwargs"])
-        loader_results.append(_validate_loader_result(plan_item, inspection, manifest, failures))
+    loader_results = [] if failures else _run_loader_plan(build_loader_plan(manifest), manifest, failures)
     summary = {
         "manifest_path": str(MANIFEST_PATH),
         "checksum_path": str(CHECKSUM_PATH),

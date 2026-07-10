@@ -1,0 +1,12 @@
+{
+  "$schema": "schema/holdout.schema.json",
+  "status": "NOT_PROVIDED",
+  "optional": true,
+  "repositories": [],
+  "activation_requirements": [
+    "Provide repository identifiers and immutable revisions.",
+    "Run leakage and overlap review before enabling holdouts.",
+    "Record human or machine provenance for every added repository."
+  ],
+  "notes": "Holdout repositories are optional for Stage 1/2 unless later enabled."
+}

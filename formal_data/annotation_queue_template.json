@@ -1,0 +1,29 @@
+{
+  "$schema": "schema/annotation_queue.schema.json",
+  "status": "TEMPLATE_ONLY",
+  "template_not_gold": true,
+  "qa_template": {
+    "record_id": "template_qa_000000",
+    "dataset": "custom_qa",
+    "repository": "owner/repo",
+    "commit_sha": "immutable_commit_sha",
+    "question": "Question text goes here.",
+    "answer": "Reference answer goes here.",
+    "evidence_paths": [],
+    "annotator_id": "not_assigned",
+    "human_reviewed": false,
+    "template_not_gold": true
+  },
+  "c2_template": {
+    "record_id": "template_c2_000000",
+    "dataset": "custom_c2",
+    "repository": "owner/repo",
+    "commit_sha": "immutable_commit_sha",
+    "specification": "Graph-grounded specification goes here.",
+    "expected_code_behavior": "Expected code behavior goes here.",
+    "evidence_paths": [],
+    "annotator_id": "not_assigned",
+    "human_reviewed": false,
+    "template_not_gold": true
+  }
+}

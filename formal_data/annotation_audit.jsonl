@@ -1,0 +1,1 @@
+{"audit_id":"machine_inventory_stage1_optional_absence","annotation_type":"machine_inventory","human_reviewed":false,"human_gold":false,"qa_records":0,"c2_records":0,"status":"NOT_PROVIDED","optional":true,"notes":"Machine inventory record only; no human annotation or gold record is claimed."}

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "formal_data/schema/crosscodeeval_row.schema.json",
+  "type": "object",
+  "required": ["prompt", "groundtruth", "metadata"],
+  "properties": {
+    "prompt": {"type": "string"},
+    "groundtruth": {"type": "string"},
+    "metadata": {"type": "object", "required": ["task_id"], "properties": {"task_id": {"type": "string"}}, "additionalProperties": true},
+    "crossfile_context": {
+      "type": "object",
+      "required": ["list", "text"],
+      "properties": {
+        "list": {"type": "array"},
+        "text": {"type": "string"}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

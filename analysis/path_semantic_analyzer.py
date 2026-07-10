@@ -90,8 +90,11 @@ class PathSemanticAnalyzer:
                 pass
         
         # 提取路径部分
-        path_parts = [p for p in relative_path.split('/') 
-                     if p and not p.endswith('.py')]
+        raw_path_parts = [part for part in relative_path.split('/') if part]
+        path_parts = [
+            Path(part).stem if part.endswith('.py') else part
+            for part in raw_path_parts
+        ]
         
         # 分离文件夹路径和文件名
         if path_parts:
@@ -127,6 +130,106 @@ class PathSemanticAnalyzer:
             "folder_path": folder_path,
             "file_name": file_name,
         }
+
+    def _extract_path_tokens(self, path_parts: List[str]) -> List[str]:
+        """将路径分解为去重后的语义 token。"""
+        tokens = []
+
+        for part in path_parts:
+            if not part:
+                continue
+
+            if '_' in part:
+                tokens.extend(part.split('_'))
+            elif re.match(r'^[A-Z]', part):
+                camel_tokens = re.findall(r'[A-Z][a-z]*', part)
+                tokens.extend(camel_tokens or [part])
+            elif part[:1].islower() and re.search(r'[A-Z]', part[1:]):
+                camel_tokens = re.findall(r'[a-z]+|[A-Z][a-z]*', part)
+                tokens.extend(camel_tokens or [part])
+            else:
+                tokens.append(part.lower())
+
+        seen = set()
+        unique_tokens = []
+        for token in tokens:
+            token_lower = token.lower()
+            if token_lower not in seen:
+                seen.add(token_lower)
+                unique_tokens.append(token_lower)
+
+        return unique_tokens
+
+    def _is_test_file(
+        self,
+        file_name: str,
+        folder_parts: List[str],
+        tokens: List[str],
+    ) -> bool:
+        """识别路径是否指向测试文件。"""
+        if 'test' in file_name.lower():
+            return True
+        if any('test' in folder.lower() for folder in folder_parts):
+            return True
+        return any('test' in token.lower() for token in tokens)
+
+    def _detect_naming_style(self, path_parts: List[str]) -> str:
+        """检测路径各部分的主要命名风格。"""
+        if not path_parts:
+            return "unknown"
+
+        has_snake = any('_' in part for part in path_parts)
+        has_pascal = any(re.match(r'^[A-Z]', part) for part in path_parts)
+        has_camel = any(
+            part[:1].islower() and re.search(r'[A-Z]', part[1:])
+            for part in path_parts
+        )
+        has_kebab = any('-' in part for part in path_parts)
+
+        if has_snake and not has_pascal and not has_camel and not has_kebab:
+            return "snake_case"
+        if has_pascal and not has_snake and not has_camel and not has_kebab:
+            return "PascalCase"
+        if has_camel and not has_snake and not has_pascal and not has_kebab:
+            return "camelCase"
+        if has_kebab and not has_snake and not has_pascal and not has_camel:
+            return "kebab-case"
+        if sum((has_snake, has_pascal, has_camel, has_kebab)) > 1:
+            return "mixed"
+        return "unknown"
+
+    def _infer_functions_from_tokens(self, tokens: List[str]) -> List[str]:
+        """根据路径 token 和关键词表推断功能标签。"""
+        functions = []
+        tokens_lower = [token.lower() for token in tokens]
+
+        for keyword, function_names in self.FUNCTION_KEYWORDS.items():
+            if keyword.lower() in tokens_lower:
+                functions.extend(function_names)
+
+        seen = set()
+        unique_functions = []
+        for function_name in functions:
+            if function_name not in seen:
+                seen.add(function_name)
+                unique_functions.append(function_name)
+
+        return unique_functions
+
+    def batch_extract(self, file_paths: List[str]) -> Dict[str, Dict[str, Any]]:
+        """批量提取路径语义，单个文件失败时保留错误信息。"""
+        results = {}
+        for file_path in file_paths:
+            try:
+                results[file_path] = self.extract_path_semantics(file_path)
+            except Exception as exc:
+                logger.warning(f"提取路径语义失败 {file_path}: {exc}")
+                results[file_path] = {
+                    "error": str(exc),
+                    "raw_path": file_path,
+                }
+
+        return results
 
 
 def infer_functional_domain(path: List[str]) -> str:
@@ -179,7 +282,7 @@ def generate_semantic_label(path: List[str], keywords: List[str]) -> str:
 def analyze_path_semantics(
     path: List[str],
     analyzer_report=None,
-    method_profiles: Dict[str, Any] = None
+    method_profiles: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Phase 1 / Task 1.1: 路径级语义画像（轻量启发式）
@@ -224,148 +327,6 @@ def analyze_path_semantics(
         "functional_domain": functional_domain,
         "description": description,
     }
-    
-    def _extract_path_tokens(self, path_parts: List[str]) -> List[str]:
-        """
-        提取路径token（将路径分解为有意义的词汇单元）
-        
-        Examples:
-            "parsers/python_parser" -> ["parsers", "python", "parser"]
-            "analysis/CallGraphAnalyzer" -> ["analysis", "Call", "Graph", "Analyzer"]
-        """
-        tokens = []
-        
-        for part in path_parts:
-            if not part:
-                continue
-            
-            # 处理下划线命名 (snake_case)
-            if '_' in part:
-                tokens.extend(part.split('_'))
-            
-            # 处理驼峰命名 (PascalCase 或 camelCase)
-            elif re.match(r'^[A-Z]', part):
-                # PascalCase: 大写字母开头的驼峰命名
-                camel_tokens = re.findall(r'[A-Z][a-z]*', part)
-                if camel_tokens:
-                    tokens.extend(camel_tokens)
-                else:
-                    tokens.append(part)
-            
-            elif re.match(r'^[a-z][A-Z]', part):
-                # camelCase: 小写字母开头，中间有大写字母
-                camel_tokens = re.findall(r'[a-z]+|[A-Z][a-z]*', part)
-                if camel_tokens:
-                    tokens.extend(camel_tokens)
-                else:
-                    tokens.append(part)
-            
-            # 其他情况直接添加
-            else:
-                tokens.append(part.lower())
-        
-        # 转换为小写并去重（保留顺序）
-        seen = set()
-        unique_tokens = []
-        for token in tokens:
-            token_lower = token.lower()
-            if token_lower not in seen:
-                seen.add(token_lower)
-                unique_tokens.append(token_lower)
-        
-        return unique_tokens
-    
-    def _is_test_file(self, file_name: str, folder_parts: List[str], 
-                     tokens: List[str]) -> bool:
-        """识别是否是测试文件"""
-        # 检查文件名
-        if 'test' in file_name.lower():
-            return True
-        
-        # 检查文件夹名
-        if any('test' in folder.lower() for folder in folder_parts):
-            return True
-        
-        # 检查token
-        if any('test' in token.lower() for token in tokens):
-            return True
-        
-        return False
-    
-    def _detect_naming_style(self, path_parts: List[str]) -> str:
-        """
-        检测命名风格
-        
-        Returns:
-            "snake_case", "PascalCase", "camelCase", "kebab-case", "mixed", "unknown"
-        """
-        if not path_parts:
-            return "unknown"
-        
-        has_snake = any('_' in p for p in path_parts)
-        has_pascal = any(re.match(r'^[A-Z]', p) for p in path_parts)
-        has_kebab = any('-' in p for p in path_parts)
-        
-        if has_snake and not has_pascal and not has_kebab:
-            return "snake_case"
-        elif has_pascal and not has_snake and not has_kebab:
-            return "PascalCase"
-        elif has_kebab and not has_snake and not has_pascal:
-            return "kebab-case"
-        elif has_snake and has_pascal:
-            return "mixed"
-        else:
-            return "unknown"
-    
-    def _infer_functions_from_tokens(self, tokens: List[str]) -> List[str]:
-        """
-        从token推断功能（关键词匹配）
-        
-        Returns:
-            推断的功能列表（可能为空）
-        """
-        functions = []
-        tokens_lower = [t.lower() for t in tokens]
-        
-        # 遍历功能关键词映射
-        for keyword, function_names in self.FUNCTION_KEYWORDS.items():
-            if keyword.lower() in tokens_lower:
-                # 添加所有相关的中英文功能名称
-                functions.extend(function_names)
-        
-        # 去重并保留顺序
-        seen = set()
-        unique_functions = []
-        for func in functions:
-            if func not in seen:
-                seen.add(func)
-                unique_functions.append(func)
-        
-        return unique_functions
-    
-    def batch_extract(self, file_paths: List[str]) -> Dict[str, Dict[str, Any]]:
-        """
-        批量提取路径语义信息
-        
-        Args:
-            file_paths: 文件路径列表
-        
-        Returns:
-            {file_path: path_semantics_dict}
-        """
-        results = {}
-        for file_path in file_paths:
-            try:
-                semantics = self.extract_path_semantics(file_path)
-                results[file_path] = semantics
-            except Exception as e:
-                logger.warning(f"提取路径语义失败 {file_path}: {e}")
-                results[file_path] = {
-                    "error": str(e),
-                    "raw_path": file_path
-                }
-        
-        return results
 
 
 def main():
@@ -400,9 +361,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
 
 
 

@@ -6,12 +6,15 @@ LangChain Agent - 用于智能理解项目结构和识别功能分区
 """
 
 import json
+import hashlib
 import os
 import requests
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Set
 from dataclasses import dataclass, asdict
 import logging
+
+logger = logging.getLogger(__name__)
 
 # Phase 0 / Task 0.2: 统一LLM调用封装
 from llm.llm_helper import get_llm_helper
@@ -30,9 +33,6 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-logger = logging.getLogger(__name__)
-
-
 # 导入 hierarchy_model 中的 FunctionPartition（统一使用，避免重复定义）
 try:
     from analysis.hierarchy_model import FunctionPartition, FunctionStats
@@ -1011,20 +1011,20 @@ class CodeUnderstandingAgent:
 {io_summary}
 
 请返回JSON格式，描述数据在路径上的流动：
-{
+{{
     "nodes": [
-        {"id": "input_1", "label": "输入描述", "type": "输入类型（文件/字典/字符串等）"},
-        {"id": "method_1", "label": "方法1操作", "type": "操作节点"},
-        {"id": "output_1", "label": "中间输出描述", "type": "输出类型（文件/字典/字符串等）"},
+        {{"id": "input_1", "label": "输入描述", "type": "输入类型（文件/字典/字符串等）"}},
+        {{"id": "method_1", "label": "方法1操作", "type": "操作节点"}},
+        {{"id": "output_1", "label": "中间输出描述", "type": "输出类型（文件/字典/字符串等）"}},
         ...
-        {"id": "output_final", "label": "最终输出描述", "type": "最终输出类型"}
+        {{"id": "output_final", "label": "最终输出描述", "type": "最终输出类型"}}
     ],
     "edges": [
-        {"source": "input_1", "target": "method_1", "label": "数据流动"},
-        {"source": "method_1", "target": "output_1", "label": "处理后"},
+        {{"source": "input_1", "target": "method_1", "label": "数据流动"}},
+        {{"source": "method_1", "target": "output_1", "label": "处理后"}},
         ...
     ]
-}
+}}
 
 **重要提示：**
 1. 边的方向必须表示**数据流动方向**：`source` 是数据的产生者/上游，`target` 是数据的接收者/下游。
@@ -1034,10 +1034,13 @@ class CodeUnderstandingAgent:
 5. **绝对不要**生成反向箭头（例如不要从 output 指向 method）。"""
             
             logger.info(f"[CodeUnderstandingAgent]   开始调用LLM...")
+            path_cache_key = hashlib.sha256(
+                "\x1f".join(path).encode("utf-8")
+            ).hexdigest()
             response_text = self.llm_helper.call(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
-                cache_key=f"io_graph::{project_path}::{hash(tuple(path))}",
+                cache_key=f"io_graph::{path_cache_key}",
                 use_cache=False,
             )
             logger.info(f"[CodeUnderstandingAgent]   LLM响应长度: {len(response_text)} 字符")

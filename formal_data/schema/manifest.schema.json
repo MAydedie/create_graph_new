@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "formal_data/schema/manifest.schema.json",
+  "type": "object",
+  "required": ["$schema", "schema_version", "stage", "status", "overall_stage1_status", "gate_rationale", "generated_by", "evidence_timestamp", "raw_root", "model_network_benchmark_use", "readiness_order", "datasets"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schema_version": {"type": "string"},
+    "stage": {"type": "string"},
+    "status": {"type": "string"},
+    "overall_stage1_status": {"const": "READY_FOR_STAGE2"},
+    "gate_rationale": {"type": "string"},
+    "generated_by": {"const": "model_free_stage1_inventory"},
+    "evidence_timestamp": {"type": "string"},
+    "raw_root": {"const": "/opt/forge_flow/database"},
+    "model_network_benchmark_use": {"const": "NONE"},
+    "readiness_order": {"type": "array", "items": {"enum": ["NOT_PROVIDED", "PRESENT", "FORMAT_VERIFIED", "LOADER_READY", "GOLD_READY", "PROTOCOL_READY"]}, "minItems": 6, "uniqueItems": true},
+    "official_references": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}},
+    "datasets": {"type": "array", "minItems": 8, "items": {"$ref": "#/$defs/dataset"}}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "file_record": {
+      "type": "object",
+      "required": ["path", "byte_size", "sha256", "format"],
+      "properties": {
+        "path": {"type": "string"},
+        "byte_size": {"type": "integer", "minimum": 0},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "format": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "exclusion": {
+      "type": "object",
+      "required": ["id", "reason", "formal"],
+      "properties": {
+        "id": {"type": "string"},
+        "reason": {"type": "string"},
+        "formal": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "dataset": {
+      "type": "object",
+      "required": ["id", "name", "source_urls", "task_notes", "license_notes", "files", "row_schema", "split_file", "fields", "counts", "split_gold_metric_or_harness", "deviations", "loader", "readiness", "exclusions"],
+      "properties": {
+        "id": {"enum": ["repoqa", "codesearchnet", "repobench_r", "repobench_v11", "crosscodeeval", "repoeval", "fea_bench", "swe_bench_verified"]},
+        "name": {"type": "string"},
+        "source_urls": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+        "task_notes": {"type": "string"},
+        "license_notes": {"type": "string"},
+        "files": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/file_record"}},
+        "row_schema": {"type": "string"},
+        "split_file": {"type": "string"},
+        "fields": {"type": "array", "items": {"type": "string"}, "minItems": 1, "uniqueItems": true},
+        "counts": {"type": "object"},
+        "split_gold_metric_or_harness": {"type": "string"},
+        "deviations": {"type": "array", "items": {"type": "string"}},
+        "loader": {"type": "string"},
+        "readiness": {"enum": ["NOT_PROVIDED", "PRESENT", "FORMAT_VERIFIED", "LOADER_READY", "GOLD_READY", "PROTOCOL_READY"]},
+        "exclusions": {"type": "array", "items": {"$ref": "#/$defs/exclusion"}}
+      },
+      "additionalProperties": false
+    }
+  }
+}
